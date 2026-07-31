@@ -68,7 +68,8 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 
 ### 検討中(未実装・未決)
 
-- kuden-os の旧世代ハーネス(`.agents/rules/` + `prompts/beads.md`)からの移行と、既存 open の一括トリアージ(完成後にデリバリーと同時に)
+- kuden-os の既存 open の一括トリアージ(`BD_OPEN_OK=1` の包括承認つき、kuden-os のセッションで実施)
+- ユーザーレベル install(zsh への bd / git ガード配達は `~/.zshenv` 管理行 = ユーザーレベルの担当。それまで project 環境のガードは BASH_ENV 経路のみ)
 - `permissions.ask` の merge 断片の撤去 — `MERGE_SLOT_OK` ガードの稼働を確認してから(上位で封じたら下位を撤去する、の適用)
 - 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
 - Codex のシェル配達の検証 — 実シェルが bash 系なら `BASH_ENV` 相当の経路が要る(zshenv で足りるかの確認)
