@@ -136,6 +136,17 @@ test('shell スコープ: 強制則の層だけが入り、プロンプトへの
   assert.ok(!read(path.join(home, '.zshenv')).includes('agents-harness'));
 });
 
+test('shell スコープ: update はスコープを維持し、install(フラグなし)で全量へ拡大する', () => {
+  const home = freshHome();
+  run(home, ['install', '--shell']);
+  run(home, ['update']);
+  assert.equal(JSON.parse(read(path.join(home, '.agents/.dotagents.json'))).scope, 'shell', 'update は縮小スコープを保つ');
+  assert.ok(!fs.existsSync(path.join(home, '.agents/AGENTS.md')), 'プロンプトは入ってこない');
+  run(home, ['install']);
+  assert.equal(JSON.parse(read(path.join(home, '.agents/.dotagents.json'))).scope, 'full', 'install で全量へ拡大');
+  assert.ok(fs.existsSync(path.join(home, '.agents/AGENTS.md')));
+});
+
 test('project(git repo): 配布物の .agents/.gitignore がマシン固有の生成物を版管理から外す', () => {
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-gitproj-'));
   execFileSync('git', ['init', '-q'], { cwd: proj });

@@ -74,7 +74,7 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 - 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
 - ~~Codex の強制則配達~~ → 実測で解決(2026-08-01): Codex の実行シェルは zsh で、shell スコープの zshenv 配達がそのまま届く。マーカーは `CODEX_SANDBOX=seatbelt` が Codex 自身により設定され、git-guard が発火することを確認。残る未確認は sandbox 無効時のマーカー有無のみ
 - dotagents 自体の bd 台帳を init するか(prompt-guidelines の「bd 台帳はここで行う」との整合)
-- npm publish 時の `payload/.gitignore` 同梱対策(npm は配布物から `.gitignore` を剥ぎ取るため、pack 時のリネーム等が要る)
+- ~~npm publish 時の `payload/.gitignore` 同梱対策~~ → 解決: payload では無印 `gitignore` で持ち、installer が配布時に `.gitignore` へ写像する(npm が剥ぎ取れない名前で運ぶ)
 
 ## 構成
 

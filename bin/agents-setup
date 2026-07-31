@@ -123,10 +123,16 @@ function ownedSkillNames() {
 // リンク・settings 断片を伴わないので、全セッションのプロンプトに影響せずガードだけが届く。
 // zsh の起動ファイルはユーザーグローバル(~/.zshenv)しか無いため、シェル配達は構造的に
 // ユーザーレベルの担当であり、その最小形がこのスコープである。
-function payloadRels(scope) {
-  const rels = walk(PAYLOAD);
-  if (scope !== 'shell') return rels;
-  return rels.filter((r) => r.startsWith('hooks/') || r.startsWith('bin/'));
+// npm は配布物から .gitignore を剥ぎ取るため、payload では無印の `gitignore` で持ち、
+// 配布時に `.gitignore` へ戻す。写像はこの 1 対だけ(src = payload 内の名前、dst = 配布名)。
+const SRC_RENAMES = { gitignore: '.gitignore' };
+
+function payloadEntries(scope) {
+  let rels = walk(PAYLOAD);
+  if (scope === 'shell') {
+    rels = rels.filter((r) => r.startsWith('hooks/') || r.startsWith('bin/'));
+  }
+  return rels.map((src) => ({ src, dst: SRC_RENAMES[src] ?? src }));
 }
 
 function ownedAgentNames() {
@@ -446,42 +452,43 @@ function install(opts, { requireExisting = false } = {}) {
   const scope = opts.shell ? 'shell' : (requireExisting && old?.scope === 'shell' ? 'shell' : 'full');
 
   // 1. payload → .agents/(所有ハッシュに基づく外科的コピー)
-  const rels = payloadRels(scope);
+  const entries = payloadEntries(scope);
   const files = {};
-  for (const rel of rels) {
-    const src = path.join(PAYLOAD, rel);
-    const dst = path.join(ctx.root, rel);
+  for (const { src: srcRel, dst: dstRel } of entries) {
+    const src = path.join(PAYLOAD, srcRel);
+    const dst = path.join(ctx.root, dstRel);
     const srcHash = sha256(src);
     const st = lstatOrNull(dst);
-    const recorded = old?.files?.[rel];
+    const recorded = old?.files?.[dstRel];
     if (!st) {
       fs.mkdirSync(path.dirname(dst), { recursive: true });
       fs.copyFileSync(src, dst);
       fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
-      files[rel] = srcHash;
-      log.add(rel);
+      files[dstRel] = srcHash;
+      log.add(dstRel);
     } else if (sha256(dst) === srcHash) {
-      files[rel] = srcHash;
-      log.ok(rel);
+      files[dstRel] = srcHash;
+      log.ok(dstRel);
     } else if (recorded && sha256(dst) === recorded) {
       fs.copyFileSync(src, dst);
       fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
-      files[rel] = srcHash;
-      log.update(rel);
+      files[dstRel] = srcHash;
+      log.update(dstRel);
     } else if (opts.force) {
       fs.copyFileSync(src, dst);
       fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
-      files[rel] = srcHash;
-      log.update(`${rel}(--force で上書き)`);
+      files[dstRel] = srcHash;
+      log.update(`${dstRel}(--force で上書き)`);
     } else {
       log.warn(`改変されています。触れません(--force で上書き): ${dst}`);
-      if (recorded) files[rel] = recorded; // 所有記録は保持し、状態は status が報告する
+      if (recorded) files[dstRel] = recorded; // 所有記録は保持し、状態は status が報告する
     }
   }
 
   // 2. payload から消えたファイルの刈り込み(自分が置いた内容のままのものだけ)
+  const dstSet = new Set(entries.map((e) => e.dst));
   for (const [rel, hash] of Object.entries(old?.files || {})) {
-    if (files[rel] !== undefined || rels.includes(rel)) continue;
+    if (files[rel] !== undefined || dstSet.has(rel)) continue;
     const dst = path.join(ctx.root, rel);
     const st = lstatOrNull(dst);
     if (!st) continue;
@@ -591,18 +598,19 @@ function status(opts) {
   console.log(`source=${m.source}\n`);
 
   // payload との照合
-  const rels = payloadRels(scope);
-  for (const rel of rels) {
-    const dst = path.join(ctx.root, rel);
+  const entries = payloadEntries(scope);
+  for (const { src: srcRel, dst: dstRel } of entries) {
+    const dst = path.join(ctx.root, dstRel);
     const st = lstatOrNull(dst);
-    if (!st) { report(false, `${rel} — 未配置`); continue; }
+    if (!st) { report(false, `${dstRel} — 未配置`); continue; }
     const h = sha256(dst);
-    if (h === sha256(path.join(PAYLOAD, rel))) report(true, rel);
-    else if (h === m.files?.[rel]) report(false, `${rel} — payload が新しい(update で反映)`);
-    else report(false, `${rel} — インストール先で改変`);
+    if (h === sha256(path.join(PAYLOAD, srcRel))) report(true, dstRel);
+    else if (h === m.files?.[dstRel]) report(false, `${dstRel} — payload が新しい(update で反映)`);
+    else report(false, `${dstRel} — インストール先で改変`);
   }
+  const dstSet = new Set(entries.map((e) => e.dst));
   for (const rel of Object.keys(m.files || {})) {
-    if (!rels.includes(rel)) report(false, `${rel} — payload から削除済み(update で刈り込み)`);
+    if (!dstSet.has(rel)) report(false, `${rel} — payload から削除済み(update で刈り込み)`);
   }
 
   // リンク・環境断片(shell スコープはリンクと settings / codex 断片を持たない)
