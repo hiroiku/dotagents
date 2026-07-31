@@ -196,6 +196,9 @@ function ensureLink(ctx, l, log) {
       return 'conflict';
     }
     log.warn(`link 競合(既存の実体があります。触れません): ${l.link}`);
+    if (l.link.endsWith('CLAUDE.md') || l.link.endsWith('AGENTS.md')) {
+      console.log(`  → 既存ファイルに .agents/AGENTS.md への参照を足せばハーネスは載る(root AGENTS.md なら installer が参照ブロックを管理する)`);
+    }
     return 'conflict';
   }
   fs.mkdirSync(path.dirname(l.link), { recursive: true });
@@ -414,6 +417,66 @@ function settingsState(ctx) {
   };
 }
 
+// ---------------------------------------------------------------- 参照ブロック断片
+
+// 既存の root AGENTS.md を持つプロジェクトでは、ハーネス正本への参照ブロックを
+// マーカー付きで管理する。プロンプト層の配線なので版管理に乗り、clone だけで届く。
+// マーカー間は installer の完全管理領域(zshenv 管理行と同じ扱い): install / update が
+// 望む内容へ書き直し、uninstall が除去する。root AGENTS.md が無いプロジェクトには作らない。
+const REF_BEGIN = '<!-- agents-harness:begin (dotagents installer が管理。手で編集しない) -->';
+const REF_END = '<!-- agents-harness:end -->';
+const REF_BODY = '- エージェントの運転規則(役割・品質評価・Git・Beads の共通規則とスキル参照)は [.agents/AGENTS.md](.agents/AGENTS.md) を正本とする(dotagents ハーネスの配布物。インストール先を直接編集しない)。';
+
+function rootAgentsFile(ctx) {
+  return ctx.kind === 'project' ? path.join(path.dirname(ctx.root), 'AGENTS.md') : null;
+}
+
+function stripRefBlock(lines) {
+  const kept = [];
+  let inBlock = false;
+  for (const l of lines) {
+    if (l.trim() === REF_BEGIN) { inBlock = true; continue; }
+    if (inBlock) { if (l.trim() === REF_END) inBlock = false; continue; }
+    kept.push(l);
+  }
+  return kept;
+}
+
+function applyRefBlock(ctx, log) {
+  const file = rootAgentsFile(ctx);
+  if (!file || !lstatOrNull(file)?.isFile()) return false;
+  const text = fs.readFileSync(file, 'utf8');
+  const desired = [REF_BEGIN, REF_BODY, REF_END].join('\n');
+  if (text.includes(desired)) {
+    log.ok('AGENTS.md 参照ブロック');
+    return true;
+  }
+  const kept = stripRefBlock(text.split('\n'));
+  while (kept.length && kept[kept.length - 1] === '') kept.pop();
+  fs.writeFileSync(file, [...kept, '', desired, ''].join('\n'));
+  log.add('AGENTS.md 参照ブロック(既存の root AGENTS.md からハーネス正本へ)');
+  return true;
+}
+
+function removeRefBlock(ctx, fragments, log) {
+  if (!fragments?.refBlock) return;
+  const file = rootAgentsFile(ctx);
+  if (!file || !lstatOrNull(file)?.isFile()) return;
+  const text = fs.readFileSync(file, 'utf8');
+  const kept = stripRefBlock(text.split('\n'));
+  if (kept.join('\n') !== text) {
+    while (kept.length && kept[kept.length - 1] === '') kept.pop();
+    fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
+    log.del('AGENTS.md 参照ブロック');
+  }
+}
+
+function refBlockState(ctx) {
+  const file = rootAgentsFile(ctx);
+  if (!file || !lstatOrNull(file)?.isFile()) return null;
+  return fs.readFileSync(file, 'utf8').includes([REF_BEGIN, REF_BODY, REF_END].join('\n'));
+}
+
 // ---------------------------------------------------------------- 前提の器官
 
 // ハーネスが上に建つ外部の器官。導入は代行せず、不在の事実と導入先だけを伝える
@@ -532,10 +595,11 @@ function install(opts, { requireExisting = false } = {}) {
   if (scope === 'shell') {
     removeSettings(ctx, old?.fragments, log);
     removeCodexHooks(ctx, old?.fragments, log);
-    fragments = { bashEnv: false, sessionStart: false, ask: [], codexSessionStart: false };
+    fragments = { bashEnv: false, sessionStart: false, ask: [], codexSessionStart: false, refBlock: false };
   } else {
     fragments = applySettings(ctx, old?.fragments, log);
     fragments.codexSessionStart = applyCodexHooks(ctx, old?.fragments, log);
+    fragments.refBlock = applyRefBlock(ctx, log);
   }
 
   // 5. manifest
@@ -570,6 +634,7 @@ function uninstall(opts) {
   removeZshenvLine(ctx, log);
   removeSettings(ctx, m.fragments, log);
   removeCodexHooks(ctx, m.fragments, log);
+  removeRefBlock(ctx, m.fragments, log);
 
   for (const [rel, hash] of Object.entries(m.files || {})) {
     const dst = path.join(ctx.root, rel);
@@ -641,6 +706,8 @@ function status(opts) {
     report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
     const cx = codexHooksState(ctx);
     if (cx !== null) report(cx, `codex hooks.SessionStart`);
+    const rb = refBlockState(ctx);
+    if (rb !== null) report(rb, `AGENTS.md 参照ブロック`);
   }
 
   console.log(drift === 0 ? '\n乖離なし' : `\n乖離 ${drift} 件`);

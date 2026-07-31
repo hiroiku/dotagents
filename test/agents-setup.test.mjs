@@ -181,6 +181,26 @@ test('project(git repo): 配布物の .agents/.gitignore がマシン固有の�
   assert.ok(!fs.existsSync(path.join(proj, '.agents')), '.gitignore ごと外科的に消える');
 });
 
+test('参照ブロック: 既存の root AGENTS.md にだけマーカー付きで足し、uninstall で原状復帰する', () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-refproj-'));
+  fs.writeFileSync(path.join(proj, 'AGENTS.md'), '# my project rules\n');
+  run(os.homedir(), ['install', '--project', proj]);
+  const t = read(path.join(proj, 'AGENTS.md'));
+  assert.match(t, /agents-harness:begin/);
+  assert.match(t, /\.agents\/AGENTS\.md/);
+
+  run(os.homedir(), ['update', '--project', proj]);
+  assert.equal((read(path.join(proj, 'AGENTS.md')).match(/agents-harness:begin/g) || []).length, 1, '冪等');
+
+  run(os.homedir(), ['uninstall', '--project', proj]);
+  assert.equal(read(path.join(proj, 'AGENTS.md')), '# my project rules\n', '原状復帰');
+
+  const proj2 = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-refproj-'));
+  run(os.homedir(), ['install', '--project', proj2]);
+  assert.ok(!fs.existsSync(path.join(proj2, 'AGENTS.md')), '無いプロジェクトには作らない');
+  run(os.homedir(), ['uninstall', '--project', proj2]);
+});
+
 test('project モード: 相対リンクで張り、断片は settings.local.json に書く', () => {
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-proj-'));
   run(os.homedir(), ['install', '--project', proj]);
