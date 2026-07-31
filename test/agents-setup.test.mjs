@@ -136,6 +136,26 @@ test('shell スコープ: 強制則の層だけが入り、プロンプトへの
   assert.ok(!read(path.join(home, '.zshenv')).includes('agents-harness'));
 });
 
+test('settings 断片: defs から消えた自分所有の ask ルールだけを update が刈り込む', () => {
+  const home = freshHome();
+  run(home, ['install']);
+  const sPath = path.join(home, '.claude/settings.json');
+  const s = JSON.parse(read(sPath));
+  s.permissions.ask.push('Bash(git merge:*)');   // 旧世代で自分が足した扱いにする
+  s.permissions.ask.push('Bash(gh pr merge:*)'); // ユーザー自身のルール(所有外)
+  fs.writeFileSync(sPath, JSON.stringify(s, null, 2) + '\n');
+  const mPath = path.join(home, '.agents/.dotagents.json');
+  const m = JSON.parse(read(mPath));
+  m.fragments.ask.push('Bash(git merge:*)');
+  fs.writeFileSync(mPath, JSON.stringify(m, null, 2) + '\n');
+
+  run(home, ['update']);
+  const after = JSON.parse(read(sPath)).permissions.ask;
+  assert.ok(!after.includes('Bash(git merge:*)'), '所有していた旧ルールは刈り込まれる');
+  assert.ok(after.includes('Bash(git push:*)'), '現行 defs のルールは残る');
+  assert.ok(after.includes('Bash(gh pr merge:*)'), '所有外のユーザールールには触れない');
+});
+
 test('shell スコープ: update はスコープを維持し、install(フラグなし)で全量へ拡大する', () => {
   const home = freshHome();
   run(home, ['install', '--shell']);

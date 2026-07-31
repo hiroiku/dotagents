@@ -255,7 +255,9 @@ function fragmentDefs(ctx) {
   return {
     bashEnv: path.join(ctx.root, 'hooks', 'shellenv.sh'),
     sessionStart: path.join(ctx.root, 'hooks', 'beads-session.sh'),
-    ask: ['Bash(git push:*)', 'Bash(git merge:*)'],
+    // merge の ask は AGENTS_MERGE_SLOT_OK ガード(強制則)が覆うため持たない —
+    // 上位で封じたら下位を撤去する。push は外向き公開でガードが無く、ask が正しい層のまま。
+    ask: ['Bash(git push:*)'],
   };
 }
 
@@ -297,6 +299,14 @@ function applySettings(ctx, oldFragments, log) {
 
   s.permissions = s.permissions || {};
   s.permissions.ask = s.permissions.ask || [];
+  // 過去に自分が足したが defs から消えたルールは刈り込む(ファイルの刈り込みと同じ所有権規則)
+  for (const rule of oldFragments?.ask || []) {
+    if (!defs.ask.includes(rule) && s.permissions.ask.includes(rule)) {
+      s.permissions.ask = s.permissions.ask.filter((r) => r !== rule);
+      changed = true;
+      log.del(`settings permissions.ask ${rule}(defs から削除済み)`);
+    }
+  }
   for (const rule of defs.ask) {
     if (s.permissions.ask.includes(rule)) {
       // 以前の install で自分が足した記録があるときだけ所有を引き継ぐ

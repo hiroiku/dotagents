@@ -70,7 +70,7 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 
 - kuden-os の既存 open の一括トリアージ(`AGENTS_BD_OPEN_OK=1` の包括承認つき、kuden-os のセッションで実施)
 - ~~ユーザーレベル install の実施~~ → 運用モデル決定: **プロンプトはプロジェクトごと(`--project`)、ユーザーレベルは shell スコープ(ガード)だけ**。フルのユーザーレベル install は使わない
-- `permissions.ask` の merge 断片の撤去 — `AGENTS_MERGE_SLOT_OK` ガードの稼働を確認してから(上位で封じたら下位を撤去する、の適用)
+- ~~`permissions.ask` の merge 断片の撤去~~ → 実施(2026-08-01): ガードの稼働確認(テスト・Codex 実発火)をもって撤去。update が旧断片を自動で刈り込む
 - 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
 - ~~Codex の強制則配達~~ → 実測で解決(2026-08-01): Codex の実行シェルは zsh で、shell スコープの zshenv 配達がそのまま届く。マーカーは `CODEX_SANDBOX=seatbelt` が Codex 自身により設定され、git-guard が発火することを確認。残る未確認は sandbox 無効時のマーカー有無のみ
 - ~~dotagents 自体の bd 台帳を init するか~~ → 決定: 持たない。器官は各プロジェクトの中で独立して運用され、dotagents は自分のリポジトリも特別扱いしない(必要になったら他のプロジェクトと同じ資格で init する)
@@ -120,7 +120,8 @@ installer が行うこと(すべて冪等):
   (ディレクトリごとのリンクは張らない)。Codex は `.codex/` が存在する環境にのみ同形で張る
 - `~/.zshenv` にガード付き管理行を追加(ユーザーレベルのみ。ファイルが無ければ何も起きない形):
   `[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" # agents-harness`
-- `settings.json` 断片: `env.BASH_ENV`、`hooks.SessionStart`、`permissions.ask`(push / merge)。
+- `settings.json` 断片: `env.BASH_ENV`、`hooks.SessionStart`、`permissions.ask`(push のみ —
+  merge は `AGENTS_MERGE_SLOT_OK` ガードが覆うため持たない)。
   Codex には `.codex/hooks.json` に同形の SessionStart 断片(`.codex` がある環境のみ)
 - マシン固有の生成物(manifest `.dotagents.json`・計器 `dotagents-metrics.jsonl`)は、
   配布物に含まれる `.agents/.gitignore` が自動で版管理から外す。生成物も ignore も
