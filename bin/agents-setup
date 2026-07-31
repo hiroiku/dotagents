@@ -119,6 +119,14 @@ function ownedSkillNames() {
     .sort();
 }
 
+function ownedAgentNames() {
+  const dir = path.join(PAYLOAD, 'agents');
+  if (!lstatOrNull(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((n) => n.endsWith('.md'))
+    .sort();
+}
+
 // リンクは「リンクの場所 → payload 内の到達先」を宣言的に列挙する。
 // Codex はディレクトリを辿らないためスキル単位で張る。.codex/ が無い環境には作らない。
 function desiredLinks(ctx) {
@@ -126,6 +134,10 @@ function desiredLinks(ctx) {
     { link: path.join(ctx.claudeDir, 'CLAUDE.md'), target: path.join(ctx.root, 'AGENTS.md') },
     { link: path.join(ctx.claudeDir, 'skills'), target: path.join(ctx.root, 'skills') },
   ];
+  // エージェント定義はファイル単位で張る(自前のエージェント定義と共存させるため)
+  for (const file of ownedAgentNames()) {
+    links.push({ link: path.join(ctx.claudeDir, 'agents', file), target: path.join(ctx.root, 'agents', file) });
+  }
   if (lstatOrNull(ctx.codexDir)?.isDirectory()) {
     links.push({ link: path.join(ctx.codexDir, 'AGENTS.md'), target: path.join(ctx.root, 'AGENTS.md') });
     for (const name of ownedSkillNames()) {
