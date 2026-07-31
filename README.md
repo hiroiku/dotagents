@@ -74,6 +74,7 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 - 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
 - Codex のシェル配達の検証 — 実シェルが bash 系なら `BASH_ENV` 相当の経路が要る(zshenv で足りるかの確認)
 - dotagents 自体の bd 台帳を init するか(prompt-guidelines の「bd 台帳はここで行う」との整合)
+- npm publish 時の `payload/.gitignore` 同梱対策(npm は配布物から `.gitignore` を剥ぎ取るため、pack 時のリネーム等が要る)
 
 ## 構成
 
@@ -117,8 +118,10 @@ installer が行うこと(すべて冪等):
   `[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" # agents-harness`
 - `settings.json` 断片: `env.BASH_ENV`、`hooks.SessionStart`、`permissions.ask`(push / merge)。
   Codex には `.codex/hooks.json` に同形の SessionStart 断片(`.codex` がある環境のみ)
-- プロジェクトが git リポジトリなら、マシン固有の生成物(manifest・計器の記録)を
-  `.git/info/exclude` で自動 ignore(版管理される `.gitignore` は汚さない)
+- マシン固有の生成物(manifest `.dotagents.json`・計器 `dotagents-metrics.jsonl`)は、
+  配布物に含まれる `.agents/.gitignore` が自動で版管理から外す。生成物も ignore も
+  すべて dotagents の領分(`.agents/`)で完結する — bd は `.beads/`、codegraph は
+  `.codegraph/`、dotagents は `.agents/` にしか書かない
 
 ## 更新・照合・アンインストール
 

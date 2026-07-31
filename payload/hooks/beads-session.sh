@@ -40,6 +40,13 @@ if [ "${count:-0}" -gt 0 ]; then
   printf '%s\n' "$inprog" | grep '^[◐○●]' | head -10
 fi
 
+# 計器の記録は dotagents の領分(.agents)に置く — bd の領分(.beads)には書かない。
+# 記録するのはプロジェクトレベルの install がある場所だけ(ユーザーレベルの root に
+# 各プロジェクトの計器を混ぜない)。
+root=$(cd "$hookdir/.." && pwd)
+kind=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('kind',''))" "$root/.dotagents.json" 2>/dev/null)
+[ "$kind" = "project" ] || exit 0
+
 { bd list --status open --json 2>/dev/null; echo '@@'; bd list --status in_progress --json 2>/dev/null; } | python3 -c '
 import json, sys, datetime, os
 
@@ -57,7 +64,7 @@ rec = {
     "in_progress": len(inprogs),
     "inflow_open": sum(1 for i in opens + inprogs if created(i) == today),
 }
-path = os.path.join(".beads", "dotagents-metrics.jsonl")
+path = os.path.join(sys.argv[1], "dotagents-metrics.jsonl")
 hist = []
 try:
     with open(path) as f:
@@ -78,5 +85,5 @@ n_open, n_inprog, n_inflow = rec["open"], rec["in_progress"], rec["inflow_open"]
 print()
 print(f"bd 計器: open {n_open} {delta} / in_progress {n_inprog} / 本日起票の未消化 {n_inflow} 件。"
       f"open が増え続けているなら収束規則が敗けている — 観測した時点で対処を判断する。")
-' 2>/dev/null
+' "$root" 2>/dev/null
 exit 0

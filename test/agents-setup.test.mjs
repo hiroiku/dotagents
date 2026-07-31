@@ -115,19 +115,18 @@ test('外科的 uninstall: 自前スキルを残し、zshenv と settings を原
   assert.deepEqual(JSON.parse(read(path.join(home, '.codex/hooks.json'))), userCodexHooks, 'codex hooks は自分の断片だけ除去され原状復帰');
 });
 
-test('project(git repo): マシン固有の生成物を .git/info/exclude で自動 ignore し、uninstall で戻す', () => {
+test('project(git repo): 配布物の .agents/.gitignore がマシン固有の生成物を版管理から外す', () => {
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-gitproj-'));
   execFileSync('git', ['init', '-q'], { cwd: proj });
   run(os.homedir(), ['install', '--project', proj]);
 
-  const exclude = read(path.join(proj, '.git/info/exclude'));
-  assert.ok(exclude.includes('/.agents/.dotagents.json'));
-  assert.ok(exclude.includes('/.beads/dotagents-metrics.jsonl'));
-  const status = execFileSync('git', ['status', '--porcelain'], { cwd: proj, encoding: 'utf8' });
+  assert.ok(fs.existsSync(path.join(proj, '.agents/.gitignore')), '.gitignore が配布される');
+  const status = execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: proj, encoding: 'utf8' });
   assert.ok(!status.includes('.dotagents.json'), 'manifest は untracked に現れない');
+  assert.ok(status.includes('.agents/AGENTS.md'), '配布物自体は版管理の対象に見える');
 
   run(os.homedir(), ['uninstall', '--project', proj]);
-  assert.ok(!read(path.join(proj, '.git/info/exclude')).includes('.dotagents.json'), 'exclude は原状復帰');
+  assert.ok(!fs.existsSync(path.join(proj, '.agents')), '.gitignore ごと外科的に消える');
 });
 
 test('project モード: 相対リンクで張り、断片は settings.local.json に書く', () => {

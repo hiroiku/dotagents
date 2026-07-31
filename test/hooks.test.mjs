@@ -47,19 +47,29 @@ test('hook: bd はあるが台帳が未 init なら bd init を案内する', ()
   assert.match(out, /未 init(.|\n)*bd init/);
 });
 
-test('hook: 計器は日次で 1 回記録し、前回比を注入する', () => {
+test('hook: 計器は dotagents の領分(.agents)に日次で 1 回記録し、前回比を注入する', () => {
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-proj-'));
+  execFileSync(process.execPath, [CLI, 'install', '--project', proj], { encoding: 'utf8' });
   fs.mkdirSync(path.join(proj, '.beads'));
-  const metrics = path.join(proj, '.beads', 'dotagents-metrics.jsonl');
+  const metrics = path.join(proj, '.agents', 'dotagents-metrics.jsonl');
   fs.writeFileSync(metrics, JSON.stringify({ date: '2026-07-31', open: 160, in_progress: 7, inflow_open: 22 }) + '\n');
   const stub = makeBdStub();
+  const installedHook = path.join(proj, '.agents', 'hooks', 'beads-session.sh');
 
-  const out = runHook({ cwd: proj, stubDir: stub });
+  const runInstalled = () => execFileSync('/bin/bash', [installedHook], {
+    input: '{"session_id":"abcd1234efgh"}',
+    cwd: proj,
+    env: { PATH: `${stub}:${BASE_PATH}`, HOME: os.homedir() },
+    encoding: 'utf8',
+  });
+
+  const out = runInstalled();
   assert.match(out, /bd 計器: open 2 \(前回 2026-07-31 比 -158\)/);
   assert.match(out, /本日起票の未消化 1 件/);
   assert.equal(fs.readFileSync(metrics, 'utf8').trim().split('\n').length, 2, '当日分が 1 行追記される');
+  assert.ok(!fs.existsSync(path.join(proj, '.beads', 'dotagents-metrics.jsonl')), 'bd の領分(.beads)には書かない');
 
-  runHook({ cwd: proj, stubDir: stub });
+  runInstalled();
   assert.equal(fs.readFileSync(metrics, 'utf8').trim().split('\n').length, 2, '同日 2 回目は追記しない');
 });
 
