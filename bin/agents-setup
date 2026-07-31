@@ -119,6 +119,16 @@ function ownedSkillNames() {
     .sort();
 }
 
+// shell スコープ = 強制則の層(hooks / bin)だけ。プロンプト(AGENTS.md / skills / agents)と
+// リンク・settings 断片を伴わないので、全セッションのプロンプトに影響せずガードだけが届く。
+// zsh の起動ファイルはユーザーグローバル(~/.zshenv)しか無いため、シェル配達は構造的に
+// ユーザーレベルの担当であり、その最小形がこのスコープである。
+function payloadRels(scope) {
+  const rels = walk(PAYLOAD);
+  if (scope !== 'shell') return rels;
+  return rels.filter((r) => r.startsWith('hooks/') || r.startsWith('bin/'));
+}
+
 function ownedAgentNames() {
   const dir = path.join(PAYLOAD, 'agents');
   if (!lstatOrNull(dir)) return [];
@@ -429,9 +439,14 @@ function install(opts, { requireExisting = false } = {}) {
   if (requireExisting && !old) {
     throw new Error(`${ctx.root} に manifest がありません。先に install を実行してください。`);
   }
+  if (opts.shell && ctx.kind === 'project') {
+    throw new Error('シェル層(--shell)はユーザーレベルの担当です(zsh の起動ファイルはユーザーグローバルのみ)。');
+  }
+  // update はスコープを維持する。install --shell で縮小、install(フラグなし)で全量へ拡大
+  const scope = opts.shell ? 'shell' : (requireExisting && old?.scope === 'shell' ? 'shell' : 'full');
 
   // 1. payload → .agents/(所有ハッシュに基づく外科的コピー)
-  const rels = walk(PAYLOAD);
+  const rels = payloadRels(scope);
   const files = {};
   for (const rel of rels) {
     const src = path.join(PAYLOAD, rel);
@@ -481,7 +496,7 @@ function install(opts, { requireExisting = false } = {}) {
 
   // 3. リンク(旧リンクの刈り込み → 現リンクの保証)。
   // 所有権は「自分が張った」事実で決まり、再 install では前回の記録を引き継ぐ。
-  const links = desiredLinks(ctx);
+  const links = scope === 'shell' ? [] : desiredLinks(ctx);
   const linkSet = new Set(links.map((l) => l.link));
   const oldLinks = new Map((old?.links || []).map((l) => [l.link, l]));
   for (const l of old?.links || []) {
@@ -493,15 +508,24 @@ function install(opts, { requireExisting = false } = {}) {
     return { ...l, created };
   });
 
-  // 4. 環境断片
+  // 4. 環境断片(shell スコープでは zshenv 行のみ。settings / codex 断片は書かず、
+  // フルからの縮小時は自分の断片を除去する)
   ensureZshenvLine(ctx, log);
-  const fragments = applySettings(ctx, old?.fragments, log);
-  fragments.codexSessionStart = applyCodexHooks(ctx, old?.fragments, log);
+  let fragments;
+  if (scope === 'shell') {
+    removeSettings(ctx, old?.fragments, log);
+    removeCodexHooks(ctx, old?.fragments, log);
+    fragments = { bashEnv: false, sessionStart: false, ask: [], codexSessionStart: false };
+  } else {
+    fragments = applySettings(ctx, old?.fragments, log);
+    fragments.codexSessionStart = applyCodexHooks(ctx, old?.fragments, log);
+  }
 
   // 5. manifest
   writeJson(manifestPath(ctx), {
     schema: 1,
     kind: ctx.kind,
+    scope,
     version: pkg().version,
     source: REPO_ROOT,
     commit: gitCommit(),
@@ -562,11 +586,12 @@ function status(opts) {
     return;
   }
 
-  console.log(`kind=${m.kind} version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installedAt=${m.installedAt}`);
+  const scope = m.scope === 'shell' ? 'shell' : 'full';
+  console.log(`kind=${m.kind} scope=${scope} version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installedAt=${m.installedAt}`);
   console.log(`source=${m.source}\n`);
 
   // payload との照合
-  const rels = walk(PAYLOAD);
+  const rels = payloadRels(scope);
   for (const rel of rels) {
     const dst = path.join(ctx.root, rel);
     const st = lstatOrNull(dst);
@@ -580,21 +605,25 @@ function status(opts) {
     if (!rels.includes(rel)) report(false, `${rel} — payload から削除済み(update で刈り込み)`);
   }
 
-  // リンク・環境断片
-  for (const l of desiredLinks(ctx)) {
-    const st = lstatOrNull(l.link);
-    const okc = !!st && st.isSymbolicLink() &&
-      (fs.readlinkSync(l.link) === linkValue(ctx, l) ||
-        path.resolve(path.dirname(l.link), fs.readlinkSync(l.link)) === l.target);
-    report(okc, `link ${l.link}`);
+  // リンク・環境断片(shell スコープはリンクと settings / codex 断片を持たない)
+  if (scope !== 'shell') {
+    for (const l of desiredLinks(ctx)) {
+      const st = lstatOrNull(l.link);
+      const okc = !!st && st.isSymbolicLink() &&
+        (fs.readlinkSync(l.link) === linkValue(ctx, l) ||
+          path.resolve(path.dirname(l.link), fs.readlinkSync(l.link)) === l.target);
+      report(okc, `link ${l.link}`);
+    }
   }
   if (ctx.zshenv) report(zshenvState(ctx) === 'ok', `zshenv 管理行`);
-  const st = settingsState(ctx);
-  report(st.bashEnv, `settings env.BASH_ENV`);
-  report(st.sessionStart, `settings hooks.SessionStart`);
-  report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
-  const cx = codexHooksState(ctx);
-  if (cx !== null) report(cx, `codex hooks.SessionStart`);
+  if (scope !== 'shell') {
+    const st = settingsState(ctx);
+    report(st.bashEnv, `settings env.BASH_ENV`);
+    report(st.sessionStart, `settings hooks.SessionStart`);
+    report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
+    const cx = codexHooksState(ctx);
+    if (cx !== null) report(cx, `codex hooks.SessionStart`);
+  }
 
   console.log(drift === 0 ? '\n乖離なし' : `\n乖離 ${drift} 件`);
   for (const l of organReport()) console.log(l);
@@ -609,6 +638,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--project') opts.project = argv[++i] ?? '.';
+    else if (a === '--shell') opts.shell = true;
     else if (a === '--force') opts.force = true;
     else rest.push(a);
   }
@@ -631,6 +661,8 @@ function main() {
   status     manifest・payload・実体・リンク・環境断片を照合し、乖離を報告する(乖離時 exit 1)
 
   --project <dir>  プロジェクトレベル(<dir>/.agents)を対象にする。省略時はユーザーレベル(~/.agents)
+  --shell          強制則の層(hooks / bin + zshenv 行)だけを入れる(ユーザーレベル専用。
+                   プロンプト・リンク・settings 断片を伴わない — 全 zsh にガードだけが届く)
   --force          インストール先で改変されたファイルも payload の内容で上書きする`);
       process.exitCode = cmd ? 1 : 0;
   }

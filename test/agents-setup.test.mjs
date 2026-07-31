@@ -115,6 +115,27 @@ test('外科的 uninstall: 自前スキルを残し、zshenv と settings を原
   assert.deepEqual(JSON.parse(read(path.join(home, '.codex/hooks.json'))), userCodexHooks, 'codex hooks は自分の断片だけ除去され原状復帰');
 });
 
+test('shell スコープ: 強制則の層だけが入り、プロンプトへの影響を持たず、外科的に戻る', () => {
+  const home = freshHome();
+  run(home, ['install', '--shell']);
+
+  assert.ok(fs.existsSync(path.join(home, '.agents/bin/bd')), 'ガードは入る');
+  assert.ok(fs.existsSync(path.join(home, '.agents/hooks/shellenv.sh')), '配達フックは入る');
+  assert.ok(!fs.existsSync(path.join(home, '.agents/AGENTS.md')), 'プロンプトは入らない');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'リンクを張らない');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/settings.json')), 'settings 断片を書かない');
+  assert.match(read(path.join(home, '.zshenv')), /agents-harness/, 'zshenv 行だけが環境断片');
+  assert.equal(JSON.parse(read(path.join(home, '.agents/.dotagents.json'))).scope, 'shell');
+
+  const { out } = run(home, ['status']);
+  assert.match(out, /scope=shell/);
+  assert.match(out, /乖離なし/);
+
+  run(home, ['uninstall']);
+  assert.ok(!fs.existsSync(path.join(home, '.agents')));
+  assert.ok(!read(path.join(home, '.zshenv')).includes('agents-harness'));
+});
+
 test('project(git repo): 配布物の .agents/.gitignore がマシン固有の生成物を版管理から外す', () => {
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-gitproj-'));
   execFileSync('git', ['init', '-q'], { cwd: proj });

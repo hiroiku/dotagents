@@ -69,7 +69,7 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 ### 検討中(未実装・未決)
 
 - kuden-os の既存 open の一括トリアージ(`BD_OPEN_OK=1` の包括承認つき、kuden-os のセッションで実施)
-- ユーザーレベル install(zsh への bd / git ガード配達は `~/.zshenv` 管理行 = ユーザーレベルの担当。それまで project 環境のガードは BASH_ENV 経路のみ)
+- ユーザーレベル install の実施(`--shell` でガードだけ先行させるか、フルで入れるか。それまで project 環境のガードは BASH_ENV(bash)経路のみで、zsh セッションでは休眠)
 - `permissions.ask` の merge 断片の撤去 — `MERGE_SLOT_OK` ガードの稼働を確認してから(上位で封じたら下位を撤去する、の適用)
 - 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
 - Codex の強制則配達 — 実行シェルの特定(zsh なら zshenv のユーザーレベル install で Claude と同時に閉じる)。bash なら `config.toml` の `[shell_environment_policy.set]` に `BASH_ENV` を注入する。あわせて git-guard のエージェント判定マーカー(`CODEX_*`)が子シェルへ渡るかを確認し、渡らなければ同じ `.set` でマーカーを足す(`inherit = "core"` のため渡っていない疑い)
@@ -106,6 +106,10 @@ bin/agents-setup install
 
 # プロジェクトレベル(<project>/.agents。リンクは相対)
 bin/agents-setup install --project /path/to/project
+
+# シェル層のみ(強制則 hooks / bin + zshenv 行。プロンプト・リンク・settings 断片なし)
+# zsh の起動ファイルはユーザーグローバルしか無いため、ガードの zsh 配達はこのスコープが最小形
+bin/agents-setup install --shell
 ```
 
 installer が行うこと(すべて冪等):
