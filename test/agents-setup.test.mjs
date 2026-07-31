@@ -26,6 +26,7 @@ function run(home, args, opts = {}) {
 function freshHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
   return home;
 }
 
@@ -46,6 +47,9 @@ test('fresh install: 配布物・リンク・環境断片が揃い、status が�
   const settings = JSON.parse(read(path.join(home, '.claude/settings.json')));
   assert.equal(settings.env.BASH_ENV, path.join(agentsDir(home), 'hooks/shellenv.sh'));
   assert.ok(settings.permissions.ask.includes('Bash(git push:*)'));
+  const codexHooks = JSON.parse(read(path.join(home, '.codex/hooks.json')));
+  assert.ok(codexHooks.hooks.SessionStart.some((m) => m.hooks.some((h) => h.command.includes('beads-session.sh'))),
+    'Codex にも SessionStart 断片が配られる');
 
   const { out } = run(home, ['status']);
   assert.match(out, /乖離なし/);
@@ -96,6 +100,8 @@ test('外科的 uninstall: 自前スキルを残し、zshenv と settings を原
   fs.writeFileSync(path.join(home, '.zshenv'), 'export MY_VAR=1\n');
   const userSettings = { model: 'opus', permissions: { allow: ['Bash'] } };
   fs.writeFileSync(path.join(home, '.claude/settings.json'), JSON.stringify(userSettings, null, 2) + '\n');
+  const userCodexHooks = { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'bash /Users/x/herdr.sh session' }] }] } };
+  fs.writeFileSync(path.join(home, '.codex/hooks.json'), JSON.stringify(userCodexHooks, null, 2) + '\n');
 
   run(home, ['install']);
   run(home, ['uninstall']);
@@ -104,6 +110,7 @@ test('外科的 uninstall: 自前スキルを残し、zshenv と settings を原
   assert.ok(!fs.existsSync(path.join(agentsDir(home), 'AGENTS.md')), '配布物は消える');
   assert.equal(read(path.join(home, '.zshenv')), 'export MY_VAR=1\n', 'zshenv は原状復帰');
   assert.deepEqual(JSON.parse(read(path.join(home, '.claude/settings.json'))), userSettings, 'settings は原状復帰');
+  assert.deepEqual(JSON.parse(read(path.join(home, '.codex/hooks.json'))), userCodexHooks, 'codex hooks は自分の断片だけ除去され原状復帰');
 });
 
 test('project モード: 相対リンクで張り、断片は settings.local.json に書く', () => {

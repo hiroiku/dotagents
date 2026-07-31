@@ -320,6 +320,52 @@ function removeSettings(ctx, fragments, log) {
   if (changed) writeJson(file, s);
 }
 
+// Codex は ~/.codex/hooks.json(プロジェクトは <proj>/.codex/hooks.json)に
+// Claude の settings.json と同形の hooks を持つ。SessionStart 断片を同じ所有権規則で管理する。
+function codexHooksPath(ctx) { return path.join(ctx.codexDir, 'hooks.json'); }
+
+function applyCodexHooks(ctx, oldFragments, log) {
+  if (!lstatOrNull(ctx.codexDir)?.isDirectory()) return false;
+  const sessionCmd = path.join(ctx.root, 'hooks', 'beads-session.sh');
+  const file = codexHooksPath(ctx);
+  const s = readJson(file, {});
+  s.hooks = s.hooks || {};
+  s.hooks.SessionStart = s.hooks.SessionStart || [];
+  const has = s.hooks.SessionStart.some((m) => (m.hooks || []).some((h) => (h.command || '').includes(sessionCmd)));
+  if (has) {
+    log.ok('codex hooks.SessionStart');
+    return oldFragments?.codexSessionStart === true;
+  }
+  s.hooks.SessionStart.push({ hooks: [{ type: 'command', command: sessionCmd, timeout: 10 }] });
+  writeJson(file, s);
+  log.add('codex hooks.SessionStart');
+  return true;
+}
+
+function removeCodexHooks(ctx, fragments, log) {
+  if (!fragments?.codexSessionStart) return;
+  const sessionCmd = path.join(ctx.root, 'hooks', 'beads-session.sh');
+  const s = readJson(codexHooksPath(ctx), null);
+  if (!s?.hooks?.SessionStart) return;
+  const before = JSON.stringify(s);
+  s.hooks.SessionStart = s.hooks.SessionStart
+    .map((m) => ({ ...m, hooks: (m.hooks || []).filter((h) => !(h.command || '').includes(sessionCmd)) }))
+    .filter((m) => (m.hooks || []).length > 0);
+  if (s.hooks.SessionStart.length === 0) delete s.hooks.SessionStart;
+  if (Object.keys(s.hooks).length === 0) delete s.hooks;
+  if (JSON.stringify(s) !== before) {
+    writeJson(codexHooksPath(ctx), s);
+    log.del('codex hooks.SessionStart');
+  }
+}
+
+function codexHooksState(ctx) {
+  if (!lstatOrNull(ctx.codexDir)?.isDirectory()) return null;
+  const sessionCmd = path.join(ctx.root, 'hooks', 'beads-session.sh');
+  const s = readJson(codexHooksPath(ctx), {});
+  return (s.hooks?.SessionStart || []).some((m) => (m.hooks || []).some((h) => (h.command || '').includes(sessionCmd)));
+}
+
 function settingsState(ctx) {
   const defs = fragmentDefs(ctx);
   const s = readJson(settingsPath(ctx), {});
@@ -438,6 +484,7 @@ function install(opts, { requireExisting = false } = {}) {
   // 4. 環境断片
   ensureZshenvLine(ctx, log);
   const fragments = applySettings(ctx, old?.fragments, log);
+  fragments.codexSessionStart = applyCodexHooks(ctx, old?.fragments, log);
 
   // 5. manifest
   writeJson(manifestPath(ctx), {
@@ -469,6 +516,7 @@ function uninstall(opts) {
   for (const l of m.links || []) removeLink(ctx, l, log);
   removeZshenvLine(ctx, log);
   removeSettings(ctx, m.fragments, log);
+  removeCodexHooks(ctx, m.fragments, log);
 
   for (const [rel, hash] of Object.entries(m.files || {})) {
     const dst = path.join(ctx.root, rel);
@@ -533,6 +581,8 @@ function status(opts) {
   report(st.bashEnv, `settings env.BASH_ENV`);
   report(st.sessionStart, `settings hooks.SessionStart`);
   report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
+  const cx = codexHooksState(ctx);
+  if (cx !== null) report(cx, `codex hooks.SessionStart`);
 
   console.log(drift === 0 ? '\n乖離なし' : `\n乖離 ${drift} 件`);
   for (const l of organReport()) console.log(l);
