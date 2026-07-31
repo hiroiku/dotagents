@@ -66,9 +66,13 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 テスト設計は [agents-test-design](./payload/skills/agents-test-design/SKILL.md)、
 三層配置とアブレーションの規律は [prompt-guidelines.md](./payload/docs/prompt-guidelines.md)。
 
-### 検討中(未実装)
+### 検討中(未実装・未決)
 
-- kuden-os の旧世代ハーネス(`.agents/rules/` + `prompts/beads.md`)からの移行と、既存 open の一括トリアージ
+- kuden-os の旧世代ハーネス(`.agents/rules/` + `prompts/beads.md`)からの移行と、既存 open の一括トリアージ(完成後にデリバリーと同時に)
+- `permissions.ask` の merge 断片の撤去 — `MERGE_SLOT_OK` ガードの稼働を確認してから(上位で封じたら下位を撤去する、の適用)
+- 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
+- Codex のシェル配達の検証 — 実シェルが bash 系なら `BASH_ENV` 相当の経路が要る(zshenv で足りるかの確認)
+- dotagents 自体の bd 台帳を init するか(prompt-guidelines の「bd 台帳はここで行う」との整合)
 
 ## 構成
 
@@ -110,7 +114,8 @@ installer が行うこと(すべて冪等):
   Codex は `.codex/` が存在する環境にのみ `AGENTS.md` とスキル単位のリンクを張る
 - `~/.zshenv` にガード付き管理行を追加(ユーザーレベルのみ。ファイルが無ければ何も起きない形):
   `[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" # agents-harness`
-- `settings.json` 断片: `env.BASH_ENV`、`hooks.SessionStart`、`permissions.ask`(push / merge)
+- `settings.json` 断片: `env.BASH_ENV`、`hooks.SessionStart`、`permissions.ask`(push / merge)。
+  Codex には `.codex/hooks.json` に同形の SessionStart 断片(`.codex` がある環境のみ)
 
 ## 更新・照合・アンインストール
 
