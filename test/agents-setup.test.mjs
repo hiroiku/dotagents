@@ -37,12 +37,12 @@ test('fresh install: 配布物・リンク・環境断片が揃い、status が�
   const home = freshHome();
   run(home, ['install']);
 
-  for (const rel of ['AGENTS.md', 'bin/bd', 'bin/git-guard', 'bin/agents-doctor', 'hooks/shellenv.sh', 'agents/reviewer.md']) {
+  for (const rel of ['AGENTS.md', 'bin/bd', 'bin/git-guard', 'bin/agents-doctor', 'hooks/shellenv.sh', 'agents/agents-reviewer.md']) {
     assert.ok(fs.existsSync(path.join(agentsDir(home), rel)), `${rel} が配布されている`);
   }
   assert.ok(fs.statSync(path.join(agentsDir(home), 'bin/bd')).mode & 0o100, '実行ビットが保存される');
   assert.equal(fs.readlinkSync(path.join(home, '.claude/CLAUDE.md')), path.join(agentsDir(home), 'AGENTS.md'));
-  assert.ok(fs.lstatSync(path.join(home, '.claude/agents/reviewer.md')).isSymbolicLink());
+  assert.ok(fs.lstatSync(path.join(home, '.claude/agents/agents-reviewer.md')).isSymbolicLink());
   assert.ok(!fs.lstatSync(path.join(home, '.claude/skills')).isSymbolicLink(), 'skills はディレクトリごとリンクしない');
   assert.ok(fs.lstatSync(path.join(home, '.claude/skills/agents-quality-loop')).isSymbolicLink(), 'スキル単位でリンクする');
   assert.match(read(path.join(home, '.zshenv')), /\[ -f "\$HOME\/\.agents\/hooks\/shellenv\.sh" \] && \./);

@@ -1,5 +1,5 @@
 ---
-name: verifier
+name: agents-verifier
 description: 検証(完了主張の独立再実行)の専用役。実装担当の報告にある再実行手順を専用 worktree で再実行し、事実だけを報告する。委譲時は再実行手順・worktree のパス・合格条件だけを渡すこと。実装の説明・経緯は渡さない。
 tools: Read, Glob, Grep, Bash
 ---

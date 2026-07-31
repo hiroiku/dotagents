@@ -1,5 +1,5 @@
 ---
-name: reviewer
+name: agents-reviewer
 description: 存在証明レビュー(反証)の専用役。要件を起点に、それを満たす実装と検証の存在を実物から探す。委譲時は依頼書(元の要望・合格条件・反証版憲章・レビュー対象 worktree のパス・実行方法)だけを渡すこと。差分・実装側の報告は渡さない。
 tools: Read, Glob, Grep, mcp__codegraph__codegraph_explore
 ---
