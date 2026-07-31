@@ -388,6 +388,58 @@ function settingsState(ctx) {
   };
 }
 
+// ---------------------------------------------------------------- git exclude 断片
+
+// マシン固有の生成物(manifest・計器の記録)を、プロジェクトの版管理から自動で外す。
+// 版管理される .gitignore は汚さず、リポジトリローカルの .git/info/exclude を管理する —
+// これらは installer を実行した機械にだけ現れるファイルであり、除外もその機械の断片で行う。
+const EXCLUDE_PATTERNS = ['/.agents/.dotagents.json', '/.beads/dotagents-metrics.jsonl'];
+
+function gitExcludeFile(ctx) {
+  if (ctx.kind !== 'project') return null;
+  try {
+    const proj = path.dirname(ctx.root);
+    const common = execFileSync('git', ['-C', proj, 'rev-parse', '--git-common-dir'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return path.resolve(proj, common, 'info', 'exclude');
+  } catch { return null; }
+}
+
+function applyGitExclude(ctx, log) {
+  const file = gitExcludeFile(ctx);
+  if (!file) return false;
+  const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const lines = text.split('\n');
+  if (EXCLUDE_PATTERNS.every((p) => lines.includes(p))) {
+    log.ok('git exclude');
+    return true;
+  }
+  const kept = lines.filter((l) => l !== MARKER && !EXCLUDE_PATTERNS.includes(l));
+  while (kept.length && kept[kept.length - 1] === '') kept.pop();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, [...kept, MARKER, ...EXCLUDE_PATTERNS, ''].join('\n'));
+  log.add('git exclude(マシン固有の生成物を版管理から除外)');
+  return true;
+}
+
+function removeGitExclude(ctx, fragments, log) {
+  if (!fragments?.gitExclude) return;
+  const file = gitExcludeFile(ctx);
+  if (!file || !fs.existsSync(file)) return;
+  const text = fs.readFileSync(file, 'utf8');
+  const kept = text.split('\n').filter((l) => l !== MARKER && !EXCLUDE_PATTERNS.includes(l));
+  if (kept.join('\n') !== text) {
+    fs.writeFileSync(file, kept.join('\n'));
+    log.del('git exclude');
+  }
+}
+
+function gitExcludeState(ctx) {
+  const file = gitExcludeFile(ctx);
+  if (!file) return null;
+  const lines = (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '').split('\n');
+  return EXCLUDE_PATTERNS.every((p) => lines.includes(p));
+}
+
 // ---------------------------------------------------------------- 前提の器官
 
 // ハーネスが上に建つ外部の器官。導入は代行せず、不在の事実と導入先だけを伝える
@@ -497,6 +549,7 @@ function install(opts, { requireExisting = false } = {}) {
   ensureZshenvLine(ctx, log);
   const fragments = applySettings(ctx, old?.fragments, log);
   fragments.codexSessionStart = applyCodexHooks(ctx, old?.fragments, log);
+  fragments.gitExclude = applyGitExclude(ctx, log);
 
   // 5. manifest
   writeJson(manifestPath(ctx), {
@@ -529,6 +582,7 @@ function uninstall(opts) {
   removeZshenvLine(ctx, log);
   removeSettings(ctx, m.fragments, log);
   removeCodexHooks(ctx, m.fragments, log);
+  removeGitExclude(ctx, m.fragments, log);
 
   for (const [rel, hash] of Object.entries(m.files || {})) {
     const dst = path.join(ctx.root, rel);
@@ -595,6 +649,8 @@ function status(opts) {
   report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
   const cx = codexHooksState(ctx);
   if (cx !== null) report(cx, `codex hooks.SessionStart`);
+  const ge = gitExcludeState(ctx);
+  if (ge !== null) report(ge, `git exclude`);
 
   console.log(drift === 0 ? '\n乖離なし' : `\n乖離 ${drift} 件`);
   for (const l of organReport()) console.log(l);

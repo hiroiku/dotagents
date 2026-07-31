@@ -115,6 +115,21 @@ test('外科的 uninstall: 自前スキルを残し、zshenv と settings を原
   assert.deepEqual(JSON.parse(read(path.join(home, '.codex/hooks.json'))), userCodexHooks, 'codex hooks は自分の断片だけ除去され原状復帰');
 });
 
+test('project(git repo): マシン固有の生成物を .git/info/exclude で自動 ignore し、uninstall で戻す', () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-gitproj-'));
+  execFileSync('git', ['init', '-q'], { cwd: proj });
+  run(os.homedir(), ['install', '--project', proj]);
+
+  const exclude = read(path.join(proj, '.git/info/exclude'));
+  assert.ok(exclude.includes('/.agents/.dotagents.json'));
+  assert.ok(exclude.includes('/.beads/dotagents-metrics.jsonl'));
+  const status = execFileSync('git', ['status', '--porcelain'], { cwd: proj, encoding: 'utf8' });
+  assert.ok(!status.includes('.dotagents.json'), 'manifest は untracked に現れない');
+
+  run(os.homedir(), ['uninstall', '--project', proj]);
+  assert.ok(!read(path.join(proj, '.git/info/exclude')).includes('.dotagents.json'), 'exclude は原状復帰');
+});
+
 test('project モード: 相対リンクで張り、断片は settings.local.json に書く', () => {
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-proj-'));
   run(os.homedir(), ['install', '--project', proj]);

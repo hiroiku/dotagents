@@ -117,6 +117,8 @@ installer が行うこと(すべて冪等):
   `[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" # agents-harness`
 - `settings.json` 断片: `env.BASH_ENV`、`hooks.SessionStart`、`permissions.ask`(push / merge)。
   Codex には `.codex/hooks.json` に同形の SessionStart 断片(`.codex` がある環境のみ)
+- プロジェクトが git リポジトリなら、マシン固有の生成物(manifest・計器の記録)を
+  `.git/info/exclude` で自動 ignore(版管理される `.gitignore` は汚さない)
 
 ## 更新・照合・アンインストール
 
