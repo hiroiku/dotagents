@@ -103,7 +103,12 @@ function makeCtx(opts) {
 }
 
 function manifestPath(ctx) { return path.join(ctx.root, MANIFEST_NAME); }
-function settingsPath(ctx) { return path.join(ctx.claudeDir, 'settings.json'); }
+
+// 断片は絶対パスを含むマシン固有の設定なので、プロジェクトでは版管理対象の
+// settings.json ではなく settings.local.json に書く。
+function settingsPath(ctx) {
+  return path.join(ctx.claudeDir, ctx.kind === 'project' ? 'settings.local.json' : 'settings.json');
+}
 
 function ownedSkillNames() {
   const dir = path.join(PAYLOAD, 'skills');
@@ -232,8 +237,9 @@ function applySettings(ctx, oldFragments, log) {
 
   s.hooks = s.hooks || {};
   s.hooks.SessionStart = s.hooks.SessionStart || [];
+  // 既存 entry は `bash <path>` のような前置き付きでも同一とみなす(重複登録の予防)
   const hasSession = s.hooks.SessionStart.some((m) =>
-    (m.hooks || []).some((h) => h.command === defs.sessionStart));
+    (m.hooks || []).some((h) => (h.command || '').includes(defs.sessionStart)));
   if (hasSession) {
     owned.sessionStart = true;
     log.ok(`settings hooks.SessionStart`);
@@ -280,7 +286,7 @@ function removeSettings(ctx, fragments, log) {
   if (fragments.sessionStart && s.hooks?.SessionStart) {
     const before = s.hooks.SessionStart.length;
     s.hooks.SessionStart = s.hooks.SessionStart
-      .map((m) => ({ ...m, hooks: (m.hooks || []).filter((h) => h.command !== defs.sessionStart) }))
+      .map((m) => ({ ...m, hooks: (m.hooks || []).filter((h) => !(h.command || '').includes(defs.sessionStart)) }))
       .filter((m) => (m.hooks || []).length > 0);
     if (s.hooks.SessionStart.length !== before) { changed = true; log.del(`settings hooks.SessionStart`); }
     if (s.hooks.SessionStart.length === 0) delete s.hooks.SessionStart;
@@ -302,7 +308,7 @@ function settingsState(ctx) {
   const s = readJson(settingsPath(ctx), {});
   return {
     bashEnv: s.env?.BASH_ENV === defs.bashEnv,
-    sessionStart: (s.hooks?.SessionStart || []).some((m) => (m.hooks || []).some((h) => h.command === defs.sessionStart)),
+    sessionStart: (s.hooks?.SessionStart || []).some((m) => (m.hooks || []).some((h) => (h.command || '').includes(defs.sessionStart))),
     ask: defs.ask.filter((r) => (s.permissions?.ask || []).includes(r)),
   };
 }
