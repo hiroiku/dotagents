@@ -15,6 +15,8 @@ echo "BEADS_ACTOR: このセッションの bd への全書き込みには BEADS
 hookdir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 [ -x "$hookdir/../bin/agents-doctor" ] && "$hookdir/../bin/agents-doctor" 2>/dev/null
 
+[ -d .codegraph ] && echo "codegraph: このプロジェクトは index 済み。コードの構造の問い(所在・呼び出し経路・影響範囲・同型)は grep/Read の往復ではなく codegraph の explore で導出する。"
+
 command -v bd >/dev/null 2>&1 || exit 0
 
 inprog=$(bd list --status in_progress 2>/dev/null) || exit 0
