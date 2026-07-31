@@ -43,6 +43,8 @@ test('fresh install: 配布物・リンク・環境断片が揃い、status が�
   assert.ok(fs.statSync(path.join(agentsDir(home), 'bin/bd')).mode & 0o100, '実行ビットが保存される');
   assert.equal(fs.readlinkSync(path.join(home, '.claude/CLAUDE.md')), path.join(agentsDir(home), 'AGENTS.md'));
   assert.ok(fs.lstatSync(path.join(home, '.claude/agents/reviewer.md')).isSymbolicLink());
+  assert.ok(!fs.lstatSync(path.join(home, '.claude/skills')).isSymbolicLink(), 'skills はディレクトリごとリンクしない');
+  assert.ok(fs.lstatSync(path.join(home, '.claude/skills/agents-quality-loop')).isSymbolicLink(), 'スキル単位でリンクする');
   assert.match(read(path.join(home, '.zshenv')), /\[ -f "\$HOME\/\.agents\/hooks\/shellenv\.sh" \] && \./);
   const settings = JSON.parse(read(path.join(home, '.claude/settings.json')));
   assert.equal(settings.env.BASH_ENV, path.join(agentsDir(home), 'hooks/shellenv.sh'));
@@ -117,6 +119,7 @@ test('project モード: 相対リンクで張り、断片は settings.local.jso
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-proj-'));
   run(os.homedir(), ['install', '--project', proj]);
   assert.equal(fs.readlinkSync(path.join(proj, '.claude/CLAUDE.md')), '../.agents/AGENTS.md');
+  assert.equal(fs.readlinkSync(path.join(proj, '.claude/skills/agents-kickoff')), '../../.agents/skills/agents-kickoff');
   assert.ok(fs.existsSync(path.join(proj, '.claude/settings.local.json')));
   assert.ok(!fs.existsSync(path.join(proj, '.claude/settings.json')), '版管理対象の settings.json には書かない');
   run(os.homedir(), ['uninstall', '--project', proj]);

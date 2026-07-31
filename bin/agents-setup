@@ -132,8 +132,20 @@ function ownedAgentNames() {
 function desiredLinks(ctx) {
   const links = [
     { link: path.join(ctx.claudeDir, 'CLAUDE.md'), target: path.join(ctx.root, 'AGENTS.md') },
-    { link: path.join(ctx.claudeDir, 'skills'), target: path.join(ctx.root, 'skills') },
   ];
+  // スキルは常にスキル単位でリンクする(ディレクトリごとの 1 本は張らない —
+  // 自前スキルの実体と同じ場所に同居させるため)。例外は、既存の .claude/skills が
+  // .agents/skills への symlink になっている環境(ユーザーの手張り)だけ:
+  // 全スキルが既に見えているので張らず、そのリンクにも触れない。
+  const skillsDir = path.join(ctx.claudeDir, 'skills');
+  const skillsSt = lstatOrNull(skillsDir);
+  const coveredByDirLink = !!(skillsSt && skillsSt.isSymbolicLink()) &&
+    path.resolve(path.dirname(skillsDir), fs.readlinkSync(skillsDir)) === path.join(ctx.root, 'skills');
+  if (!coveredByDirLink) {
+    for (const name of ownedSkillNames()) {
+      links.push({ link: path.join(skillsDir, name), target: path.join(ctx.root, 'skills', name) });
+    }
+  }
   // エージェント定義はファイル単位で張る(自前のエージェント定義と共存させるため)
   for (const file of ownedAgentNames()) {
     links.push({ link: path.join(ctx.claudeDir, 'agents', file), target: path.join(ctx.root, 'agents', file) });

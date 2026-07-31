@@ -109,9 +109,9 @@ bin/agents-setup install --project /path/to/project
 installer が行うこと(すべて冪等):
 
 - `payload/` → `.agents/` のコピー(manifest `.dotagents.json` に内容ハッシュを記録)
-- symlink: `.claude/CLAUDE.md → .agents/AGENTS.md`、`.claude/skills → .agents/skills`、
-  エージェント定義はファイル単位(`.claude/agents/<name>.md`)、
-  Codex は `.codex/` が存在する環境にのみ `AGENTS.md` とスキル単位のリンクを張る
+- symlink: `.claude/CLAUDE.md → .agents/AGENTS.md`。スキル(`.claude/skills/<name>`)と
+  エージェント定義(`.claude/agents/<name>.md`)は**常に単体リンク**で、自前の実体と同居する
+  (ディレクトリごとのリンクは張らない)。Codex は `.codex/` が存在する環境にのみ同形で張る
 - `~/.zshenv` にガード付き管理行を追加(ユーザーレベルのみ。ファイルが無ければ何も起きない形):
   `[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" # agents-harness`
 - `settings.json` 断片: `env.BASH_ENV`、`hooks.SessionStart`、`permissions.ask`(push / merge)。
