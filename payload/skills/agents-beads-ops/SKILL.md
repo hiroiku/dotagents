@@ -19,10 +19,11 @@ description: bd(Beads)の運用細則。セッション開始時の残置処分�
 - bd の文脈を持たないまま着手しない(自動注入が無ければ自分で取得する)。ready は全読みする。
 - stale や assignee の無い in_progress を観測したら、着手前にまとめてユーザーへ処分を確認する。処分が作業になるなら起票して claim する。作業していない issue を in_progress に留めない規則があるからこそ、`停滞・循環` の検出は「in_progress なのに動きが無い = 異常」として信頼できる。
 - 他セッションの占有の解除は、停滞に見えてもユーザーの判断に引き上げる。
+- 低優先度の issue は、その内容と関係で結ばれている他の issue でついでに回収する(単独で選ばれるのを待たせない)。
 
 ## 一括の書き込み
 
-bd(台帳と memory)は worktree 分割で守れないもう 1 つの合流点であり、一括の書き込みは merge-slot 保持中か、起票して claim した cleanup issue の中で行う。
+bd(台帳と memory)は worktree 分割で守れないもう 1 つの合流点であり、一括の書き込みは merge-slot 保持中か、起票して claim した cleanup issue の中で行う。merge-slot は bd のネイティブ機能である(`bd merge-slot acquire / release / check`)。`git merge` のガードは `MERGE_SLOT_OK=1` の宣言を要求し、可能な環境では保持者を `bd merge-slot check` で照合する。
 
 ## merge-ready の定義
 
