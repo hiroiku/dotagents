@@ -89,6 +89,11 @@ payload/              配布物の唯一の定義。この木がそのまま .ag
 
 ## インストール
 
+前提の器官(ハーネスは導入を代行せず、installer と SessionStart が不在を検出して伝える):
+
+- **bd(beads)— 必須**。台帳プロセス(起票・claim・完了ゲート・merge 排他)がこの上に建つ — [gastownhall/beads](https://github.com/gastownhall/beads)
+- **codegraph — 推奨**。探索の導出 — [colbymchenry/codegraph](https://github.com/colbymchenry/codegraph)(配線は `codegraph install`、index はプロジェクトごとに `codegraph init`)
+
 ```sh
 # ユーザーレベル(~/.agents)
 bin/agents-setup install

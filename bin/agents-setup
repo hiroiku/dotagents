@@ -330,6 +330,23 @@ function settingsState(ctx) {
   };
 }
 
+// ---------------------------------------------------------------- 前提の器官
+
+// ハーネスが上に建つ外部の器官。導入は代行せず、不在の事実と導入先だけを伝える
+// (乖離には数えない — これらの所有者はハーネスではない)。
+function organReport() {
+  const has = (cmd) => {
+    try {
+      execFileSync('/bin/sh', ['-c', `command -v ${cmd}`], { stdio: 'ignore' });
+      return true;
+    } catch { return false; }
+  };
+  const lines = [];
+  if (!has('bd')) lines.push('! 前提: bd(必須)が見つかりません — 起票・claim・完了ゲート・merge 排他の台帳がこの上に建ちます: https://github.com/gastownhall/beads');
+  if (!has('codegraph')) lines.push('! 前提: codegraph(推奨)が見つかりません — 探索を 1 回の explore に置換します: https://github.com/colbymchenry/codegraph');
+  return lines;
+}
+
 // ---------------------------------------------------------------- log
 
 function makeLog() {
@@ -439,6 +456,7 @@ function install(opts, { requireExisting = false } = {}) {
   const c = log.counts;
   console.log(`\n${ctx.kind} → ${ctx.root}`);
   console.log(`完了: 追加 ${c.add} / 更新 ${c.update} / 既存一致 ${c.ok} / 削除 ${c.del} / 警告 ${c.warn}`);
+  for (const l of organReport()) console.log(l);
   if (c.warn > 0) process.exitCode = 1;
 }
 
@@ -517,6 +535,7 @@ function status(opts) {
   report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
 
   console.log(drift === 0 ? '\n乖離なし' : `\n乖離 ${drift} 件`);
+  for (const l of organReport()) console.log(l);
   if (drift > 0) process.exitCode = 1;
 }
 

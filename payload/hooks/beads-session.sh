@@ -15,9 +15,22 @@ echo "BEADS_ACTOR: このセッションの bd への全書き込みには BEADS
 hookdir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 [ -x "$hookdir/../bin/agents-doctor" ] && "$hookdir/../bin/agents-doctor" 2>/dev/null
 
-[ -d .codegraph ] && echo "codegraph: このプロジェクトは index 済み。コードの構造の問い(所在・呼び出し経路・影響範囲・同型)は grep/Read の往復ではなく codegraph の explore で導出する。"
+# 器官の不在検出: bd は必須(台帳プロセスの土台)、codegraph は推奨(探索の導出)。
+# ハーネスは導入を代行しない — 不在の事実と導入先だけを伝える。
+if command -v codegraph >/dev/null 2>&1; then
+  [ -d .codegraph ] && echo "codegraph: このプロジェクトは index 済み。コードの構造の問い(所在・呼び出し経路・影響範囲・同型)は grep/Read の往復ではなく codegraph の explore で導出する。"
+else
+  echo "codegraph が見つからない(推奨の器官: grep/Read の往復を 1 回の explore に置換する)。導入はユーザーの判断 — https://github.com/colbymchenry/codegraph(codegraph install → プロジェクトで codegraph init)。"
+fi
 
-command -v bd >/dev/null 2>&1 || exit 0
+if ! command -v bd >/dev/null 2>&1; then
+  echo "bd(beads)が見つからない(必須の器官: 起票・claim・完了ゲート・merge 排他の台帳がこの上に建つ)。導入はユーザーの判断 — https://github.com/gastownhall/beads(brew install beads ほか)。台帳を欠いたまま起票プロセスを進めない。"
+  exit 0
+fi
+if [ ! -d .beads ]; then
+  echo "bd: このプロジェクトの台帳は未 init。台帳プロセスに乗せる作業なら bd init から始める。"
+  exit 0
+fi
 
 inprog=$(bd list --status in_progress 2>/dev/null) || exit 0
 count=$(printf '%s\n' "$inprog" | grep -c '^[◐○●]' 2>/dev/null)
@@ -27,7 +40,6 @@ if [ "${count:-0}" -gt 0 ]; then
   printf '%s\n' "$inprog" | grep '^[◐○●]' | head -10
 fi
 
-[ -d .beads ] || exit 0
 { bd list --status open --json 2>/dev/null; echo '@@'; bd list --status in_progress --json 2>/dev/null; } | python3 -c '
 import json, sys, datetime, os
 
