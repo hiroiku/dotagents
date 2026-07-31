@@ -128,6 +128,20 @@ installer が行うこと(すべて冪等):
   すべて dotagents の領分(`.agents/`)で完結する — bd は `.beads/`、codegraph は
   `.codegraph/`、dotagents は `.agents/` にしか書かない
 
+### 後からの導入・チーム展開
+
+- **導入の順序に依存しない**: bd / codegraph を後から入れても installer の再実行は不要 —
+  器官・台帳・index の検出は毎セッション動的に行われる。bd だけの既存環境へ後から
+  ハーネスを入れる場合も同じ。`bd init` が生成した既存の root AGENTS.md は奪わず、
+  参照ブロックだけを管理する(bd 公式の「気軽に起票する」文化とハーネスの起票反転は
+  思想が異なるため、重複する記述は導入時に読み比べて整理するとよい — ハーネスは検出しない)
+- **届き方は二層**: プロンプト層(`.agents/` 配布物・リンク・参照ブロック)は版管理に乗り、
+  **clone だけで効く**。注入と強制則(manifest・settings 断片・zshenv 行・シェルガード)は
+  マシン固有で、**各マシンで installer が敷く**
+- **2 人目以降の手順**: プロジェクトを clone → dotagents を clone →
+  `bin/agents-setup install --project <プロジェクト>` と `install --shell`。
+  installer は冪等でハッシュ照合するため、版管理で届いた配布物と衝突しない
+
 ## 更新・照合・アンインストール
 
 ```sh
