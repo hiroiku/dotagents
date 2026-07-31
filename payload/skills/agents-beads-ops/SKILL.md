@@ -25,7 +25,7 @@ description: bd(Beads)の運用細則。セッション開始時の残置処分�
 
 ## 一括の書き込み
 
-bd(台帳と memory)は worktree 分割で守れないもう 1 つの合流点であり、一括の書き込みは merge-slot 保持中か、起票して claim した cleanup issue の中で行う。merge-slot は bd のネイティブ機能である(`bd merge-slot acquire / release / check`)。`git merge` のガードは `MERGE_SLOT_OK=1` の宣言を要求し、可能な環境では保持者を `bd merge-slot check` で照合する。
+bd(台帳と memory)は worktree 分割で守れないもう 1 つの合流点であり、一括の書き込みは merge-slot 保持中か、起票して claim した cleanup issue の中で行う。merge-slot の取得・解放は必ず `bd merge-slot acquire / release` で行う。slot issue への `--claim` は保持にならない — ネイティブの保持者(metadata.holder)が設定されず、`git merge` ガードの照合(`MERGE_SLOT_OK=1` の宣言と `bd merge-slot check` の保持者の突き合わせ)が素通りになる。
 
 ## merge-ready の定義
 
