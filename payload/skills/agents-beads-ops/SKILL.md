@@ -23,6 +23,11 @@ description: bd(Beads)の運用細則。セッション開始時の残置処分�
 - 他セッションの占有の解除は、停滞に見えてもユーザーの判断に引き上げる。
 - 低優先度の issue は、その内容と関係で結ばれている他の issue でついでに回収する(単独で選ばれるのを待たせない)。
 
+## 起票の形
+
+- 独立して完了判定できる合格条件を持つ単位だけを issue にし、合格条件は `--acceptance` に書く。
+- 関係の型: 依存は `blocks`、重複は `duplicates`、置換は `supersedes`、分割は `parent` / `epic`。description の文章で代替しない。
+
 ## 一括の書き込み
 
 bd(台帳と memory)は worktree 分割で守れないもう 1 つの合流点であり、一括の書き込みは merge-slot 保持中か、起票して claim した cleanup issue の中で行う。merge-slot の取得・解放は必ず `bd merge-slot acquire / release` で行う。slot issue への `--claim` は保持にならない — ネイティブの保持者(metadata.holder)が設定されず、`git merge` ガードの照合(`AGENTS_MERGE_SLOT_OK=1` の宣言と `bd merge-slot check` の保持者の突き合わせ)が素通りになる。
