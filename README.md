@@ -69,10 +69,10 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 ### 検討中(未実装・未決)
 
 - kuden-os の既存 open の一括トリアージ(`BD_OPEN_OK=1` の包括承認つき、kuden-os のセッションで実施)
-- ユーザーレベル install の実施(`--shell` でガードだけ先行させるか、フルで入れるか。それまで project 環境のガードは BASH_ENV(bash)経路のみで、zsh セッションでは休眠)
+- ~~ユーザーレベル install の実施~~ → 運用モデル決定: **プロンプトはプロジェクトごと(`--project`)、ユーザーレベルは shell スコープ(ガード)だけ**。フルのユーザーレベル install は使わない
 - `permissions.ask` の merge 断片の撤去 — `MERGE_SLOT_OK` ガードの稼働を確認してから(上位で封じたら下位を撤去する、の適用)
 - 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
-- Codex の強制則配達 — 実行シェルの特定(zsh なら zshenv のユーザーレベル install で Claude と同時に閉じる)。bash なら `config.toml` の `[shell_environment_policy.set]` に `BASH_ENV` を注入する。あわせて git-guard のエージェント判定マーカー(`CODEX_*`)が子シェルへ渡るかを確認し、渡らなければ同じ `.set` でマーカーを足す(`inherit = "core"` のため渡っていない疑い)
+- ~~Codex の強制則配達~~ → 実測で解決(2026-08-01): Codex の実行シェルは zsh で、shell スコープの zshenv 配達がそのまま届く。マーカーは `CODEX_SANDBOX=seatbelt` が Codex 自身により設定され、git-guard が発火することを確認。残る未確認は sandbox 無効時のマーカー有無のみ
 - dotagents 自体の bd 台帳を init するか(prompt-guidelines の「bd 台帳はここで行う」との整合)
 - npm publish 時の `payload/.gitignore` 同梱対策(npm は配布物から `.gitignore` を剥ぎ取るため、pack 時のリネーム等が要る)
 
