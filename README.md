@@ -46,7 +46,15 @@ issue の台帳も同じ原理で収束させる: 観測を open に積み上げ
 
 ### テスト — 件数は守りの量ではない
 
-テストが固定してよいのは**契約**(業務にとっての約束)だけであり、症状の写しは退行から何も守らない。第一の防御は壊せない構造(発生条件を持てない設計・型)であり、テストは構造で封じられない契約のための最後の手段である。守備範囲が人の列挙で決まるガードは、何本あっても 1 本にも数えない。
+テストが固定してよいのは**契約**(業務にとっての約束)だけであり、症状の写しは退行から何も守らない。第一の防御は壊せない構造(発生条件を持てない設計・型)であり、テストは構造で封じられない契約のための最後の手段である。
+
+### 見張りと列挙 — メタな品質チェックを作らない
+
+監視の監視・テストのテスト・ガードのガードのような、業務の契約を守らないメタな検査は増殖しやすく、何も守らないまま維持費だけを食う。3 つの原則で排除する:
+
+- **見張りは足さず、沈める** — ガードを見張りたくなるのは層が高すぎる徴候である。応答は監視の追加ではなく落下則の適用: 下げれば見張る対象そのものが消える
+- **検出は一段まで** — 構造で閉じられない契約だけが検出型を持てる。検出の検出は作らない。検出器が壊れたら気づけないことはこの設計の対価であり、だから検出器は最小・単純に保つ
+- **列挙で守らない** — 守備範囲・修正対象・監視対象が人の列挙で決まる仕組みは、足し忘れが静かな空白になる漏れの温床。構造そのものが定義になる形(payload 方式)か、列挙を機械が副産物として導出する形(manifest 方式)に寄せる
 
 規則の本文はここに書かない(payload と二重管理になり、複製は黙って古くなる)。正本の索引:
 役割・品質評価・Git 権限・Beads の遍在規則は [AGENTS.md](./payload/AGENTS.md)、
@@ -58,19 +66,20 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 
 ### 検討中(未実装)
 
-- `BD_OPEN_OK` ガード: 消化の経路を持たない open 起票を enforcement で一度止める(`BD_MEMO_OK` と同型)
 - codegraph のプロンプト組み込み
-- kuden-os の旧世代ハーネス(`.agents/rules/` + `prompts/beads.md`)からの移行
+- kuden-os の旧世代ハーネス(`.agents/rules/` + `prompts/beads.md`)からの移行と、既存 open の一括トリアージ
 
 ## 構成
 
 ```
 bin/agents-setup      インストーラー CLI(install / update / uninstall / status)
+test/                 installer と強制則の契約テスト(npm test)
 payload/              配布物の唯一の定義。この木がそのまま .agents/ になる
-├── AGENTS.md         コア規則(全セッションが常時読む。遍在的な規則だけを置く)
-├── skills/           瞬間別の細則(その瞬間が来たときだけ読む)
-├── hooks/            shellenv.sh(bd ラッパー配達)/ beads-session.sh(SessionStart)
-├── bin/bd            enforcement ラッパー(bd remember の書き込み確認)
+├── AGENTS.md         遍在則(全セッションが常時読む)
+├── skills/           瞬間則(その瞬間が来たときだけ読む)
+├── agents/           役割定義(reviewer / verifier。ツール制限つき)
+├── hooks/            shellenv.sh(ガードのシェル配達)/ beads-session.sh(SessionStart 注入)
+├── bin/              強制則(bd / git-guard)と自己検査(agents-doctor)
 └── docs/             プロンプト更新のガイドライン
 ```
 
@@ -91,6 +100,7 @@ installer が行うこと(すべて冪等):
 
 - `payload/` → `.agents/` のコピー(manifest `.dotagents.json` に内容ハッシュを記録)
 - symlink: `.claude/CLAUDE.md → .agents/AGENTS.md`、`.claude/skills → .agents/skills`、
+  エージェント定義はファイル単位(`.claude/agents/<name>.md`)、
   Codex は `.codex/` が存在する環境にのみ `AGENTS.md` とスキル単位のリンクを張る
 - `~/.zshenv` にガード付き管理行を追加(ユーザーレベルのみ。ファイルが無ければ何も起きない形):
   `[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" # agents-harness`
