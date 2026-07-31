@@ -8,6 +8,8 @@
 
 input=$(cat)
 sid=$(printf '%s' "$input" | python3 -c "import json,sys; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null)
+# session_id を渡さないハーネス(Codex 等)でも一意 actor を欠かさない
+[ -n "$sid" ] || sid=$(python3 -c "import uuid; print(uuid.uuid4().hex)" 2>/dev/null)
 [ -n "$sid" ] || exit 0
 
 echo "BEADS_ACTOR: このセッションの bd への全書き込みには BEADS_ACTOR=mgr-${sid:0:8} を用いる(例: BEADS_ACTOR=mgr-${sid:0:8} bd update <id> --claim)。"

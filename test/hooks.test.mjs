@@ -34,6 +34,17 @@ esac
   return dir;
 }
 
+test('hook: session_id を渡さないハーネスでも一意 actor を注入する', () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-proj-'));
+  const out = execFileSync('/bin/bash', [HOOK], {
+    input: '{}',
+    cwd: proj,
+    env: { PATH: BASE_PATH, HOME: os.homedir() },
+    encoding: 'utf8',
+  });
+  assert.match(out, /BEADS_ACTOR=mgr-[0-9a-f]{8} /);
+});
+
 test('hook: bd(必須)と codegraph(推奨)の不在を伝える', () => {
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-proj-'));
   const out = runHook({ cwd: proj });

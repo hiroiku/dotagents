@@ -72,7 +72,7 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 - ユーザーレベル install(zsh への bd / git ガード配達は `~/.zshenv` 管理行 = ユーザーレベルの担当。それまで project 環境のガードは BASH_ENV 経路のみ)
 - `permissions.ask` の merge 断片の撤去 — `MERGE_SLOT_OK` ガードの稼働を確認してから(上位で封じたら下位を撤去する、の適用)
 - 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
-- Codex のシェル配達の検証 — 実シェルが bash 系なら `BASH_ENV` 相当の経路が要る(zshenv で足りるかの確認)
+- Codex の強制則配達 — 実行シェルの特定(zsh なら zshenv のユーザーレベル install で Claude と同時に閉じる)。bash なら `config.toml` の `[shell_environment_policy.set]` に `BASH_ENV` を注入する。あわせて git-guard のエージェント判定マーカー(`CODEX_*`)が子シェルへ渡るかを確認し、渡らなければ同じ `.set` でマーカーを足す(`inherit = "core"` のため渡っていない疑い)
 - dotagents 自体の bd 台帳を init するか(prompt-guidelines の「bd 台帳はここで行う」との整合)
 - npm publish 時の `payload/.gitignore` 同梱対策(npm は配布物から `.gitignore` を剥ぎ取るため、pack 時のリネーム等が要る)
 
