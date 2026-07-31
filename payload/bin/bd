@@ -1,0 +1,32 @@
+#!/bin/sh
+# bd enforcement ラッパー。hooks/shellenv.sh が bd をシェル関数として定義し、ここへ委譲する。
+#
+# 強制するのは 1 点だけ: `bd remember`(memory への書き込み)はユーザー確認済みの
+# 印(BD_MEMO_OK=1)が無ければ実行しない。memory は全セッションに注入される共有資源であり、
+# 1 セッションの判断で書くと腐敗が静かに進むため、書き込みだけ確認を挟む。
+#
+# これは習慣的な誤操作を止める装置であって封鎖ではない。絶対パスや `command bd` による
+# 迂回は BD_MEMO_OK と同様に監査可能な明示的選択として扱う(判定は argv のみ。
+# コマンド文字列の構文解析はしない)。
+
+if [ -z "${BD_MEMO_OK:-}" ]; then
+  for arg in "$@"; do
+    case "$arg" in
+      --) break ;;
+      remember)
+        echo "bd remember は全セッション共有の memory への書き込みです。" >&2
+        echo "ユーザーに内容を提示して確認を得てから、BD_MEMO_OK=1 を付けて再実行してください:" >&2
+        echo "  BD_MEMO_OK=1 bd $*" >&2
+        exit 2
+        ;;
+    esac
+  done
+fi
+
+# 自分自身(シェル関数)ではなく PATH 上の実体を実行する。
+# ~/.agents/bin は PATH に載せない前提のため、ここでの解決は常に実体に届く。
+if ! command -v bd >/dev/null 2>&1; then
+  echo "bd が見つかりません(PATH 上に beads の実体がありません)。" >&2
+  exit 127
+fi
+exec bd "$@"

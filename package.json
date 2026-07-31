@@ -1,0 +1,16 @@
+{
+  "name": "dotagents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI エージェントハーネスの正本。payload/ を ~/.agents / <project>/.agents へ配布する",
+  "bin": {
+    "agents-setup": "bin/agents-setup"
+  },
+  "files": [
+    "bin",
+    "payload"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

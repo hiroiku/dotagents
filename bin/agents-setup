@@ -1,0 +1,534 @@
+#!/usr/bin/env node
+'use strict';
+
+// dotagents installer — payload/ を .agents/ へ配布し、manifest で所有権を管理する。
+//
+// 設計原則:
+// - payload/ ディレクトリが配布物の唯一の定義である(installer 内に列挙を持たない)。
+// - manifest(.dotagents.json)は「自分が置いたもの」だけを内容ハッシュ付きで記録する。
+//   update / uninstall はハッシュが一致するファイルにしか触れない — ユーザーの改変と
+//   自前スキルは常に保護される。
+// - 環境断片(~/.zshenv の管理行・settings.json の env / hooks / permissions)も
+//   「自分が追加したものだけを覚えて、それだけを除去する」。
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+const PAYLOAD = path.join(REPO_ROOT, 'payload');
+const MANIFEST_NAME = '.dotagents.json';
+const MARKER = '# agents-harness';
+const SHELLENV_LINE = `[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" ${MARKER}`;
+
+// ---------------------------------------------------------------- helpers
+
+function sha256(file) {
+  return 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function walk(dir, base = dir) {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (e.name === '.DS_Store') continue;
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...walk(p, base));
+    else out.push(path.relative(base, p));
+  }
+  return out;
+}
+
+function readJson(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    if (e.code === 'ENOENT') return fallback;
+    throw new Error(`${file} を JSON として読めません: ${e.message}`);
+  }
+}
+
+function writeJson(file, obj) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n');
+}
+
+function lstatOrNull(p) {
+  try { return fs.lstatSync(p); } catch { return null; }
+}
+
+function gitCommit() {
+  try {
+    return execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  } catch { return null; }
+}
+
+function pkg() {
+  return readJson(path.join(REPO_ROOT, 'package.json'), { version: '0.0.0' });
+}
+
+function removeEmptyDirsUpTo(from, stopAt) {
+  let dir = from;
+  while (dir.startsWith(stopAt) && dir !== stopAt) {
+    try { fs.rmdirSync(dir); } catch { return; }
+    dir = path.dirname(dir);
+  }
+}
+
+// ---------------------------------------------------------------- context
+
+function makeCtx(opts) {
+  if (opts.project) {
+    const proj = path.resolve(opts.project);
+    if (!lstatOrNull(proj)?.isDirectory()) throw new Error(`プロジェクトが存在しません: ${proj}`);
+    return {
+      kind: 'project',
+      root: path.join(proj, '.agents'),
+      claudeDir: path.join(proj, '.claude'),
+      codexDir: path.join(proj, '.codex'),
+      zshenv: null, // シェル配達(zsh/BASH_ENV の実体)はユーザーレベルの担当
+      relativeLinks: true,
+    };
+  }
+  const home = os.homedir();
+  return {
+    kind: 'user',
+    root: path.join(home, '.agents'),
+    claudeDir: path.join(home, '.claude'),
+    codexDir: path.join(home, '.codex'),
+    zshenv: path.join(home, '.zshenv'),
+    relativeLinks: false,
+  };
+}
+
+function manifestPath(ctx) { return path.join(ctx.root, MANIFEST_NAME); }
+function settingsPath(ctx) { return path.join(ctx.claudeDir, 'settings.json'); }
+
+function ownedSkillNames() {
+  const dir = path.join(PAYLOAD, 'skills');
+  if (!lstatOrNull(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
+}
+
+// リンクは「リンクの場所 → payload 内の到達先」を宣言的に列挙する。
+// Codex はディレクトリを辿らないためスキル単位で張る。.codex/ が無い環境には作らない。
+function desiredLinks(ctx) {
+  const links = [
+    { link: path.join(ctx.claudeDir, 'CLAUDE.md'), target: path.join(ctx.root, 'AGENTS.md') },
+    { link: path.join(ctx.claudeDir, 'skills'), target: path.join(ctx.root, 'skills') },
+  ];
+  if (lstatOrNull(ctx.codexDir)?.isDirectory()) {
+    links.push({ link: path.join(ctx.codexDir, 'AGENTS.md'), target: path.join(ctx.root, 'AGENTS.md') });
+    for (const name of ownedSkillNames()) {
+      links.push({ link: path.join(ctx.codexDir, 'skills', name), target: path.join(ctx.root, 'skills', name) });
+    }
+  }
+  return links;
+}
+
+function linkValue(ctx, l) {
+  return ctx.relativeLinks ? path.relative(path.dirname(l.link), l.target) : l.target;
+}
+
+// ---------------------------------------------------------------- symlinks
+
+function ensureLink(ctx, l, log) {
+  const want = linkValue(ctx, l);
+  const st = lstatOrNull(l.link);
+  if (st) {
+    if (st.isSymbolicLink()) {
+      const cur = fs.readlinkSync(l.link);
+      if (cur === want || path.resolve(path.dirname(l.link), cur) === l.target) {
+        log.ok(`link ${l.link}`);
+        return true;
+      }
+      log.warn(`link 競合(別の場所を指す symlink。触れません): ${l.link} -> ${cur}`);
+      return false;
+    }
+    log.warn(`link 競合(既存の実体があります。触れません): ${l.link}`);
+    return false;
+  }
+  fs.mkdirSync(path.dirname(l.link), { recursive: true });
+  fs.symlinkSync(want, l.link);
+  log.add(`link ${l.link} -> ${want}`);
+  return true;
+}
+
+function removeLink(ctx, l, log) {
+  const st = lstatOrNull(l.link);
+  if (!st || !st.isSymbolicLink()) return;
+  const cur = fs.readlinkSync(l.link);
+  if (cur === linkValue(ctx, l) || path.resolve(path.dirname(l.link), cur) === l.target) {
+    fs.unlinkSync(l.link);
+    log.del(`link ${l.link}`);
+  }
+}
+
+// ---------------------------------------------------------------- ~/.zshenv
+
+function zshenvState(ctx) {
+  if (!ctx.zshenv) return 'n/a';
+  const text = fs.existsSync(ctx.zshenv) ? fs.readFileSync(ctx.zshenv, 'utf8') : '';
+  const managed = text.split('\n').filter((l) => l.includes(MARKER));
+  if (managed.length === 1 && managed[0] === SHELLENV_LINE) return 'ok';
+  if (managed.length === 0) return 'missing';
+  return 'stale';
+}
+
+function ensureZshenvLine(ctx, log) {
+  if (!ctx.zshenv) return;
+  if (zshenvState(ctx) === 'ok') { log.ok(`zshenv 管理行`); return; }
+  const text = fs.existsSync(ctx.zshenv) ? fs.readFileSync(ctx.zshenv, 'utf8') : '';
+  const kept = text.split('\n').filter((l) => !l.includes(MARKER));
+  while (kept.length && kept[kept.length - 1] === '') kept.pop();
+  kept.push(SHELLENV_LINE, '');
+  fs.writeFileSync(ctx.zshenv, kept.join('\n'));
+  log.add(`zshenv 管理行(ガード付き)を設定`);
+}
+
+function removeZshenvLine(ctx, log) {
+  if (!ctx.zshenv || !fs.existsSync(ctx.zshenv)) return;
+  const text = fs.readFileSync(ctx.zshenv, 'utf8');
+  const kept = text.split('\n').filter((l) => !l.includes(MARKER));
+  if (kept.join('\n') !== text) {
+    fs.writeFileSync(ctx.zshenv, kept.join('\n'));
+    log.del(`zshenv 管理行`);
+  }
+}
+
+// ---------------------------------------------------------------- settings.json 断片
+
+function fragmentDefs(ctx) {
+  return {
+    bashEnv: path.join(ctx.root, 'hooks', 'shellenv.sh'),
+    sessionStart: path.join(ctx.root, 'hooks', 'beads-session.sh'),
+    ask: ['Bash(git push:*)', 'Bash(git merge:*)'],
+  };
+}
+
+function applySettings(ctx, oldFragments, log) {
+  const defs = fragmentDefs(ctx);
+  const file = settingsPath(ctx);
+  const s = readJson(file, {});
+  const owned = { bashEnv: false, sessionStart: false, ask: [] };
+  let changed = false;
+
+  s.env = s.env || {};
+  if (s.env.BASH_ENV === undefined) {
+    s.env.BASH_ENV = defs.bashEnv;
+    owned.bashEnv = true;
+    changed = true;
+    log.add(`settings env.BASH_ENV`);
+  } else if (s.env.BASH_ENV === defs.bashEnv) {
+    owned.bashEnv = true;
+    log.ok(`settings env.BASH_ENV`);
+  } else {
+    log.warn(`settings env.BASH_ENV は別の値が設定済みです。触れません: ${s.env.BASH_ENV}`);
+  }
+
+  s.hooks = s.hooks || {};
+  s.hooks.SessionStart = s.hooks.SessionStart || [];
+  const hasSession = s.hooks.SessionStart.some((m) =>
+    (m.hooks || []).some((h) => h.command === defs.sessionStart));
+  if (hasSession) {
+    owned.sessionStart = true;
+    log.ok(`settings hooks.SessionStart`);
+  } else {
+    s.hooks.SessionStart.push({ hooks: [{ type: 'command', command: defs.sessionStart }] });
+    owned.sessionStart = true;
+    changed = true;
+    log.add(`settings hooks.SessionStart`);
+  }
+
+  s.permissions = s.permissions || {};
+  s.permissions.ask = s.permissions.ask || [];
+  for (const rule of defs.ask) {
+    if (s.permissions.ask.includes(rule)) {
+      // 以前の install で自分が足した記録があるときだけ所有を引き継ぐ
+      if ((oldFragments?.ask || []).includes(rule)) owned.ask.push(rule);
+      else log.ok(`settings permissions.ask ${rule}(既存。所有しません)`);
+    } else {
+      s.permissions.ask.push(rule);
+      owned.ask.push(rule);
+      changed = true;
+      log.add(`settings permissions.ask ${rule}`);
+    }
+  }
+
+  if (changed) writeJson(file, s);
+  return owned;
+}
+
+function removeSettings(ctx, fragments, log) {
+  if (!fragments) return;
+  const defs = fragmentDefs(ctx);
+  const file = settingsPath(ctx);
+  const s = readJson(file, null);
+  if (!s) return;
+  let changed = false;
+
+  if (fragments.bashEnv && s.env?.BASH_ENV === defs.bashEnv) {
+    delete s.env.BASH_ENV;
+    if (Object.keys(s.env).length === 0) delete s.env;
+    changed = true;
+    log.del(`settings env.BASH_ENV`);
+  }
+  if (fragments.sessionStart && s.hooks?.SessionStart) {
+    const before = s.hooks.SessionStart.length;
+    s.hooks.SessionStart = s.hooks.SessionStart
+      .map((m) => ({ ...m, hooks: (m.hooks || []).filter((h) => h.command !== defs.sessionStart) }))
+      .filter((m) => (m.hooks || []).length > 0);
+    if (s.hooks.SessionStart.length !== before) { changed = true; log.del(`settings hooks.SessionStart`); }
+    if (s.hooks.SessionStart.length === 0) delete s.hooks.SessionStart;
+    if (Object.keys(s.hooks).length === 0) delete s.hooks;
+  }
+  if ((fragments.ask || []).length && s.permissions?.ask) {
+    const before = s.permissions.ask.length;
+    s.permissions.ask = s.permissions.ask.filter((r) => !fragments.ask.includes(r));
+    if (s.permissions.ask.length !== before) { changed = true; log.del(`settings permissions.ask`); }
+    if (s.permissions.ask.length === 0) delete s.permissions.ask;
+    if (Object.keys(s.permissions).length === 0) delete s.permissions;
+  }
+
+  if (changed) writeJson(file, s);
+}
+
+function settingsState(ctx) {
+  const defs = fragmentDefs(ctx);
+  const s = readJson(settingsPath(ctx), {});
+  return {
+    bashEnv: s.env?.BASH_ENV === defs.bashEnv,
+    sessionStart: (s.hooks?.SessionStart || []).some((m) => (m.hooks || []).some((h) => h.command === defs.sessionStart)),
+    ask: defs.ask.filter((r) => (s.permissions?.ask || []).includes(r)),
+  };
+}
+
+// ---------------------------------------------------------------- log
+
+function makeLog() {
+  const counts = { add: 0, update: 0, ok: 0, del: 0, warn: 0 };
+  const line = (sym, key) => (msg) => { counts[key]++; console.log(`${sym} ${msg}`); };
+  return {
+    add: line('+', 'add'),
+    update: line('~', 'update'),
+    ok: (msg) => { counts.ok++; },
+    del: line('-', 'del'),
+    warn: line('!', 'warn'),
+    counts,
+  };
+}
+
+// ---------------------------------------------------------------- commands
+
+function install(opts, { requireExisting = false } = {}) {
+  const ctx = makeCtx(opts);
+  const log = makeLog();
+  const old = readJson(manifestPath(ctx), null);
+  if (requireExisting && !old) {
+    throw new Error(`${ctx.root} に manifest がありません。先に install を実行してください。`);
+  }
+
+  // 1. payload → .agents/(所有ハッシュに基づく外科的コピー)
+  const rels = walk(PAYLOAD);
+  const files = {};
+  for (const rel of rels) {
+    const src = path.join(PAYLOAD, rel);
+    const dst = path.join(ctx.root, rel);
+    const srcHash = sha256(src);
+    const st = lstatOrNull(dst);
+    const recorded = old?.files?.[rel];
+    if (!st) {
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(src, dst);
+      fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
+      files[rel] = srcHash;
+      log.add(rel);
+    } else if (sha256(dst) === srcHash) {
+      files[rel] = srcHash;
+      log.ok(rel);
+    } else if (recorded && sha256(dst) === recorded) {
+      fs.copyFileSync(src, dst);
+      fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
+      files[rel] = srcHash;
+      log.update(rel);
+    } else if (opts.force) {
+      fs.copyFileSync(src, dst);
+      fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
+      files[rel] = srcHash;
+      log.update(`${rel}(--force で上書き)`);
+    } else {
+      log.warn(`改変されています。触れません(--force で上書き): ${dst}`);
+      if (recorded) files[rel] = recorded; // 所有記録は保持し、状態は status が報告する
+    }
+  }
+
+  // 2. payload から消えたファイルの刈り込み(自分が置いた内容のままのものだけ)
+  for (const [rel, hash] of Object.entries(old?.files || {})) {
+    if (files[rel] !== undefined || rels.includes(rel)) continue;
+    const dst = path.join(ctx.root, rel);
+    const st = lstatOrNull(dst);
+    if (!st) continue;
+    if (sha256(dst) === hash) {
+      fs.unlinkSync(dst);
+      removeEmptyDirsUpTo(path.dirname(dst), ctx.root);
+      log.del(`${rel}(payload から削除済み)`);
+    } else {
+      log.warn(`payload から消えましたが改変されているため残します: ${dst}`);
+    }
+  }
+
+  // 3. リンク(旧リンクの刈り込み → 現リンクの保証)
+  const links = desiredLinks(ctx);
+  const linkSet = new Set(links.map((l) => l.link));
+  for (const l of old?.links || []) {
+    if (!linkSet.has(l.link)) removeLink(ctx, l, log);
+  }
+  for (const l of links) ensureLink(ctx, l, log);
+
+  // 4. 環境断片
+  ensureZshenvLine(ctx, log);
+  const fragments = applySettings(ctx, old?.fragments, log);
+
+  // 5. manifest
+  writeJson(manifestPath(ctx), {
+    schema: 1,
+    kind: ctx.kind,
+    version: pkg().version,
+    source: REPO_ROOT,
+    commit: gitCommit(),
+    installedAt: new Date().toISOString(),
+    files,
+    skills: ownedSkillNames(),
+    links,
+    fragments,
+  });
+
+  const c = log.counts;
+  console.log(`\n${ctx.kind} → ${ctx.root}`);
+  console.log(`完了: 追加 ${c.add} / 更新 ${c.update} / 既存一致 ${c.ok} / 削除 ${c.del} / 警告 ${c.warn}`);
+  if (c.warn > 0) process.exitCode = 1;
+}
+
+function uninstall(opts) {
+  const ctx = makeCtx(opts);
+  const log = makeLog();
+  const m = readJson(manifestPath(ctx), null);
+  if (!m) throw new Error(`${ctx.root} に manifest がありません。アンインストール対象がありません。`);
+
+  for (const l of m.links || []) removeLink(ctx, l, log);
+  removeZshenvLine(ctx, log);
+  removeSettings(ctx, m.fragments, log);
+
+  for (const [rel, hash] of Object.entries(m.files || {})) {
+    const dst = path.join(ctx.root, rel);
+    const st = lstatOrNull(dst);
+    if (!st) continue;
+    if (sha256(dst) === hash) {
+      fs.unlinkSync(dst);
+      removeEmptyDirsUpTo(path.dirname(dst), ctx.root);
+      log.del(rel);
+    } else {
+      log.warn(`改変されているため残します: ${dst}`);
+    }
+  }
+
+  fs.unlinkSync(manifestPath(ctx));
+  try { fs.rmdirSync(ctx.root); } catch { /* 自前スキル等が残っていれば残す */ }
+
+  const c = log.counts;
+  console.log(`\n完了: 削除 ${c.del} / 警告 ${c.warn}(自前スキルと改変ファイルには触れていません)`);
+}
+
+function status(opts) {
+  const ctx = makeCtx(opts);
+  const m = readJson(manifestPath(ctx), null);
+  let drift = 0;
+  const report = (okc, msg) => { console.log(`${okc ? 'ok  ' : 'NG  '}${msg}`); if (!okc) drift++; };
+
+  if (!m) {
+    console.log(`未インストールです: ${ctx.root}(manifest がありません)`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`kind=${m.kind} version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installedAt=${m.installedAt}`);
+  console.log(`source=${m.source}\n`);
+
+  // payload との照合
+  const rels = walk(PAYLOAD);
+  for (const rel of rels) {
+    const dst = path.join(ctx.root, rel);
+    const st = lstatOrNull(dst);
+    if (!st) { report(false, `${rel} — 未配置`); continue; }
+    const h = sha256(dst);
+    if (h === sha256(path.join(PAYLOAD, rel))) report(true, rel);
+    else if (h === m.files?.[rel]) report(false, `${rel} — payload が新しい(update で反映)`);
+    else report(false, `${rel} — インストール先で改変`);
+  }
+  for (const rel of Object.keys(m.files || {})) {
+    if (!rels.includes(rel)) report(false, `${rel} — payload から削除済み(update で刈り込み)`);
+  }
+
+  // リンク・環境断片
+  for (const l of desiredLinks(ctx)) {
+    const st = lstatOrNull(l.link);
+    const okc = !!st && st.isSymbolicLink() &&
+      (fs.readlinkSync(l.link) === linkValue(ctx, l) ||
+        path.resolve(path.dirname(l.link), fs.readlinkSync(l.link)) === l.target);
+    report(okc, `link ${l.link}`);
+  }
+  if (ctx.zshenv) report(zshenvState(ctx) === 'ok', `zshenv 管理行`);
+  const st = settingsState(ctx);
+  report(st.bashEnv, `settings env.BASH_ENV`);
+  report(st.sessionStart, `settings hooks.SessionStart`);
+  report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
+
+  console.log(drift === 0 ? '\n乖離なし' : `\n乖離 ${drift} 件`);
+  if (drift > 0) process.exitCode = 1;
+}
+
+// ---------------------------------------------------------------- main
+
+function parseArgs(argv) {
+  const opts = { project: null, force: false };
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--project') opts.project = argv[++i] ?? '.';
+    else if (a === '--force') opts.force = true;
+    else rest.push(a);
+  }
+  return { cmd: rest[0], opts };
+}
+
+function main() {
+  const { cmd, opts } = parseArgs(process.argv.slice(2));
+  switch (cmd) {
+    case 'install': return install(opts);
+    case 'update': return install(opts, { requireExisting: true });
+    case 'uninstall': return uninstall(opts);
+    case 'status': return status(opts);
+    default:
+      console.log(`使い方: agents-setup <install|update|uninstall|status> [--project <dir>] [--force]
+
+  install    payload/ を .agents/ へ配布し、リンクと環境断片を冪等に設定する
+  update     install と同じ + 既存 manifest を要求し、payload から消えた配布物を刈り込む
+  uninstall  自分が置いたもの(ハッシュ一致)だけを除去する。自前スキル・改変には触れない
+  status     manifest・payload・実体・リンク・環境断片を照合し、乖離を報告する(乖離時 exit 1)
+
+  --project <dir>  プロジェクトレベル(<dir>/.agents)を対象にする。省略時はユーザーレベル(~/.agents)
+  --force          インストール先で改変されたファイルも payload の内容で上書きする`);
+      process.exitCode = cmd ? 1 : 0;
+  }
+}
+
+try {
+  main();
+} catch (e) {
+  console.error(`エラー: ${e.message}`);
+  process.exit(1);
+}
