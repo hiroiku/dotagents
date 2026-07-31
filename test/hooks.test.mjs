@@ -11,7 +11,7 @@ const HOOK = path.join(REPO, 'payload', 'hooks', 'beads-session.sh');
 const CLI = path.join(REPO, 'bin', 'agents-setup');
 
 const BASE_PATH = '/usr/bin:/bin'; // bd も codegraph も見えない素の PATH
-const localToday = () => new Intl.DateTimeFormat('sv-SE').format(new Date());
+const utcToday = () => new Date().toISOString().slice(0, 10); // 計器は UTC で日付を揃える
 
 function runHook({ cwd, stubDir }) {
   return execFileSync('/bin/bash', [HOOK], {
@@ -26,7 +26,7 @@ function makeBdStub() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-hookstub-'));
   fs.writeFileSync(path.join(dir, 'bd'), `#!/bin/sh
 case "$*" in
-  *"--status open"*)        echo '[{"id":"x-1","created":"${localToday()}T05:00:00Z"},{"id":"x-2","created":"2026-07-30T05:00:00Z"}]' ;;
+  *"--status open"*)        echo '[{"id":"x-1","created":"${utcToday()}T00:00:01Z"},{"id":"x-2","created":"2026-06-30T05:00:00Z"}]' ;;
   *"--status in_progress"*) echo '[]' ;;
   *) echo '[]' ;;
 esac
@@ -52,7 +52,7 @@ test('hook: 計器は dotagents の領分(.agents)に日次で 1 回記録し、
   execFileSync(process.execPath, [CLI, 'install', '--project', proj], { encoding: 'utf8' });
   fs.mkdirSync(path.join(proj, '.beads'));
   const metrics = path.join(proj, '.agents', 'dotagents-metrics.jsonl');
-  fs.writeFileSync(metrics, JSON.stringify({ date: '2026-07-31', open: 160, in_progress: 7, inflow_open: 22 }) + '\n');
+  fs.writeFileSync(metrics, JSON.stringify({ date: '2026-07-01', open: 160, in_progress: 7, inflow_open: 22 }) + '\n');
   const stub = makeBdStub();
   const installedHook = path.join(proj, '.agents', 'hooks', 'beads-session.sh');
 
@@ -64,7 +64,7 @@ test('hook: 計器は dotagents の領分(.agents)に日次で 1 回記録し、
   });
 
   const out = runInstalled();
-  assert.match(out, /bd 計器: open 2 \(前回 2026-07-31 比 -158\)/);
+  assert.match(out, /bd 計器: open 2 \(前回 2026-07-01 比 -158\)/);
   assert.match(out, /本日起票の未消化 1 件/);
   assert.equal(fs.readFileSync(metrics, 'utf8').trim().split('\n').length, 2, '当日分が 1 行追記される');
   assert.ok(!fs.existsSync(path.join(proj, '.beads', 'dotagents-metrics.jsonl')), 'bd の領分(.beads)には書かない');

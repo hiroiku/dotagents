@@ -56,7 +56,8 @@ try:
     inprogs = json.loads(raw[1] or "[]") if len(raw) > 1 else []
 except Exception:
     raise SystemExit
-today = datetime.date.today().isoformat()
+# bd の created は UTC(Z 付き)。日付の突き合わせもバケツも UTC で揃える
+today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
 created = lambda i: (i.get("created") or i.get("created_at") or "")[:10]
 rec = {
     "date": today,
