@@ -141,6 +141,7 @@ function linkValue(ctx, l) {
 
 // ---------------------------------------------------------------- symlinks
 
+// 戻り値: 'created'(自分が張った)/ 'exists'(同じ到達先が既にある)/ 'conflict'
 function ensureLink(ctx, l, log) {
   const want = linkValue(ctx, l);
   const st = lstatOrNull(l.link);
@@ -149,21 +150,24 @@ function ensureLink(ctx, l, log) {
       const cur = fs.readlinkSync(l.link);
       if (cur === want || path.resolve(path.dirname(l.link), cur) === l.target) {
         log.ok(`link ${l.link}`);
-        return true;
+        return 'exists';
       }
       log.warn(`link 競合(別の場所を指す symlink。触れません): ${l.link} -> ${cur}`);
-      return false;
+      return 'conflict';
     }
     log.warn(`link 競合(既存の実体があります。触れません): ${l.link}`);
-    return false;
+    return 'conflict';
   }
   fs.mkdirSync(path.dirname(l.link), { recursive: true });
   fs.symlinkSync(want, l.link);
   log.add(`link ${l.link} -> ${want}`);
-  return true;
+  return 'created';
 }
 
+// 消してよいのは自分が張った(created: true の)リンクだけ。
+// インストール前から存在した同内容のリンクはユーザーの持ち物であり、触れない。
 function removeLink(ctx, l, log) {
+  if (l.created !== true) return;
   const st = lstatOrNull(l.link);
   if (!st || !st.isSymbolicLink()) return;
   const cur = fs.readlinkSync(l.link);
@@ -229,7 +233,8 @@ function applySettings(ctx, oldFragments, log) {
     changed = true;
     log.add(`settings env.BASH_ENV`);
   } else if (s.env.BASH_ENV === defs.bashEnv) {
-    owned.bashEnv = true;
+    // インストール前から同じ値があった場合はユーザーの持ち物。前回の所有記録だけ引き継ぐ
+    owned.bashEnv = oldFragments?.bashEnv === true;
     log.ok(`settings env.BASH_ENV`);
   } else {
     log.warn(`settings env.BASH_ENV は別の値が設定済みです。触れません: ${s.env.BASH_ENV}`);
@@ -241,7 +246,7 @@ function applySettings(ctx, oldFragments, log) {
   const hasSession = s.hooks.SessionStart.some((m) =>
     (m.hooks || []).some((h) => (h.command || '').includes(defs.sessionStart)));
   if (hasSession) {
-    owned.sessionStart = true;
+    owned.sessionStart = oldFragments?.sessionStart === true;
     log.ok(`settings hooks.SessionStart`);
   } else {
     s.hooks.SessionStart.push({ hooks: [{ type: 'command', command: defs.sessionStart }] });
@@ -387,13 +392,19 @@ function install(opts, { requireExisting = false } = {}) {
     }
   }
 
-  // 3. リンク(旧リンクの刈り込み → 現リンクの保証)
+  // 3. リンク(旧リンクの刈り込み → 現リンクの保証)。
+  // 所有権は「自分が張った」事実で決まり、再 install では前回の記録を引き継ぐ。
   const links = desiredLinks(ctx);
   const linkSet = new Set(links.map((l) => l.link));
+  const oldLinks = new Map((old?.links || []).map((l) => [l.link, l]));
   for (const l of old?.links || []) {
     if (!linkSet.has(l.link)) removeLink(ctx, l, log);
   }
-  for (const l of links) ensureLink(ctx, l, log);
+  const linkRecords = links.map((l) => {
+    const r = ensureLink(ctx, l, log);
+    const created = r === 'created' ? true : oldLinks.get(l.link)?.created === true;
+    return { ...l, created };
+  });
 
   // 4. 環境断片
   ensureZshenvLine(ctx, log);
@@ -409,7 +420,7 @@ function install(opts, { requireExisting = false } = {}) {
     installedAt: new Date().toISOString(),
     files,
     skills: ownedSkillNames(),
-    links,
+    links: linkRecords,
     fragments,
   });
 
