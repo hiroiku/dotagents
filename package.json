@@ -6,6 +6,9 @@
   "bin": {
     "agents-setup": "bin/agents-setup"
   },
+  "scripts": {
+    "test": "node --test"
+  },
   "files": [
     "bin",
     "payload"
