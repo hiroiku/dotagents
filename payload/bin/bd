@@ -4,13 +4,13 @@
 # 強制するのは 3 点。いずれも argv と実環境変数の構造判定のみで、封鎖ではなく確認である。
 # 絶対パスや `command bd` による迂回は、承認変数と同様に監査可能な明示的選択として扱う。
 #
-#   1. BD_READONLY=1 のシェルでは --readonly を強制する(bd 書き込みを委譲されていない
+#   1. AGENTS_BD_READONLY=1 のシェルでは --readonly を強制する(bd 書き込みを委譲されていない
 #      サブエージェントの書き込み禁止を、規律ではなく bd ネイティブ機能で守る)。
-#   2. `bd remember`(全セッション共有 memory への書き込み)は BD_MEMO_OK=1 が無ければ止める。
+#   2. `bd remember`(全セッション共有 memory への書き込み)は AGENTS_BD_MEMO_OK=1 が無ければ止める。
 #   3. `bd create` / `bd new` は、argv に消化の経路(--parent / --defer)が無い open 起票を
-#      BD_OPEN_OK=1 が無ければ止める(「観測を既定で open にしない」の強制則化)。
+#      AGENTS_BD_OPEN_OK=1 が無ければ止める(「観測を既定で open にしない」の強制則化)。
 
-if [ "${BD_READONLY:-}" = "1" ]; then
+if [ "${AGENTS_BD_READONLY:-}" = "1" ]; then
   set -- --readonly "$@"
 fi
 
@@ -29,22 +29,22 @@ done
 
 case "$subcmd" in
   remember)
-    if [ -z "${BD_MEMO_OK:-}" ]; then
+    if [ -z "${AGENTS_BD_MEMO_OK:-}" ]; then
       echo "bd remember は全セッション共有の memory への書き込みです。" >&2
-      echo "ユーザーに内容を提示して確認を得てから、BD_MEMO_OK=1 を付けて再実行してください:" >&2
-      echo "  BD_MEMO_OK=1 bd $*" >&2
+      echo "ユーザーに内容を提示して確認を得てから、AGENTS_BD_MEMO_OK=1 を付けて再実行してください:" >&2
+      echo "  AGENTS_BD_MEMO_OK=1 bd $*" >&2
       exit 2
     fi
     ;;
   create|new)
-    if [ -z "$has_path" ] && [ -z "${BD_OPEN_OK:-}" ]; then
+    if [ -z "$has_path" ] && [ -z "${AGENTS_BD_OPEN_OK:-}" ]; then
       echo "消化の経路の無い起票です。open は「やると決めた」の宣言であり、観測の置き場ではありません。" >&2
       echo "次のいずれかで再実行してください:" >&2
       echo "  - スコープ内の派生       → --parent <親ID>" >&2
       echo "  - 条件・期日が実在する   → --defer <日付>" >&2
       echo "  - 記録だけ残す           → 起票して即 close(下の宣言をした上で)" >&2
       echo "  - 同型が既にある         → 起票せず既存 issue へ関係で合流" >&2
-      echo "  - やると決めた           → BD_OPEN_OK=1 bd $*" >&2
+      echo "  - やると決めた           → AGENTS_BD_OPEN_OK=1 bd $*" >&2
       exit 2
     fi
     ;;

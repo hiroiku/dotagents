@@ -2,7 +2,7 @@
 # git enforcement ラッパー。hooks/shellenv.sh が git をシェル関数として定義し、ここへ委譲する。
 #
 # 強制するのは 1 点だけ: `git merge` は merge-slot(統合の排他)保持の宣言
-# MERGE_SLOT_OK=1 が無ければ実行しない。宣言がある場合、bd が使える環境では
+# AGENTS_MERGE_SLOT_OK=1 が無ければ実行しない。宣言がある場合、bd が使える環境では
 # `bd merge-slot check --json` で事実(実際の保持者)と突き合わせる:
 #   - 保持者が別 actor と確定       → 止める(fail-closed)
 #   - slot が未取得と確定           → 止める(acquire を促す)
@@ -34,10 +34,10 @@ done
 
 [ "$subcmd" = "merge" ] || real_git "$@"
 
-if [ "${MERGE_SLOT_OK:-}" != "1" ]; then
+if [ "${AGENTS_MERGE_SLOT_OK:-}" != "1" ]; then
   echo "git merge には merge-slot(統合の排他)の保持が必要です。" >&2
   echo "bd merge-slot acquire で取得し、保持を宣言して再実行してください:" >&2
-  echo "  MERGE_SLOT_OK=1 git $*" >&2
+  echo "  AGENTS_MERGE_SLOT_OK=1 git $*" >&2
   exit 2
 fi
 
@@ -64,7 +64,7 @@ else:
       exit 2
       ;;
     not-acquired)
-      echo "merge-slot は未取得です(MERGE_SLOT_OK=1 の宣言と事実が食い違います)。" >&2
+      echo "merge-slot は未取得です(AGENTS_MERGE_SLOT_OK=1 の宣言と事実が食い違います)。" >&2
       echo "bd merge-slot acquire で取得してから再実行してください。" >&2
       exit 2
       ;;

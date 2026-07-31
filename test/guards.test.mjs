@@ -24,7 +24,7 @@ function makeStubs({ bdJson } = {}) {
 function run(cmd, args, env = {}, stubDir) {
   const base = { ...process.env, PATH: `${stubDir}${path.delimiter}${process.env.PATH}` };
   delete base.CLAUDECODE; delete base.CLAUDE_CODE; delete base.CODEX_HOME; delete base.CODEX_SANDBOX;
-  delete base.BD_OPEN_OK; delete base.BD_MEMO_OK; delete base.BD_READONLY; delete base.MERGE_SLOT_OK;
+  delete base.AGENTS_BD_OPEN_OK; delete base.AGENTS_BD_MEMO_OK; delete base.AGENTS_BD_READONLY; delete base.AGENTS_MERGE_SLOT_OK;
   try {
     return { code: 0, out: execFileSync(cmd, args, { env: { ...base, ...env }, encoding: 'utf8' }) };
   } catch (e) {
@@ -32,25 +32,25 @@ function run(cmd, args, env = {}, stubDir) {
   }
 }
 
-test('bd: 消化の経路の無い create は止まり、経路か BD_OPEN_OK で通る', () => {
+test('bd: 消化の経路の無い create は止まり、経路か AGENTS_BD_OPEN_OK で通る', () => {
   const stub = makeStubs();
   assert.equal(run(BD, ['create', '観測'], {}, stub).code, 2);
   assert.equal(run(BD, ['new', '観測'], {}, stub).code, 2, 'alias new も同じ');
   assert.match(run(BD, ['create', '子', '--parent', 'x-1'], {}, stub).out, /REAL-BD: create/);
   assert.match(run(BD, ['create', '後で', '--defer', '+1w'], {}, stub).out, /REAL-BD: create/);
-  assert.match(run(BD, ['create', '決定'], { BD_OPEN_OK: '1' }, stub).out, /REAL-BD: create/);
+  assert.match(run(BD, ['create', '決定'], { AGENTS_BD_OPEN_OK: '1' }, stub).out, /REAL-BD: create/);
   assert.match(run(BD, ['list'], {}, stub).out, /REAL-BD: list/, 'create 以外は素通り');
 });
 
-test('bd: remember は BD_MEMO_OK が無ければ止まる', () => {
+test('bd: remember は AGENTS_BD_MEMO_OK が無ければ止まる', () => {
   const stub = makeStubs();
   assert.equal(run(BD, ['remember', 'x'], {}, stub).code, 2);
-  assert.match(run(BD, ['remember', 'x'], { BD_MEMO_OK: '1' }, stub).out, /REAL-BD: remember/);
+  assert.match(run(BD, ['remember', 'x'], { AGENTS_BD_MEMO_OK: '1' }, stub).out, /REAL-BD: remember/);
 });
 
-test('bd: BD_READONLY=1 は --readonly を強制する', () => {
+test('bd: AGENTS_BD_READONLY=1 は --readonly を強制する', () => {
   const stub = makeStubs();
-  assert.match(run(BD, ['list'], { BD_READONLY: '1' }, stub).out, /REAL-BD: --readonly list/);
+  assert.match(run(BD, ['list'], { AGENTS_BD_READONLY: '1' }, stub).out, /REAL-BD: --readonly list/);
 });
 
 test('git-guard: エージェントセッション以外は merge も透過', () => {
@@ -58,14 +58,14 @@ test('git-guard: エージェントセッション以外は merge も透過', ()
   assert.match(run(GIT_GUARD, ['merge', 'f'], {}, stub).out, /REAL-GIT: merge f/);
 });
 
-test('git-guard: エージェントの merge は MERGE_SLOT_OK が無ければ止まり、merge 以外は透過', () => {
+test('git-guard: エージェントの merge は AGENTS_MERGE_SLOT_OK が無ければ止まり、merge 以外は透過', () => {
   const stub = makeStubs();
   assert.equal(run(GIT_GUARD, ['merge', 'f'], { CLAUDECODE: '1' }, stub).code, 2);
   assert.match(run(GIT_GUARD, ['status'], { CLAUDECODE: '1' }, stub).out, /REAL-GIT: status/);
 });
 
 test('git-guard: 宣言と事実の突き合わせ(bd 照合)', () => {
-  const env = { CLAUDECODE: '1', MERGE_SLOT_OK: '1', BEADS_ACTOR: 'mgr-me' };
+  const env = { CLAUDECODE: '1', AGENTS_MERGE_SLOT_OK: '1', BEADS_ACTOR: 'mgr-me' };
   const held = makeStubs({ bdJson: '{"available": false, "holder": "other", "id": "x-merge-slot"}' });
   assert.equal(run(GIT_GUARD, ['merge', 'f'], env, held).code, 2, '別 actor 保持は止まる');
   const free = makeStubs({ bdJson: '{"available": true, "holder": null, "id": "x-merge-slot"}' });

@@ -42,6 +42,6 @@ issue への着手前に、その合格条件と前提が現状でも成り立�
 - `BEADS_ACTOR` / `BEADS_ISSUE_ID`(Beads の actor 名と issue ID)の値を明記する。branch / worktree はこの値から命名する:
   - branch: `{BEADS_ACTOR}/{BEADS_ISSUE_ID}`、派生 branch: `{BEADS_ACTOR}/{BEADS_ISSUE_ID}-*`
   - worktree: `{BEADS_ISSUE_ID}`、派生 worktree: `{BEADS_ISSUE_ID}-*`
-- `サブエージェント` のシェルには `BD_READONLY=1` を与える(bd への書き込みは機構で禁止される。読み取りは通常どおり)。
+- `サブエージェント` のシェルには `AGENTS_BD_READONLY=1` を与える(bd への書き込みは機構で禁止される。読み取りは通常どおり)。
 - 範囲変更・設計方針の転換・重大リスク・要ユーザー承認は `マネージャー` に戻すことを明記する。範囲外の問題は修正させず報告のみ。
 - 報告スキーマ(合格条件ごとの実装・検証の対応と再実行手順)を指定する。形式は agents-quality-loop の `検証とレビューの入力` にある。
