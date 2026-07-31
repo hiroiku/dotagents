@@ -1,0 +1,74 @@
+#!/bin/sh
+# git enforcement ラッパー。hooks/shellenv.sh が git をシェル関数として定義し、ここへ委譲する。
+#
+# 強制するのは 1 点だけ: `git merge` は merge-slot(統合の排他)保持の宣言
+# MERGE_SLOT_OK=1 が無ければ実行しない。宣言がある場合、bd が使える環境では
+# `bd merge-slot check --json` で事実(実際の保持者)と突き合わせる:
+#   - 保持者が別 actor と確定       → 止める(fail-closed)
+#   - slot が未取得と確定           → 止める(acquire を促す)
+#   - bd 不在・応答不能・状態不明   → 宣言のみで通す(fail-open)
+#
+# エージェントセッション(実環境変数のマーカーで判定)以外のシェルでは完全に透過。
+# 判定は argv と実環境変数のみ。迂回(command git / 絶対パス)は監査可能な明示的選択。
+
+real_git() {
+  if ! command -v git >/dev/null 2>&1; then
+    echo "git が見つかりません。" >&2
+    exit 127
+  fi
+  exec git "$@"
+}
+
+# エージェントセッションでなければ透過
+[ -n "${CLAUDECODE:-}${CLAUDE_CODE:-}${CODEX_HOME:-}${CODEX_SANDBOX:-}" ] || real_git "$@"
+
+# 最初の非フラグ引数をサブコマンドとみなす(値付きグローバルフラグでずれる場合は素通り)
+subcmd=""
+for arg in "$@"; do
+  case "$arg" in
+    --) break ;;
+    -*) ;;
+    *) subcmd="$arg"; break ;;
+  esac
+done
+
+[ "$subcmd" = "merge" ] || real_git "$@"
+
+if [ "${MERGE_SLOT_OK:-}" != "1" ]; then
+  echo "git merge には merge-slot(統合の排他)の保持が必要です。" >&2
+  echo "bd merge-slot acquire で取得し、保持を宣言して再実行してください:" >&2
+  echo "  MERGE_SLOT_OK=1 git $*" >&2
+  exit 2
+fi
+
+# 宣言と事実の突き合わせ(可能な環境でのみ)
+if command -v bd >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  verdict=$(bd merge-slot check --json 2>/dev/null | python3 -c '
+import json, os, sys
+try:
+    s = json.load(sys.stdin)
+except Exception:
+    print("unknown"); raise SystemExit
+holder = s.get("holder")
+actor = os.environ.get("BEADS_ACTOR")
+if holder and actor and holder != actor:
+    print("held-by-other:" + str(holder))
+elif s.get("available") is True:
+    print("not-acquired")
+else:
+    print("ok")
+' 2>/dev/null) || verdict="unknown"
+  case "$verdict" in
+    held-by-other:*)
+      echo "merge-slot は別の actor(${verdict#held-by-other:})が保持しています。解放を待ってください。" >&2
+      exit 2
+      ;;
+    not-acquired)
+      echo "merge-slot は未取得です(MERGE_SLOT_OK=1 の宣言と事実が食い違います)。" >&2
+      echo "bd merge-slot acquire で取得してから再実行してください。" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+real_git "$@"

@@ -16,10 +16,13 @@ fi
 
 case "$_agents_src" in
   */hooks/*)
-    _agents_wrapper="${_agents_src%/hooks/*}/bin/bd"
-    if [ -x "$_agents_wrapper" ]; then
-      eval "bd() { \"$_agents_wrapper\" \"\$@\"; }"
+    _agents_bin="${_agents_src%/hooks/*}/bin"
+    if [ -x "$_agents_bin/bd" ]; then
+      eval "bd() { \"$_agents_bin/bd\" \"\$@\"; }"
+    fi
+    if [ -x "$_agents_bin/git-guard" ]; then
+      eval "git() { \"$_agents_bin/git-guard\" \"\$@\"; }"
     fi
     ;;
 esac
-unset _agents_src _agents_wrapper
+unset _agents_src _agents_bin
