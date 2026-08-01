@@ -49,7 +49,7 @@ root=$(cd "$hookdir/.." && pwd)
 kind=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('kind',''))" "$root/.dotagents.json" 2>/dev/null)
 [ "$kind" = "project" ] || exit 0
 
-{ bd list --status open --json 2>/dev/null; echo '@@'; bd list --status in_progress --json 2>/dev/null; } | python3 -c '
+{ bd list --status open --json 2>/dev/null; echo '@@'; bd list --status in_progress --json 2>/dev/null; echo '@@'; bd list --deferred --defer-before +0h --json 2>/dev/null; } | python3 -c '
 import json, sys, datetime, os
 
 raw = sys.stdin.read().split("@@")
@@ -58,6 +58,10 @@ try:
     inprogs = json.loads(raw[1] or "[]") if len(raw) > 1 else []
 except Exception:
     raise SystemExit
+try:
+    defers = json.loads(raw[2] or "[]") if len(raw) > 2 else []
+except Exception:
+    defers = []
 # bd の created は UTC(Z 付き)。日付の突き合わせもバケツも UTC で揃える
 today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
 created = lambda i: (i.get("created") or i.get("created_at") or "")[:10]
@@ -88,5 +92,29 @@ n_open, n_inprog, n_inflow = rec["open"], rec["in_progress"], rec["inflow_open"]
 print()
 print(f"bd 計器: open {n_open} {delta} / in_progress {n_inprog} / 本日起票の未消化 {n_inflow} 件。"
       f"open が増え続けているなら収束規則が敗けている — 観測した時点で対処を判断する。")
+
+# 回収の入口: 動きの無い open(stale)と期日の来た defer を可視化する(判断は遍在規則に従う)
+def upd(i):
+    t = i.get("updated") or i.get("updated_at") or ""
+    try:
+        return datetime.datetime.fromisoformat(t.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+now = datetime.datetime.now(datetime.timezone.utc)
+stale = sorted(
+    [(i, upd(i)) for i in opens if upd(i) and (now - upd(i)).days >= 14],
+    key=lambda p: p[1],
+)[:3]
+parts = []
+if stale:
+    labels = []
+    for i, t in stale:
+        iid, days = i["id"], (now - t).days
+        labels.append(f"{iid}({days}日)")
+    parts.append("stale(14日以上動きなし)上位: " + ", ".join(labels))
+if defers:
+    parts.append("defer 期日到来: " + ", ".join(d["id"] for d in defers[:5]))
+if parts:
+    print("bd 回収: " + " / ".join(parts) + "。動きの無い open は乖離 — 昇格・defer・close のどれかへ動かす。")
 ' "$root" 2>/dev/null
 exit 0
