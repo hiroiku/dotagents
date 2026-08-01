@@ -30,7 +30,7 @@ description: bd(Beads)の運用細則。セッション開始時の残置処分�
 
 ## 一括の書き込み
 
-bd(台帳と memory)は worktree 分割で守れないもう 1 つの合流点であり、一括の書き込みは merge-slot 保持中か、起票して claim した cleanup issue の中で行う。slot bead が無いプロジェクトでは、最初の並列運用を始める前に `bd merge-slot create` で作る。merge-slot の取得・解放は必ず `bd merge-slot acquire / release` で行う。slot issue への `--claim` は保持にならない — ネイティブの保持者(metadata.holder)が設定されず、`git merge` ガードの照合(`AGENTS_MERGE_SLOT_OK=1` の宣言と `bd merge-slot check` の保持者の突き合わせ)が素通りになる。
+bd(台帳と memory)は worktree 分割で守れないもう 1 つの合流点であり、一括の書き込みは merge-slot 保持中か、起票して claim した cleanup issue の中で行う。slot bead が無いプロジェクトでは、最初の並列運用を始める前に `bd merge-slot create` で作る。merge-slot の取得・解放は必ず `bd merge-slot acquire / release` で行う。slot bead(`gt:slot` ラベル、P0)は bd の設計として一覧にも ready にも見える — 状態表示(open = 空き)であって作業ではないので、拾わない。slot issue への `--claim` は保持にならない — ネイティブの保持者(metadata.holder)が設定されず、`git merge` ガードの照合(`AGENTS_MERGE_SLOT_OK=1` の宣言と `bd merge-slot check` の保持者の突き合わせ)が素通りになる。
 
 ## merge-ready の定義
 
