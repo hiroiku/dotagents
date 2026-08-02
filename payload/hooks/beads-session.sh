@@ -70,12 +70,6 @@ rec = {
     "open": len(opens),
     "in_progress": len(inprogs),
     "inflow_open": sum(1 for i in opens + inprogs if created(i) == today),
-    # 足場修理の占有(ラベルからの導出)。この数字が主流になっているなら、
-    # 検査の修理が仕事を食っている — 存在資格の審査(agents-test-design)へ
-    "meta_inprog": sum(
-        1 for i in inprogs
-        if any(str(l).startswith("context/test-health") for l in (i.get("labels") or []))
-    ),
 }
 path = os.path.join(sys.argv[1], "dotagents-metrics.jsonl")
 hist = []
@@ -94,10 +88,9 @@ if prev:
     delta = f"(前回 {prev_date} 比 {diff:+d})"
 else:
     delta = "(初回記録)"
-n_open, n_inprog, n_inflow, n_meta = rec["open"], rec["in_progress"], rec["inflow_open"], rec["meta_inprog"]
-ip = f"in_progress {n_inprog}(うち検査基盤の修理 {n_meta})" if n_meta else f"in_progress {n_inprog}"
+n_open, n_inprog, n_inflow = rec["open"], rec["in_progress"], rec["inflow_open"]
 print()
-print(f"bd 計器: open {n_open} {delta} / {ip} / 本日起票の未消化 {n_inflow} 件。"
+print(f"bd 計器: open {n_open} {delta} / in_progress {n_inprog} / 本日起票の未消化 {n_inflow} 件。"
       f"open が増え続けているなら収束規則が敗けている — 観測した時点で対処を判断する。")
 
 # 回収の入口: 動きの無い open(stale)と期日の来た defer を可視化する(判断は遍在規則に従う)
