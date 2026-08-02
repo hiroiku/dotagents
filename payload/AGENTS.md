@@ -15,7 +15,7 @@
 | 起票を伴う作業(軽量パス外)の着手前 | `skills/agents-kickoff/SKILL.md` |
 | 品質ループの運転(委譲・レビュー・トリアージ・統合・完了判定・報告)の前 | `skills/agents-quality-loop/SKILL.md` |
 | セッション開始時の bd 残置処分、bd の一括操作・トリアージ・ラベル・test-health・memory の整備 | `skills/agents-beads-ops/SKILL.md` |
-| テストの置き場所と固定対象の判断 | `skills/agents-test-design/SKILL.md` |
+| テスト・検査・監視・ガードを作る / 直すとき(置き場所と固定対象の判断) | `skills/agents-test-design/SKILL.md` |
 | プロンプトやエージェント定義の更新 | `docs/prompt-guidelines.md` |
 
 </principle>
