@@ -18,7 +18,7 @@ every session start detect and report what is missing.
 
 ```sh
 # Get (once): the corpus lands as a git repository you own and edit
-npx dotagents clone ~/dotagents
+npx @hiroiku/dotagents clone ~/dotagents
 
 # Deploy: pick a target explicitly, or omit it to choose interactively
 ~/dotagents/bin/agents-setup install project /path/to/project   # one project (<dir>/.agents)

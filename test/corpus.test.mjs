@@ -93,7 +93,7 @@ test('正本の外では配備しない: 既知の正本へ委譲し、無けれ
   const orphanHome = tmp('dotagents-home-');
   const guided = run(cachedCli, ['status', 'user'], { env: { HOME: orphanHome } });
   assert.equal(guided.code, 1, '正本が無ければ配備系は止まる');
-  assert.match(guided.out, /npx dotagents clone/, 'clone への案内を出す');
+  assert.match(guided.out, /npx @hiroiku\/dotagents clone/, 'clone への案内を出す');
 
   const knownHome = tmp('dotagents-home-');
   fs.mkdirSync(path.join(knownHome, '.agents'), { recursive: true });

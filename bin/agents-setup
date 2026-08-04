@@ -1151,7 +1151,7 @@ function delegateToCorpus(argv) {
   }
   throw new Error('this copy is disposable (npx cache or tarball), not an editable corpus.\n' +
     '       Get one first, then deploy from it:\n' +
-    '         npx dotagents clone <dir>\n' +
+    '         npx @hiroiku/dotagents clone <dir>\n' +
     `         <dir>/bin/agents-setup install user | project [dir] | shell`);
 }
 
@@ -1238,9 +1238,9 @@ const CMD_HELP = {
       'asked interactively — never defaulted.',
     ],
     options: [['--from <url|path>', 'clone from an explicit source instead of the published repository']],
-    notes: ['A clone is for editing and following. `npx dotagents clone` is the one command that works outside a corpus.'],
+    notes: ['A clone is for editing and following. `npx @hiroiku/dotagents clone` is the one command that works outside a corpus.'],
     examples: [
-      ['npx dotagents clone ~/dotagents', 'get the corpus next to your dotfiles'],
+      ['npx @hiroiku/dotagents clone ~/dotagents', 'get the corpus next to your dotfiles'],
       ['dotagents clone x --from /path/to/repo', 'clone a local fork'],
     ],
   },
