@@ -6,3 +6,7 @@ node_modules/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# 導出物(器官の index・ブラウザの作業痕)
+.codegraph/
+.playwright-mcp/
