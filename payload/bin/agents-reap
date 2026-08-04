@@ -1,0 +1,188 @@
+#!/bin/bash
+# git 在庫(branch / worktree)を bd と突き合わせて分類し、回収する。
+# 「worktree の存在は作業進行中の宣言」を機械で検査する — issue の生きていない在庫は乖離である。
+# 回収を完了時のエピローグに置くと、そこへ到達しなかったセッションの残骸が必ず漏れる。
+# この道具はセッションの入口で在庫をゼロ近傍へ戻すためにある。
+#
+# 分類(各行: 分類  対象  根拠):
+#   keep         issue が生きている(closed 以外: open / in_progress / merge-ready / deferred)
+#   reap         機械回収可: clean で、統合ブランチへ取り込み済み(ancestry)、
+#                または issue の終わった・紐づかない補助 worktree(detached)
+#   reap-closed  issue は closed だが squash 統合のため ancestry では取り込みを確認できない branch
+#   surface      機械では判断しない: 未 commit の変更が残る、または issue に紐づかず取り込みも確認できない
+#
+# 既定は報告のみ。--apply が reap を、--apply-closed が reap-closed も回収する。
+# surface は回収しない — 内容を確認し、残す成果はコミット・指摘リスト・bd へ移してから破棄する。
+# 保護: 統合ブランチ(--base)・develop / main / master / staging・checkout 中の branch には触れない。
+
+usage() {
+  echo "使い方: agents-reap [--base <統合ブランチ>] [--apply] [--apply-closed]" >&2
+  exit 64
+}
+
+base="" apply=0 apply_closed=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base)         base="$2"; shift 2 ;;
+    --apply)        apply=1; shift ;;
+    --apply-closed) apply_closed=1; shift ;;
+    *) usage ;;
+  esac
+done
+
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "git リポジトリではない(worktree の中で実行する)" >&2; exit 64; }
+cd "$(git rev-parse --show-toplevel)" || exit 64
+
+if [ -z "$base" ]; then
+  for b in develop main master; do
+    git show-ref -q --verify "refs/heads/$b" && { base="$b"; break; }
+  done
+fi
+[ -n "$base" ] || { echo "統合ブランチを特定できない(--base で指定する)" >&2; exit 64; }
+
+cur=$(git branch --show-current)
+protected=" $base develop main master staging $cur "
+
+has_bd=0
+command -v bd >/dev/null 2>&1 && [ -d .beads ] && has_bd=1
+
+# 台帳 prefix。issue ID は「{prefix}-{接尾}」なので、`review-95vvp` のような
+# 補助 worktree 名から issue を照合するときの結合に使う(issues.jsonl は bd の書き出し)。
+prefix=""
+if [ -f .beads/issues.jsonl ]; then
+  prefix=$(head -50 .beads/issues.jsonl | grep -oE '"id" *: *"[^"]+"' | head -1 \
+    | sed -E 's/.*"([^"]+)"$/\1/; s/\.[0-9]+$//; s/-[a-z0-9]+$//')
+fi
+
+# 名前 → 「issue-id status」。branch / worktree の命名規則(kickoff)から issue を導出する:
+# そのままの名前 → 接尾を 1 節ずつ落とす(派生 branch `{issue}-*`)→ prefix と結合(補助 worktree)。
+issue_status() {
+  [ "$has_bd" = 1 ] || return 1
+  local names=("$1") cand st rest
+  if [ -n "$prefix" ]; then
+    rest="${1#*-}"
+    [ "$rest" != "$1" ] && names+=("$prefix-$rest" "$prefix-${1##*-}")
+  fi
+  for cand in "${names[@]}"; do
+    while [ -n "$cand" ]; do
+      st=$(AGENTS_BD_READONLY=1 bd show "$cand" --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    j = json.load(sys.stdin)
+    j = j[0] if isinstance(j, list) else j
+    i, s = j.get("id"), j.get("status")
+    if i and s:
+        print(i, s)
+except Exception:
+    pass' 2>/dev/null)
+      [ -n "$st" ] && { echo "$st"; return 0; }
+      case "$cand" in *-*) cand="${cand%-*}" ;; *) break ;; esac
+    done
+  done
+  return 1
+}
+
+n_keep=0 n_reap=0 n_closed=0 n_surface=0
+reap_wt=() reap_br=() closed_wt=() closed_br=()
+seen_branches=" "
+
+keep()    { echo "keep         $1  $2"; n_keep=$((n_keep + 1)); }
+surface() { echo "surface      $1  $2"; n_surface=$((n_surface + 1)); }
+
+merged_into_base() { git merge-base --is-ancestor "$1" "refs/heads/$base" 2>/dev/null; }
+
+# --- worktree の分類(main worktree は除く) ---
+mainwt=$(git rev-parse --show-toplevel)
+while IFS=$'\t' read -r wpath whead wbranch; do
+  [ -n "$wpath" ] || continue
+  [ "$wpath" = "$mainwt" ] && continue
+  [ -n "$wbranch" ] && seen_branches="${seen_branches}${wbranch} "
+
+  if [ ! -d "$wpath" ]; then
+    reap_wt+=("$wpath"); echo "reap         worktree $wpath  実体が消えている(prune 対象)"; n_reap=$((n_reap + 1)); continue
+  fi
+
+  name=$(basename "$wpath")
+  st=$(issue_status "${wbranch##*/}") || st=$(issue_status "$name") || st=""
+  id="${st%% *}"; status="${st##* }"
+
+  # 生きている issue の worktree は dirty でも keep — 作業中の未 commit は正常であり、
+  # dirty が判断事項になるのは issue が終わった後(成果の逸失リスク)だけである。
+  if [ -n "$st" ] && [ "$status" != "closed" ]; then
+    keep "worktree $wpath" "issue が生きている($id: $status)"
+  elif [ -n "$(git -C "$wpath" status --porcelain 2>/dev/null | head -1)" ]; then
+    surface "worktree $wpath" "issue は終わっている(${st:-紐づけなし})のに未 commit の変更が残っている — 内容を確認し、成果を移してから回収か破棄"
+  elif [ -z "$wbranch" ]; then
+    reap_wt+=("$wpath")
+    if [ -n "$st" ]; then reason="$id: closed"; else reason="issue 紐づけなし"; fi
+    echo "reap         worktree $wpath  役目を終えた補助 worktree(detached、$reason)"
+    n_reap=$((n_reap + 1))
+  elif merged_into_base "$whead"; then
+    reap_wt+=("$wpath"); reap_br+=("$wbranch")
+    echo "reap         worktree $wpath + branch $wbranch  ${base} へ取り込み済み${st:+($id: closed)}"
+    n_reap=$((n_reap + 1))
+  elif [ "$status" = "closed" ]; then
+    closed_wt+=("$wpath"); closed_br+=("$wbranch")
+    echo "reap-closed  worktree $wpath + branch $wbranch  issue は closed($id)だが ${base} への取り込みを ancestry で確認できない(squash 統合の形)"
+    n_closed=$((n_closed + 1))
+  else
+    surface "worktree $wpath(branch $wbranch)" "issue に紐づかず、${base} への取り込みも確認できない"
+  fi
+done < <(git worktree list --porcelain | awk '
+  /^worktree /{p=substr($0, 10)}
+  /^HEAD /{h=$2}
+  /^branch /{b=$2; sub(/^refs\/heads\//, "", b)}
+  /^detached$/{b=""}
+  /^$/{print p "\t" h "\t" b; p=h=b=""}
+  END{if (p) print p "\t" h "\t" b}')
+
+# --- worktree を持たない branch の分類 ---
+while read -r br; do
+  [ -n "$br" ] || continue
+  case "$protected" in *" $br "*) continue ;; esac
+  case "$seen_branches" in *" $br "*) continue ;; esac
+
+  st=$(issue_status "${br##*/}") || st=""
+  id="${st%% *}"; status="${st##* }"
+
+  if [ -n "$st" ] && [ "$status" != "closed" ]; then
+    keep "branch $br" "issue が生きている($id: $status)"
+  elif merged_into_base "refs/heads/$br"; then
+    reap_br+=("$br")
+    echo "reap         branch $br  ${base} へ取り込み済み${st:+($id: closed)}"
+    n_reap=$((n_reap + 1))
+  elif [ "$status" = "closed" ]; then
+    closed_br+=("$br")
+    echo "reap-closed  branch $br  issue は closed($id)だが ${base} への取り込みを ancestry で確認できない(squash 統合の形)"
+    n_closed=$((n_closed + 1))
+  else
+    surface "branch $br" "issue に紐づかず、${base} への取り込みも確認できない"
+  fi
+done < <(git branch --format='%(refname:short)')
+
+# --- 回収の実行 ---
+fail=0
+remove_wt() { git worktree remove "$1" >/dev/null 2>&1 || { echo "NG  worktree remove: $1"; fail=$((fail + 1)); }; }
+remove_br() { git branch -D "$1" >/dev/null 2>&1 || { echo "NG  branch -D: $1"; fail=$((fail + 1)); }; }
+
+if [ "$apply" = 1 ] || [ "$apply_closed" = 1 ]; then
+  echo ""
+  for w in ${reap_wt+"${reap_wt[@]}"}; do remove_wt "$w"; done
+  for b in ${reap_br+"${reap_br[@]}"}; do remove_br "$b"; done
+  if [ "$apply_closed" = 1 ]; then
+    for w in ${closed_wt+"${closed_wt[@]}"}; do remove_wt "$w"; done
+    for b in ${closed_br+"${closed_br[@]}"}; do remove_br "$b"; done
+  fi
+  git worktree prune >/dev/null 2>&1
+  echo "回収済み: reap $((${#reap_wt[@]} + ${#reap_br[@]})) 件$([ "$apply_closed" = 1 ] && echo "、reap-closed $((${#closed_wt[@]} + ${#closed_br[@]})) 件")(失敗 $fail 件)"
+fi
+
+echo ""
+note=""
+[ "$has_bd" = 1 ] || note="(bd 不在のため issue 照合なし — ancestry のみで分類)"
+if [ "$apply" = 0 ] && [ "$apply_closed" = 0 ]; then
+  note="${note}(報告のみ。回収は --apply、closed 未取り込みは --apply-closed)"
+fi
+echo "reap: keep ${n_keep} / 回収可 ${n_reap} / closed 未取り込み ${n_closed} / 要確認 ${n_surface}${note}"
+[ "$fail" = 0 ] || exit 1
+exit 0

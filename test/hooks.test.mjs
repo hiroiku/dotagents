@@ -59,9 +59,27 @@ test('hook: bd はあるが台帳が未 init なら bd init を案内する', ()
   assert.match(out, /未 init(.|\n)*bd init/);
 });
 
+test('hook: git 在庫は閾値以上でだけ注入する(worktree 3 / branch 10)', () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-proj-'));
+  const git = (...args) =>
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: proj, encoding: 'utf8' });
+  git('init', '-q', '-b', 'develop');
+  git('commit', '-q', '--allow-empty', '-m', 'init');
+  assert.ok(!runHook({ cwd: proj }).includes('git 在庫'), '閾値未満は 0 トークン');
+
+  for (const n of ['a', 'b', 'c']) {
+    git('worktree', 'add', '-q', '--detach', path.join(proj, '.worktrees', n), 'HEAD');
+  }
+  assert.match(runHook({ cwd: proj }), /git 在庫: worktree 3 \/ branch 0(.|\n)*agents-reap/);
+});
+
 test('hook: 計器は dotagents の領分(.agents)に日次で 1 回記録し、前回比を注入する', () => {
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-proj-'));
-  execFileSync(process.execPath, [CLI, 'install', '--project', proj], { encoding: 'utf8' });
+  // install はシェル層をユーザーレベルへ補完するため、HOME を隔離して実環境を触らせない
+  const installHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
+  execFileSync(process.execPath, [CLI, 'install', 'project', proj], {
+    env: { ...process.env, HOME: installHome }, encoding: 'utf8',
+  });
   fs.mkdirSync(path.join(proj, '.beads'));
   const metrics = path.join(proj, '.agents', 'dotagents-metrics.jsonl');
   fs.writeFileSync(metrics, JSON.stringify({ date: '2026-07-01', open: 160, in_progress: 7, inflow_open: 22 }) + '\n');
@@ -90,7 +108,7 @@ test('hook: 計器は dotagents の領分(.agents)に日次で 1 回記録し、
 test('doctor: 正常時は無音 exit 0、改変を検出して exit 1、未インストールの木では黙る', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
-  execFileSync(process.execPath, [CLI, 'install'], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+  execFileSync(process.execPath, [CLI, 'install', 'user'], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
   const doctor = path.join(home, '.agents', 'bin', 'agents-doctor');
   const env = { PATH: process.env.PATH, HOME: home };
 

@@ -22,6 +22,7 @@ description: bd(Beads)の運用細則。セッション開始時の残置処分�
 - stale や assignee の無い in_progress を観測したら、着手前にまとめてユーザーへ処分を確認する。処分が作業になるなら起票して claim する。作業していない issue を in_progress に留めない規則があるからこそ、`停滞・循環` の検出は「in_progress なのに動きが無い = 異常」として信頼できる。
 - 他セッションの占有の解除は、停滞に見えてもユーザーの判断に引き上げる。
 - 低優先度の issue は、その内容と関係で結ばれている他の issue でついでに回収する(単独で選ばれるのを待たせない)。
+- git の在庫(branch / worktree)の積み上がりは SessionStart の計器が伝える。処分は `bin/agents-reap` の分類に従う(細則は agents-quality-loop の Git 統合)。
 
 ## 起票の形
 

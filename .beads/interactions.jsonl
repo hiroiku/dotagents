@@ -1,0 +1,1 @@
+{"id":"int-f39728f1e97d109dd7c848ec167ee42c","kind":"field_change","created_at":"2026-08-04T16:55:32.056957Z","actor":"claude-dotagents-20260805-01","issue_id":"dotagents-t3j","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"実装・テスト・3 プロジェクトへの配布まで完了(2026-08-05)。効果測定は dotagents-9jy に合流"}}

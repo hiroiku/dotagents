@@ -1,9 +1,10 @@
 #!/bin/bash
-# SessionStart hook。注入するのは次の 4 つ(いずれも検出・観測であり、ガードではない):
+# SessionStart hook。注入するのは次の 5 つ(いずれも検出・観測であり、ガードではない):
 #   1. このセッション用の一意な BEADS_ACTOR 候補(常に)
 #   2. ハーネス自身の乖離(agents-doctor。乖離があるときだけ — 正常時は 0 トークン)
-#   3. bd の in_progress 残置(bd のあるプロジェクトのみ)
-#   4. 収束の計器: open の stock と当日 inflow(.beads のあるプロジェクトのみ。
+#   3. git 在庫: branch / worktree の積み上がり(git のあるプロジェクトのみ。閾値未満は 0 トークン)
+#   4. bd の in_progress 残置(bd のあるプロジェクトのみ)
+#   5. 収束の計器: open の stock と当日 inflow(.beads のあるプロジェクトのみ。
 #      判断は期間ではなくこの注入を見た瞬間に行う — 記録は機械、判断はイベント駆動)
 
 input=$(cat)
@@ -23,6 +24,16 @@ if command -v codegraph >/dev/null 2>&1; then
   [ -d .codegraph ] && echo "codegraph: このプロジェクトは index 済み。コードの構造の問い(所在・呼び出し経路・影響範囲・同型)は grep/Read の往復ではなく codegraph の explore で導出する。"
 else
   echo "codegraph が見つからない(推奨の器官: grep/Read の往復を 1 回の explore に置換する)。導入はユーザーの判断 — https://github.com/colbymchenry/codegraph(codegraph install → プロジェクトで codegraph init)。"
+fi
+
+# git 在庫の計器: branch / worktree の積み上がりを可視化する(閾値未満は 0 トークン)。
+# 回収のエピローグに到達しなかったセッションの残骸はここで見える — 処分は bin/agents-reap。
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  wt=$(git worktree list 2>/dev/null | tail -n +2 | grep -c .)
+  br=$(git branch --format='%(refname:short)' 2>/dev/null | grep -cvE '^(develop|main|master|staging)$')
+  if [ "${wt:-0}" -ge 3 ] || [ "${br:-0}" -ge 10 ]; then
+    echo "git 在庫: worktree ${wt} / branch ${br}(統合ブランチ除く)。issue の生きていない在庫は乖離 — bin/agents-reap で分類し、clean は回収、未 commit 残だけ判断に引き上げる。"
+  fi
 fi
 
 if ! command -v bd >/dev/null 2>&1; then
