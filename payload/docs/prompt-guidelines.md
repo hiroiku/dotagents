@@ -9,7 +9,7 @@
 ## 構成の原則
 
 - 規則の正本は dotagents リポジトリ(現在は `/Volumes/Repositories/hiroiku/dotagents`)。編集・レビュー・版管理はここで行う。bd と codegraph は各プロジェクトの中で独立して運用される器官であり、dotagents は自分のリポジトリを含めどのプロジェクトの器官の面倒も見ない(使う・境界で強制する・不在を告げる、まで)。将来はこのリポジトリをそのまま公開し bun / npm から利用できる形にする(`package.json` は準備済み、`private: true`)。
-- インストール先はコピー配布: ユーザーレベルは `~/.agents`、プロジェクトレベルは `<project>/.agents` に payload の実体を複製し、manifest(`.dotagents.json`)に source・commit・kind・内容ハッシュ・断片の所有権・所有するスキル名の一覧を記録する。skills はスキル単位の所有で、記録に無い entry(自前スキル)には installer は触れない。更新は正本で `bin/agents-setup update`。payload の定義は installer の `PAYLOAD` が正で(`package.json` の `files` と一致、`status` が機械照合)、ここには列挙しない — 列挙の複製は黙って古くなる。
+- インストール先はコピー配布: ユーザーレベルは `~/.agents`、プロジェクトレベルは `<project>/.agents` に payload の実体を複製し、manifest(`.dotagents.json`)に source・commit・kind・内容ハッシュ・断片の所有権・所有するスキル名の一覧を記録する。skills はスキル単位の所有で、記録に無い entry(自前スキル)には installer は触れない。更新は正本で `bin/agents-setup update <対象>`(対象は `user` / `project [dir]` / `shell` の位置引数 1 つ。省略時は対話で聞き、非対話では止まる)。payload の定義は installer の `PAYLOAD` が正で(`package.json` の `files` と一致、`status` が機械照合)、ここには列挙しない — 列挙の複製は黙って古くなる。
 - 各ハーネスはシンボリックリンクでインストール先を参照する: Claude Code は `.claude/CLAUDE.md → .agents/AGENTS.md`、スキルとエージェント定義は常に単体リンク(`.claude/skills/{name}`、`.claude/agents/{name}.md`)。Codex も同形(`.codex/AGENTS.md`、`.codex/skills/{name}`)。ディレクトリごとのリンクは張らない — 自前の実体との同居を壊すため(installer が管理)。プロジェクトレベルでは相対リンクにし、既存ファイルは上書きしない。環境断片・symlink の参照先は常にインストール先(`~/.agents`)であり、正本の場所に依存しない。
 - プロンプト内のパスは `.agents/` ルート相対で書き、インストール位置(ユーザー / プロジェクト)に依存させない。settings.json はマシン固有の環境設定であり版管理しない — ハーネスが必要とする断片(permissions.ask / SessionStart hook / env.BASH_ENV)の正本は `bin/agents-setup` が定義し、install / uninstall / status で冪等に書き込み・除去・照合する(インストーラー方式)。
 - 三層に配置する: 遍在的に効く規則(観測の瞬間を選ばないもの)はコア(`AGENTS.md`)、特定の瞬間にだけ効く規則はスキル(`skills/*/SKILL.md`。コアの「スキル参照」がその瞬間を定める)、機械的に守れる規則は enforcement(permissions / `hooks/` / `bin/` のコマンドラッパー)。
@@ -24,3 +24,7 @@
 2026-07-31 のセッション(c389fc24)で追加された収束規則群 — 起票反転(観測を既定で open にしない)、消化の経路、同型の畳み込み、`bd children` 完了ゲート、memory 契約 — は、実際の失敗(issue の発散・memory の陳腐化)への対策として追加されたばかりで観測実績が無い。効果の観測が付くまでアブレーションの対象にしない。
 
 2026-08-01: このうち起票反転は `AGENTS_BD_OPEN_OK` ガード(`payload/bin/bd`)として強制則化された。観測は SessionStart の計器(open の stock と当日 inflow)が常時取る — 期間ではなく、注入を見た瞬間に判断する。ガードの発火実績が付いたら、強制則が覆う遍在則側の該当文はアブレーション候補になる(上位で封じたら下位を撤去する、の適用)。
+
+2026-08-05: 発散対策として追加した規則群 — `閉包論証` の外部記録化と同一 `欠陥クラス` 3 ラウンドでのユーザー引き上げ、境界タスクの合格条件の閉じた形と反証予算、epic セッションの実装禁止、compaction の世代交代、依頼書の粒度(compaction に達しない大きさ)、ラウンド内検査の限定、Codex 組み込みサブエージェントの `検証`・`反証レビュー` への使用禁止(履歴 fork で分離が破れる)— は kuden-os の実測への対策である: 単一 issue の品質ループが 26+ ラウンド、レビュー担当が r25 に到達、単一セッション木で 9.8B トークン、サブエージェント内 compaction 954 回、Codex のレビュー用「新規 context」が親履歴を丸ごと複製して開始。効果の観測が付くまでアブレーションの対象にしない。
+
+2026-08-05(2): git 在庫の回収規則 — 回収をセッション入口へ反転し、issue の生きていない branch / worktree を `bin/agents-reap`(enforcement)で分類・回収、SessionStart に在庫計器を追加 — は kuden-os の実測(branch 43 本・worktree 36 個が残置、うち issue 紐付き branch の 64% は closed 済み)への対策である。回収がエピローグにしか無いと、完了判定へ到達しなかったセッションの残骸が構造的に漏れる。効果の観測が付くまでアブレーションの対象にしない。
