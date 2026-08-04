@@ -1,7 +1,6 @@
 {
   "name": "dotagents",
   "version": "0.1.0",
-  "private": true,
   "description": "AI エージェントハーネスの正本。payload/ を ~/.agents / <project>/.agents へ配布する",
   "license": "MIT",
   "repository": {
