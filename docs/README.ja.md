@@ -1,114 +1,186 @@
 # dotagents
 
-AI エージェントハーネス(Claude Code と Codex の共用)の正本。
-プロンプト・スキル・enforcement をここで版管理し、
-[bin/agents-setup](../bin/agents-setup) で各環境へ配備する。
+**自分で所有する AI エージェントハーネス。** Claude Code と Codex 向けの規則・
+スキル・機械的ガードを、単一の正本として版管理し、そこから全プロジェクトへ
+配備する。
 
 [English](../README.md) | 日本語 | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md)
 
-## クイックスタート
+[![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-前提: git、Node.js ≥ 18、そしてハーネスが乗る器官 —
-**[bd (beads)](https://github.com/gastownhall/beads) は必須**
-(起票・claim・完了ゲート・merge 排他がこの上に建つ issue の台帳)、
-**[codegraph](https://github.com/colbymchenry/codegraph) は推奨**
-(構造への問い合わせ。配線は `codegraph install`、
-index はプロジェクトごとに `codegraph init`)。ハーネスは導入を代行しない —
-installer と毎回の SessionStart が不在を検出して伝える。
+- **正本は 1 つ、配備先は複数。** プロンプト・スキル・エージェント定義・
+  シェルガード・セッションの計器は、1 つの git リポジトリに同居する。
+  installer がそれを `~/.agents` や `<project>/.agents` にコピーし、
+  Claude Code と Codex が読む symlink と hook を配線する。
+- **消費するライブラリではなく、運転する規則集。** 規則は自分で編集して
+  コミットし、上流に追従するのも選んだときだけ — 背後で勝手に変わることは
+  ない。
+- **規則は仕組みに落ちる。** hook やラッパーで強制できることは強制則として
+  強制し、観測の瞬間が明確な物は瞬間則(スキル)になり、残りだけが遍在則
+  としてセッションの注意を占有することを許される。理由は
+  [コンセプト](#コンセプト) にある。
 
-```sh
-# 取得(初回): 正本は自分が所有し編集する git リポジトリとして手元に届く
-npx @hiroiku/dotagents clone ~/dotagents
+## 仕組み
 
-# 配備: 対象を明示するか、省略して対話で選ぶ
-~/dotagents/bin/agents-setup install project /path/to/project   # プロジェクト単体(<dir>/.agents)
-~/dotagents/bin/agents-setup install user                       # ユーザーレベル(~/.agents)
-~/dotagents/bin/agents-setup install shell                      # ガードのみ(hooks/bin + ~/.zshenv の 1 行)
+正本 1 つが全環境に供給される。配備は単なるコピーであり — セッションは
+正本に到達できることに依存せず、背後で勝手に配備されることもない:
 
-# 追従(繰り返し): 上流のコミットタイトルを見せ、rebase し、テストを走らせる
-~/dotagents/bin/agents-setup pull
-
-# 保守
-~/dotagents/bin/agents-setup update  project   # 正本の変更を反映し、payload から消えた物を刈り込む
-~/dotagents/bin/agents-setup status  project   # manifest・payload・実体・リンク・断片を検査する
-~/dotagents/bin/agents-setup --help            # コマンド・対象・オプション・例
+```mermaid
+flowchart LR
+    UP["上流<br>github.com/hiroiku/dotagents"]
+    C["正本<br>~/dotagents — 自分が編集する git リポジトリ"]
+    A["配備先<br>~/.agents · 各プロジェクトの .agents"]
+    S["セッション<br>Claude Code · Codex"]
+    UP -->|"clone · 初回のみ"| C
+    UP -->|"pull · 選んだときだけ"| C
+    C -->|"install · update"| A
+    A -->|"symlink · hook · 強制則ガード"| S
+    S -.->|"セッション開始時に報告: 配備が正本より古い"| A
 ```
 
-動詞は三層に分かれる: **clone(取得・初回)/ pull(追従・繰り返し)/
-install・update(配備)**。これは消費するライブラリではなく運転しながら編集する
-規則集なので、正本は常に自分が編集できる git リポジトリである。npx のキャッシュや
-展開した tarball から黙って配備する経路は無い — 正本の外では、配備系コマンドは
-マシンが既に知っている正本へ委譲するか、`clone` への案内を出して止まる。
+セッションの内側では、正本の三層がそれぞれ違う経路でエージェントに届く —
+経路が下にあるほど、規則は強く、そして安く届く:
 
-配備の再同期は push しない: 正本が先に進むと、各セッション入口の計器
-(agents-doctor)が「配備が正本より古い」と報告するので、そのプロジェクトで
-`update` を実行する。
+```mermaid
+flowchart TB
+    subgraph D[".agents/ — 配備されたコピー"]
+        R["AGENTS.md<br>遍在則"]
+        K["skills/<br>瞬間則"]
+        I["SessionStart hook<br>計器"]
+        G["hooks/ · bin/<br>強制則ガード: bd ラッパー · git-guard"]
+    end
+    subgraph S["エージェントセッション"]
+        CTX["context(有限の注意)"]
+        CMD["bd · git コマンド"]
+    end
+    R -->|"常時注入"| CTX
+    K -->|"その瞬間が来たときだけ読む"| CTX
+    I -->|"actor · 残置 · stock、入口で"| CTX
+    G -->|"コマンドを包む — context コストゼロ"| CMD
+```
 
-追従はわざと自動化していない。取り込むのは自分のエージェントの挙動を支配する
-規則文なので、`pull` は必ず入ってくる差分を先に見せ(コミットタイトルはドメイン
-言語で書かれ、changelog として読める)、rebase で統合してから、正本自身の
-テストを走らせる。自分の個人化はコミットとして積み、上流の上に乗る。
+## クイックスタート
 
-**対象は位置引数 1 つ**(`user` / `project [dir]` / `shell`)で、既定値では
-決まらない。明示するか対話で選ぶかのどちらかであり、非対話(CI・パイプ)で
-省略すれば何も書かずに止まる — 指定し忘れが黙って別の場所を書き換える経路は
-無い。位置が 1 つしか無いので「user と project の同時指定」はそもそも
-書けない — 排他は実行時の検証ではなく構文が保証する。
+**1 · 前提を確認する**
 
-対話プロンプトは矢印キーのセレクター(`↑/↓` 移動・`enter` 決定・`ctrl-c` 中止)で、
-決めた後は選んだ結果を示す 1 行だけが残る。出力は色つきで、`NO_COLOR` か
-非 TTY では自動的に色を落とす。
+| ツール | | 理由 |
+|---|---|---|
+| git、Node.js ≥ 18 | 必須 | CLI を動かす |
+| [bd (beads)](https://github.com/gastownhall/beads) | 必須 | すべてがその上で動く issue の台帳: 起票・claim・完了ゲート・merge 排他 |
+| [codegraph](https://github.com/colbymchenry/codegraph) | 推奨 | 構造への問い合わせ — 配線は `codegraph install` で 1 度だけ、index はプロジェクトごとに `codegraph init` |
 
-## installer が行うこと(すべて冪等)
+ハーネスはこれらを代わりに導入しない — installer と毎回の SessionStart が
+不在を検出して伝える。
 
-- `payload/` → `.agents/` のコピー(内容ハッシュを manifest `.dotagents.json`
-  に記録)
-- symlink: `.claude/CLAUDE.md → .agents/AGENTS.md`。スキル
-  (`.claude/skills/<name>`)とエージェント定義(`.claude/agents/<name>.md`)は
-  **常に 1 件ずつリンク**し、自分で書いたエントリと同居させる(ディレクトリ
-  単位のリンクは張らない)。Codex は `.codex/` が存在する環境にのみ同じ形で
-  張る
-- `~/.zshenv` にガード付きの管理行を 1 行追加(ユーザーレベルのみ。source 先の
-  ファイルが無ければ何もしない)
-- `settings.json` 断片: `env.BASH_ENV`、`hooks.SessionStart`、
-  `permissions.ask`(push のみ — merge は `AGENTS_MERGE_SLOT_OK` ガードが
-  受け持つ)。Codex には `.codex/` がある環境にのみ、`.codex/hooks.json` に
-  同じ SessionStart 断片が入る
-- マシン固有の生成物(manifest・計器のメトリクスファイル)は、payload に
-  同梱される `.agents/.gitignore` が版管理から外す。dotagents が生成する物は
-  すべて自分の領分(`.agents/`)の中にとどまる — bd が書くのは `.beads/`
-  だけ、codegraph は `.codegraph/` だけ
+**2 · 正本を取得する**
 
-所有権の原則: installer が触れるのは、自分が置いて今もハッシュが一致する
-物だけである。自分で書いたスキルには一切触れず、配備先で改変したファイルは
-残して警告し(`--force` で上書き)、除去されるのも自分が追加した settings
-断片だけである。
+```sh
+npx @hiroiku/dotagents clone ~/dotagents
+```
 
-### シェル層 — 1 つしかない共有資源
+ただの git clone であり、それは自分の物になる: 規則を編集し、コミットし、
+好きに個人化してよい。
 
-ガード(git-guard、bd ラッパー)がセッションに届く経路は `hooks/shellenv.sh`
-だけであり、zsh にはプロジェクトごとの起動ファイルが無いため、この層は
-ハーネスを使うプロジェクトの数によらず**マシンあたり 1 つ**しか存在しない。
-installer は両側から面倒を見るので、順序が運用知識になることはない:
-`install project` はシェル層が無ければ最小の shell スコープを補い、
-`uninstall user` は他のプロジェクトが共有している物を取り上げる前に確認し
-(`--keep-shell` で非対話でも残せる)、`uninstall project` はシェル層に
-一切触れない。
+**3 · 配備する**
 
-### 後からの導入とチーム展開
+```sh
+cd ~/dotagents
+bin/agents-setup install project /path/to/project   # プロジェクト単体   → <dir>/.agents
+bin/agents-setup install user                       # このマシン        → ~/.agents
+bin/agents-setup install shell                       # ガードのみ        → hooks/bin + ~/.zshenv の 1 行
+```
+
+対象を省略すると対話で選ぶ。非対話シェルでは、対象を省略すると何も書き込ま
+ずに停止する — 既定値が規則の行き先を決めることは無い。
+
+**4 · 運用する**
+
+```sh
+bin/agents-setup pull                 # 上流に追従: changelog → rebase → テスト
+bin/agents-setup update  project ...  # 配備を再同期する(タイミングはセッションが教える)
+bin/agents-setup status  project ...  # ファイル・リンク・断片を検査 — 乖離があれば exit 1
+bin/agents-setup --help               # 全コマンド・対象・オプション・例
+```
+
+## 三つの動詞
+
+| 動詞 | 頻度 | 何をするか |
+|---|---|---|
+| **clone(取得)** | 初回のみ | 正本を、自分が所有する git リポジトリとして実体化する |
+| **pull(追従)** | 選んだときだけ | 上流を取得し、入ってくるコミットタイトルを見せ、自分のコミットを rebase で乗せ、正本のテストを走らせる |
+| **install・update(配備)** | マシンごと・プロジェクトごと | 正本を `.agents/` にコピーし、link・hook・強制則ガードを配線する |
+
+3 つの規則がこれらをつなぐ:
+
+- **使い捨てからは配備しない。** 正本の外(npx のキャッシュ、展開した
+  tarball)では、配備系コマンドはマシンが既に知っている正本へ委譲するか
+  — `clone` への案内を出して止まる。
+- **再同期は pull されるのであって push されない。** 正本が先に進むと、
+  各セッション入口の計器が *配備が正本より古い* と報告し、そのプロジェクト
+  で `update` を実行する。
+- **追従はわざと自動化しない。** pull で取り込むのはエージェントを支配する
+  文書なので、`pull` はまず入ってくるコミットタイトルを見せ(ドメイン言語で
+  書かれ、changelog として読める)、それから rebase してテストを走らせる。
+  自動更新は無い。
+
+## 何がどこに届くか
+
+| 物 | 届く先 | 届け方 |
+|---|---|---|
+| 遍在則(`AGENTS.md`) | `.agents/AGENTS.md` | symlink `.claude/CLAUDE.md → .agents/AGENTS.md`。Codex にも `.codex/` の下に同じ形で届く |
+| スキル・エージェント定義 | `.agents/skills/` ・ `.agents/agents/` | 1 件ずつリンクし、自分で書いたスキルと同居させる |
+| 強制則ガード(`bd` ラッパー・`git-guard`) | `.agents/bin/` ・ `.agents/hooks/` | `~/.zshenv` の管理下の 1 行 — ユーザーレベル、マシンあたり 1 回 |
+| セッション注入 | `settings.json` ・ `.codex/hooks.json` | 断片: `hooks.SessionStart`、`env.BASH_ENV`、`permissions.ask` |
+| マシン固有の生成物(manifest・計器のメトリクス) | `.agents/` | payload に同梱される `.gitignore` が版管理から外す |
+
+すべて冪等で**ハッシュ所有**である: installer が触れるのは、自分が置いて
+今も認識できる物だけ。自分で書いたスキルには一切触れず、配備先で改変した
+ファイルは残して報告し(`--force` で上書き)、`uninstall` が除去するのは
+manifest に記録された物だけ — それ以外には触れない。
+
+<details>
+<summary><b>シェル層 — マシンに 1 つだけ、両側から世話をする</b></summary>
+
+ガードがセッションに届く経路は `hooks/shellenv.sh` だけであり、zsh には
+プロジェクトごとの起動ファイルが無いため、この層はハーネスを使うプロジェク
+トの数によらず**マシンあたり 1 つ**しか存在しない。installer は両側から
+面倒を見るので、運用知識として覚えておく必要は無い: `install project` は
+シェル層が無ければ最小の shell スコープを補い、`uninstall user` は他の
+プロジェクトが共有している物を取り上げる前に確認し(`--keep-shell` で
+非対話でも残せる)、`uninstall project` はシェル層に一切触れない。
+
+</details>
+
+<details>
+<summary><b>後からの導入とチーム展開</b></summary>
 
 - **導入の順序に依存しない**: bd や codegraph を後から入れても再配備は
   要らない — 器官・台帳・index の検出は毎セッションの開始時に動的に行われる。
   `bd init` が作った既存の root AGENTS.md は奪わず、管理下の参照ブロックだけを
-  足す
+  足す。
 - **届き方は二層**: プロンプト層(`.agents/` の payload・リンク・参照
-  ブロック)は版管理に乗り、**clone するだけで効く**。注入と強制則の層
+  ブロック)は版管理に乗り、`git clone` するだけで効く。注入と強制則の層
   (manifest・settings 断片・zshenv 行・シェルガード)はマシン固有で、
-  **各マシンで installer が敷く**
+  各マシンで installer が敷く。
 - **2 人目以降**: プロジェクトを clone、dotagents を clone、
   `bin/agents-setup install project <project>` を叩く — これだけの
   1 コマンドで、シェル層も無ければその途中で補われる。installer は冪等で
-  ハッシュ照合するので、版管理が届けた物と衝突しない
+  ハッシュ照合するので、版管理が届けた物と衝突しない。
+
+</details>
+
+<details>
+<summary><b>CLI 設計の要点</b></summary>
+
+対象は**位置引数 1 つ**(`user` / `project [dir]` / `shell`)で、既定値では
+決まらない。位置が 1 つしか無いので「user と project の同時指定」はそもそも
+書けない — 排他は実行時の検証ではなく構文が保証する。対話プロンプトは
+矢印キーのセレクター(`↑/↓` 移動・`enter` 決定・`ctrl-c` 中止)で、決めた後は
+選んだ結果を示す 1 行だけが残る。出力は `NO_COLOR` か非 TTY では自動的に
+色を落とす。
+
+</details>
 
 ## コンセプト
 

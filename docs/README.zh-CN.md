@@ -1,96 +1,149 @@
 # dotagents
 
-AI 代理框架(由 Claude Code 与 Codex 共用)的权威文库:提示词、技能与强制机制,
-在此进行版本控制,并通过 [bin/agents-setup](../bin/agents-setup) 部署到各个环境。
+**一个你自己拥有的 AI 代理框架。** 面向 Claude Code 与 Codex 的规则、技能与
+机制化守卫——作为单一文库接受版本控制,并从中部署到每一个项目。
 
 [English](../README.md) | [日本語](README.ja.md) | 简体中文 | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md)
 
-## 快速开始
+[![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-前置需求:git、Node.js ≥ 18,以及本框架所依赖的各个器官——
-**[bd (beads)](https://github.com/gastownhall/beads) 为必需项**(登记、认领、
-完成关卡与合并互斥赖以运行的议题账本),
-**[codegraph](https://github.com/colbymchenry/codegraph) 为推荐项**
-(用于结构查询;通过 `codegraph install` 接入,按项目用 `codegraph init`
-建立索引)。本框架从不替你安装这些器官——安装程序与每次会话启动时都会检测并
-报告缺失项。
+- **一份文库,多处部署。** 提示词、技能、代理角色、shell 守卫与会话仪器都
+  存放在同一个 git 仓库中。安装程序会将它们复制到 `~/.agents` 或
+  `<project>/.agents`,并接通 Claude Code 与 Codex 所读取的符号链接与 hooks。
+- **是一部规则手册,不是一个库。** 你编辑规则、提交规则,只在自己选择时
+  才跟随上游——不存在任何背着你发生的改动。
+- **规则化为机制。** 凡是 hook 或包装器能够强制的,就予以强制;凡是拥有
+  明确时机的,就化为技能;只有剩下的部分,才被允许占据每一次会话的注意力。
+  相关推理见[理念](#理念)。
 
-```sh
-# 获取(一次性):该文库会成为一个你拥有并可编辑的 git 仓库
-npx @hiroiku/dotagents clone ~/dotagents
+## 工作原理
 
-# 部署:明确指定目标,或省略以进入交互式选择
-~/dotagents/bin/agents-setup install project /path/to/project   # 单个项目(<dir>/.agents)
-~/dotagents/bin/agents-setup install user                       # 用户级(~/.agents)
-~/dotagents/bin/agents-setup install shell                      # 仅守卫(hooks/bin + 一行 ~/.zshenv)
+一份文库供给所有环境。部署只是纯粹的复制——会话从不依赖文库本身是否可达,
+也不存在任何背着你发生的部署:
 
-# 跟随上游(可重复执行):展示传入的提交标题、变基、运行测试
-~/dotagents/bin/agents-setup pull
-
-# 维护
-~/dotagents/bin/agents-setup update  project   # 应用文库变更,清理 payload/ 中被移除的内容
-~/dotagents/bin/agents-setup status  project   # 校验 manifest、payload、文件、链接、片段
-~/dotagents/bin/agents-setup --help            # 命令、目标、选项、示例
+```mermaid
+flowchart LR
+    UP["上游<br>github.com/hiroiku/dotagents"]
+    C["你的文库<br>~/dotagents — 一个你编辑的 git 仓库"]
+    A["部署<br>~/.agents · 各项目的 .agents"]
+    S["会话<br>Claude Code · Codex"]
+    UP -->|"clone · 一次性"| C
+    UP -->|"pull · 由你决定"| C
+    C -->|"install · update"| A
+    A -->|"符号链接 · hooks · 守卫"| S
+    S -.->|"会话启动报告:部署版本旧于文库"| A
 ```
 
-这些动词分为三层:**clone(获取,一次性)/ pull(跟随,可重复)/
-install · update(部署)**。这不是一个供你消费的库,而是一部供你操作与编辑
-的规则手册,因此该文库始终是你自己可编辑的 git 仓库。不存在从 npx 缓存或
-解包的 tarball 静默部署的路径——在文库之外,部署命令要么委托给你机器上已知
-的文库,要么停止执行并给出 `clone` 的操作指引。
+在一次会话内部,文库的三层规则通过不同的路径抵达代理——路径越低,规则就
+越强、也越廉价:
 
-部署重新同步从不会被动推送:当文库领先于本地部署时,位于每次会话入口处的
-仪器(agents-doctor)会报告"部署版本旧于文库",此时你需要在该项目中运行
-`update`。
+```mermaid
+flowchart TB
+    subgraph D[".agents/ — 已部署的副本"]
+        R["AGENTS.md<br>普遍规则"]
+        K["skills/<br>瞬时规则"]
+        I["SessionStart hook<br>仪器"]
+        G["hooks/ · bin/<br>守卫:bd 包装器 · git-guard"]
+    end
+    subgraph S["代理会话"]
+        CTX["上下文(有限注意力)"]
+        CMD["bd · git 命令"]
+    end
+    R -->|"始终被注入"| CTX
+    K -->|"只在其时机到来时才被读取"| CTX
+    I -->|"行动者 · 遗留项 · 存量,入口处"| CTX
+    G -->|"包装命令 — 零上下文成本"| CMD
+```
 
-跟随上游这一步是刻意不自动化的。你所拉取的是治理你的代理行为的规则文本,
-因此 `pull` 总是先展示传入的差异(提交标题以领域语言书写——读起来就像一份
-变更日志),再以变基方式整合,最后运行文库自身的测试。你的个人修改以提交
-的形式存在,并叠加在上游之上。
+## 快速开始
 
-**目标是唯一的位置参数**(`user` / `project [dir]` / `shell`),且从不设
-默认值:要么明确指定,要么进入交互式选择。在非交互环境(CI、管道)中省略
-它会直接停止且不写入任何内容——不存在"忘记参数就静默修改到别处"这样的
-路径。而且由于只有一个位置参数,"同时指定 user 和 project"这种写法根本
-无法输入:互斥性由语法本身保证,而非运行时校验。
+**1 · 检查前置需求**
 
-交互式提示是一个方向键选择器(`↑/↓` 移动、`enter` 确认、`ctrl-c` 取消),
-选定后会折叠为单行显示你的选择。输出带有颜色,并在 `NO_COLOR` 环境变量存在
-或没有 TTY 时自动关闭颜色。
+| 工具 | | 用途 |
+|---|---|---|
+| git、Node.js ≥ 18 | 必需 | 运行 CLI |
+| [bd (beads)](https://github.com/gastownhall/beads) | 必需 | 一切运行所依赖的议题账本:登记、认领、完成关卡、合并互斥 |
+| [codegraph](https://github.com/colbymchenry/codegraph) | 推荐 | 结构查询——用 `codegraph install` 接入一次,按项目用 `codegraph init` 建立索引 |
 
-## 安装程序的行为(全部幂等)
+本框架从不替你安装这些器官——安装程序与每次会话启动时都会检测缺失项并
+予以报告。
 
-- 将 `payload/` 复制到 `.agents/`(内容哈希会记录在 manifest `.dotagents.json`
-  中)
-- 建立符号链接:`.claude/CLAUDE.md → .agents/AGENTS.md`;技能
-  (`.claude/skills/<name>`)与代理定义(`.claude/agents/<name>.md`)**始终
-  逐个建立链接**,以便与你自己撰写的条目共存(不做整目录链接)。当 `.codex/`
-  目录存在时,Codex 也会获得相同结构
-- 向 `~/.zshenv` 添加一行受守卫、受管理的内容(仅用户级安装;若其引用的
-  文件不存在则为空操作)
-- `settings.json` 片段:`env.BASH_ENV`、`hooks.SessionStart`、
-  `permissions.ask`(仅推送场景——合并场景由 `AGENTS_MERGE_SLOT_OK` 守卫
-  覆盖)。当 `.codex/` 存在时,Codex 会在 `.codex/hooks.json` 中获得相同的
-  SessionStart 片段
-- 机器相关的产物(manifest、指标文件)通过随 payload 一同分发的
-  `.agents/.gitignore` 被排除在版本控制之外。dotagents 生成的一切都留在
-  自己的领地(`.agents/`)之内——bd 只写入 `.beads/`,codegraph 只写入
-  `.codegraph/`
+**2 · 获取你的文库**
 
-所有权原则:安装程序只会触及自己放置且仍然拥有(哈希匹配)的内容。你自己
-的技能永远不会被触碰,你就地编辑过的文件会被保留并报告(可用 `--force`
-覆盖),而且只有它自己添加的 settings 片段才会被移除。
+```sh
+npx @hiroiku/dotagents clone ~/dotagents
+```
 
-### shell 层——只存在一份的共享资源
+一次纯粹的 git clone,而它属于你:编辑规则、提交规则、按自己的需要个性化。
 
-守卫(git-guard、bd 的包装器)只通过 `hooks/shellenv.sh` 到达各个会话,而
-zsh 没有按项目区分的启动文件——因此不论有多少个项目在使用本框架,这一层在
-**每台机器上只存在一份**。安装程序会从两侧同时维护它,使先后顺序永远不会
-成为需要记住的操作知识:`install project` 会在缺失时补上最小限度的 shell
-作用域;`uninstall user` 在移除其他项目共享的内容前会先询问(`--keep-shell`
-可非交互式地保留它);`uninstall project` 则从不触碰这一层。
+**3 · 部署它**
 
-### 后期采用与团队推广
+```sh
+cd ~/dotagents
+bin/agents-setup install project /path/to/project   # 单个项目   → <dir>/.agents
+bin/agents-setup install user                       # 本机       → ~/.agents
+bin/agents-setup install shell                       # 仅守卫     → hooks/bin + 一行 ~/.zshenv
+```
+
+省略目标以进入交互式选择。在非交互式 shell 中,省略目标会直接停止且不写入
+任何内容——不存在由默认值决定规则落地位置这回事。
+
+**4 · 日常操作**
+
+```sh
+bin/agents-setup pull                 # 跟随上游:变更日志 → 变基 → 测试
+bin/agents-setup update  project ...  # 重新同步一次部署(会话会告诉你何时需要)
+bin/agents-setup status  project ...  # 校验文件、链接、片段——存在漂移时以退出码 1 报告
+bin/agents-setup --help               # 全部命令、目标、选项、示例
+```
+
+## 三个动词
+
+| 动词 | 频率 | 作用 |
+|---|---|---|
+| **clone** | 一次性 | 把文库具象化为一个你拥有的 git 仓库 |
+| **pull** | 由你决定 | 拉取上游、展示传入的提交标题、把你的提交变基到其上、运行文库测试 |
+| **install · update** | 每台机器、每个项目 | 把文库复制进 `.agents/`,并接通链接、hooks、守卫 |
+
+三条规则将它们连接在一起:
+
+- **不从一次性环境部署。** 在文库之外(npx 缓存、解包的 tarball 中),部署
+  命令要么委托给你机器上已知的文库,要么停止执行并指向 `clone`。
+- **重新同步是拉取而来,不是推送而来。** 当文库领先于本地时,位于每次会话
+  入口处的仪器会报告*部署版本旧于文库*,而你需要在该项目中运行 `update`。
+- **跟随是刻意为之的。** 你所拉取的是治理你的代理行为的文本,因此 `pull`
+  会先展示传入的提交标题——它们以领域语言书写,读起来就像一份变更日志——
+  再进行变基并运行测试。不存在任何自动更新。
+
+## 落地位置一览
+
+| 内容 | 落地位置 | 交付方式 |
+|---|---|---|
+| 普遍规则(`AGENTS.md`) | `.agents/AGENTS.md` | 符号链接 `.claude/CLAUDE.md → .agents/AGENTS.md`;Codex 在 `.codex/` 下获得相同结构 |
+| 技能 · 代理角色 | `.agents/skills/` · `.agents/agents/` | 每个条目各建一条链接,以便与你自己撰写的技能共存 |
+| 守卫(`bd` 包装器 · `git-guard`) | `.agents/bin/` · `.agents/hooks/` | `~/.zshenv` 中受管理的一行——用户级,每台机器一次 |
+| 会话注入 | `settings.json` · `.codex/hooks.json` | 片段:`hooks.SessionStart`、`env.BASH_ENV`、`permissions.ask` |
+| 机器本地产物(manifest · 指标) | `.agents/` | 由随 payload 一同分发的 `.gitignore` 排除在版本控制之外 |
+
+一切都是幂等且**由哈希所有**的:安装程序只会触及自己放置且仍然识别的内容。
+你自己的技能永远不会被触碰,你就地编辑过的文件会被保留并报告(可用
+`--force` 覆盖),而 `uninstall` 只会移除 manifest 所记录的内容——不多不少。
+
+<details>
+<summary><b>shell 层——每台机器一份,由两侧共同维护</b></summary>
+
+守卫只通过 `hooks/shellenv.sh` 到达各个会话,而 zsh 没有按项目区分的启动
+文件——因此不论有多少个项目在使用本框架,这一层在**每台机器上只存在
+一份**。安装程序把对它的照料留在你的操作知识之外:`install project` 会在
+缺失时补上最小限度的 shell 作用域;`uninstall user` 在移除其他项目共享的
+内容前会先询问(`--keep-shell` 可非交互式地保留它);`uninstall project`
+则从不触碰这一层。
+
+</details>
+
+<details>
+<summary><b>后期采用与团队推广</b></summary>
 
 - **与顺序无关**:之后再添加 bd 或 codegraph 不需要重新安装——器官、账本
   与索引在每次会话启动时都会被动态检测。若根目录的 AGENTS.md 已由
@@ -102,6 +155,20 @@ zsh 没有按项目区分的启动文件——因此不论有多少个项目在�
   `bin/agents-setup install project <project>`——一条命令;若 shell 层
   缺失,会在过程中一并补全。安装程序是幂等且基于哈希校验的,因此它从不会
   与版本控制交付的内容相冲突
+
+</details>
+
+<details>
+<summary><b>CLI 设计要点</b></summary>
+
+目标是**唯一的位置参数**(`user` / `project [dir]` / `shell`),从不设
+默认值。正因为只有一个位置,"同时指定 user 和 project"这种写法根本无法
+输入——互斥性由语法本身保证,而非运行时校验。交互式提示是一个方向键
+选择器(`↑/↓` 移动、`enter` 确认、`ctrl-c` 取消),选定后会折叠为单行,
+记录你所做的选择。输出在 `NO_COLOR` 环境变量存在或没有 TTY 时会自动
+关闭颜色。
+
+</details>
 
 ## 理念
 

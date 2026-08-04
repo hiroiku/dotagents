@@ -1,118 +1,188 @@
 # dotagents
 
-The canonical corpus of an AI agent harness (shared by Claude Code and Codex):
-prompts, skills, and enforcement, version-controlled here and deployed to each
-environment with [bin/agents-setup](./bin/agents-setup).
+**An AI agent harness you own.** Rules, skills, and mechanical guards for
+Claude Code and Codex — version-controlled as a single corpus, deployed to
+every project from it.
 
 English | [日本語](docs/README.ja.md) | [简体中文](docs/README.zh-CN.md) | [繁體中文](docs/README.zh-TW.md) | [한국어](docs/README.ko.md) | [Deutsch](docs/README.de.md) | [Español](docs/README.es.md) | [Français](docs/README.fr.md)
 
-## Quick start
+[![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-Prerequisites: git, Node.js ≥ 18, and the organs the harness builds on —
-**[bd (beads)](https://github.com/gastownhall/beads) is required** (the issue
-ledger that filing, claiming, completion gates and merge exclusion run on),
-**[codegraph](https://github.com/colbymchenry/codegraph) is recommended**
-(structure queries; wire with `codegraph install`, index per project with
-`codegraph init`). The harness never installs them for you — the installer and
-every session start detect and report what is missing.
+- **One corpus, many deployments.** Prompts, skills, agent roles, shell guards
+  and session instruments live in one git repository. The installer copies them
+  into `~/.agents` or `<project>/.agents` and wires the symlinks and hooks that
+  Claude Code and Codex read.
+- **A rulebook, not a library.** You edit the rules, commit them, and follow
+  upstream only when you choose to — nothing changes behind your back.
+- **Rules become mechanism.** Whatever a hook or wrapper can enforce is
+  enforced; whatever has a clear moment becomes a skill; only the rest is
+  allowed to occupy every session's attention. The reasoning lives in
+  [Concept](#concept).
 
-```sh
-# Get (once): the corpus lands as a git repository you own and edit
-npx @hiroiku/dotagents clone ~/dotagents
+## How it works
 
-# Deploy: pick a target explicitly, or omit it to choose interactively
-~/dotagents/bin/agents-setup install project /path/to/project   # one project (<dir>/.agents)
-~/dotagents/bin/agents-setup install user                       # user level (~/.agents)
-~/dotagents/bin/agents-setup install shell                      # guards only (hooks/bin + one ~/.zshenv line)
+One corpus feeds every environment. Deployments are plain copies — sessions
+never depend on the corpus being reachable, and nothing deploys behind your
+back:
 
-# Follow upstream (repeatable): shows incoming commit titles, rebases, runs the tests
-~/dotagents/bin/agents-setup pull
-
-# Maintain
-~/dotagents/bin/agents-setup update  project   # apply corpus changes, prune what payload/ dropped
-~/dotagents/bin/agents-setup status  project   # verify manifest, payload, files, links, fragments
-~/dotagents/bin/agents-setup --help            # commands, targets, options, examples
+```mermaid
+flowchart LR
+    UP["upstream<br>github.com/hiroiku/dotagents"]
+    C["your corpus<br>~/dotagents — a git repo you edit"]
+    A["deployments<br>~/.agents · per-project .agents"]
+    S["sessions<br>Claude Code · Codex"]
+    UP -->|"clone · once"| C
+    UP -->|"pull · when you choose"| C
+    C -->|"install · update"| A
+    A -->|"symlinks · hooks · guards"| S
+    S -.->|"session start reports: deployment older than corpus"| A
 ```
 
-The verbs come in three layers: **clone (get, once) / pull (follow, repeatedly)
-/ install · update (deploy)**. This is not a library you consume but a rulebook
-you operate and edit, so the corpus is always your own editable git repository.
-There is no path that silently deploys from an npx cache or an unpacked tarball
-— outside a corpus, the deploy commands either delegate to the corpus your
-machine already knows or stop with directions to `clone`.
+Inside a session, the three layers of the corpus reach the agent by different
+routes — and the lower the route, the stronger and the cheaper the rule:
 
-Deploy resync is never pushed: when the corpus moves ahead, the instrument at
-every session entrance (agents-doctor) reports "deployment older than the
-corpus", and you run `update` in that project.
+```mermaid
+flowchart TB
+    subgraph D[".agents/ — the deployed copy"]
+        R["AGENTS.md<br>ubiquitous rules"]
+        K["skills/<br>momentary rules"]
+        I["SessionStart hook<br>instruments"]
+        G["hooks/ · bin/<br>guards: bd wrapper · git-guard"]
+    end
+    subgraph S["agent session"]
+        CTX["context (finite attention)"]
+        CMD["bd · git commands"]
+    end
+    R -->|"always injected"| CTX
+    K -->|"read only when its moment comes"| CTX
+    I -->|"actor · leftovers · stock, at entry"| CTX
+    G -->|"wrap commands — zero context cost"| CMD
+```
 
-Following is deliberately not automated. What you pull are the rule texts that
-govern your agents' behavior, so `pull` always shows the incoming diff first
-(commit titles are written in domain language — they read as a changelog),
-integrates with rebase, then runs the corpus's own tests. Your personal changes
-live as commits and ride on top of upstream.
+## Quick start
 
-**Target is one positional argument** (`user` / `project [dir]` / `shell`) and
-is never defaulted: state it, or choose interactively. Omitting it in a
-non-interactive context (CI, pipes) stops without writing anything — no path
-where a forgotten argument silently modifies a different place. And because
-there is only one position, "user and project at once" cannot even be typed:
-exclusivity is guaranteed by syntax, not by runtime validation.
+**1 · Check the prerequisites**
 
-The interactive prompt is an arrow-key selector (`↑/↓` move, `enter` confirm,
-`ctrl-c` cancel) that collapses to a single line showing what you chose. Output
-is colored, and drops color automatically under `NO_COLOR` or without a TTY.
+| Tool | | Why |
+|---|---|---|
+| git, Node.js ≥ 18 | required | runs the CLI |
+| [bd (beads)](https://github.com/gastownhall/beads) | required | the issue ledger everything runs on: filing, claiming, completion gates, merge exclusion |
+| [codegraph](https://github.com/colbymchenry/codegraph) | recommended | structure queries — wire once with `codegraph install`, index per project with `codegraph init` |
 
-## What the installer does (all idempotent)
+The harness never installs these for you — the installer and every session
+start detect what is missing and say so.
 
-- Copies `payload/` → `.agents/` (content hashes recorded in the manifest
-  `.dotagents.json`)
-- Symlinks: `.claude/CLAUDE.md → .agents/AGENTS.md`; skills
-  (`.claude/skills/<name>`) and agent definitions (`.claude/agents/<name>.md`)
-  are **always linked one by one** so they coexist with entries you wrote
-  yourself (no per-directory links). Codex gets the same shape under `.codex/`
-  when that directory exists
-- Adds one guarded, managed line to `~/.zshenv` (user level only; a no-op when
-  the file it sources is absent)
-- `settings.json` fragments: `env.BASH_ENV`, `hooks.SessionStart`,
-  `permissions.ask` (push only — merge is covered by the
-  `AGENTS_MERGE_SLOT_OK` guard). Codex receives the same SessionStart fragment
-  in `.codex/hooks.json` when `.codex/` exists
-- Machine-specific products (the manifest, the metrics file) are kept out of
-  version control by a `.agents/.gitignore` that ships with the payload.
-  Everything dotagents generates stays inside its own territory (`.agents/`) —
-  bd writes only to `.beads/`, codegraph only to `.codegraph/`
+**2 · Get your corpus**
 
-Ownership principle: the installer only ever touches what it placed and still
-owns (hash-matched). Your own skills are never touched, files you edited in
-place are kept and reported (`--force` to overwrite), and only the settings
-fragments it added are ever removed.
+```sh
+npx @hiroiku/dotagents clone ~/dotagents
+```
 
-### The shell layer — a shared resource that exists once
+A plain git clone, and it is yours: edit the rules, commit them, personalize.
 
-Guards (git-guard, the bd wrapper) reach sessions only through
-`hooks/shellenv.sh`, and zsh has no per-project startup file — so this layer
-exists **once per machine** regardless of how many projects use the harness.
-The installer tends it from both sides so ordering never becomes operational
-knowledge: `install project` adds the minimal shell scope when it is missing;
-`uninstall user` asks before taking away what other projects share
+**3 · Deploy it**
+
+```sh
+cd ~/dotagents
+bin/agents-setup install project /path/to/project   # one project   → <dir>/.agents
+bin/agents-setup install user                       # this machine  → ~/.agents
+bin/agents-setup install shell                      # guards only   → hooks/bin + one ~/.zshenv line
+```
+
+Omit the target to pick it interactively. In a non-interactive shell an
+omitted target stops without writing anything — no default ever decides where
+rules land.
+
+**4 · Operate**
+
+```sh
+bin/agents-setup pull                 # follow upstream: changelog → rebase → tests
+bin/agents-setup update  project ...  # resync a deployment (sessions tell you when)
+bin/agents-setup status  project ...  # verify files, links, fragments — exit 1 on drift
+bin/agents-setup --help               # every command, target, option, example
+```
+
+## The three verbs
+
+| Verb | Cadence | What it does |
+|---|---|---|
+| **clone** | once | materialize the corpus as a git repository you own |
+| **pull** | when you choose | fetch upstream, show the incoming commit titles, rebase your commits on top, run the corpus tests |
+| **install · update** | per machine, per project | copy the corpus into `.agents/` and wire links, hooks, guards |
+
+Three rules connect them:
+
+- **No deploying from a throwaway.** Outside a corpus (an npx cache, an
+  unpacked tarball) the deploy commands delegate to the corpus your machine
+  already knows — or stop and point to `clone`.
+- **Resync is pulled, not pushed.** When the corpus moves ahead, the
+  instrument at every session entrance reports *deployment older than the
+  corpus*, and you run `update` in that project.
+- **Following is deliberate.** What you pull are the texts that govern your
+  agents, so `pull` shows the incoming commit titles first — written in domain
+  language, they read as a changelog — then rebases and runs the tests.
+  Nothing auto-updates.
+
+## What lands where
+
+| Piece | Destination | Delivery |
+|---|---|---|
+| Ubiquitous rules (`AGENTS.md`) | `.agents/AGENTS.md` | symlink `.claude/CLAUDE.md → .agents/AGENTS.md`; Codex gets the same shape under `.codex/` |
+| Skills · agent roles | `.agents/skills/` · `.agents/agents/` | one link per entry, so they coexist with skills you wrote yourself |
+| Guards (`bd` wrapper · `git-guard`) | `.agents/bin/` · `.agents/hooks/` | one managed line in `~/.zshenv` — user level, once per machine |
+| Session injection | `settings.json` · `.codex/hooks.json` | fragments: `hooks.SessionStart`, `env.BASH_ENV`, `permissions.ask` |
+| Machine-local products (manifest · metrics) | `.agents/` | kept out of version control by a `.gitignore` that ships with the payload |
+
+Everything is idempotent and **hash-owned**: the installer touches only what
+it placed and still recognizes. Your own skills are never touched, files you
+edited in place are kept and reported (`--force` to overwrite), and
+`uninstall` removes exactly what the manifest records — nothing else.
+
+<details>
+<summary><b>The shell layer — one per machine, tended from both sides</b></summary>
+
+Guards reach sessions only through `hooks/shellenv.sh`, and zsh has no
+per-project startup file — so this layer exists **once per machine** no matter
+how many projects use the harness. The installer keeps its care out of your
+operational knowledge: `install project` lays the minimal shell scope when it
+is missing; `uninstall user` asks before removing what other projects share
 (`--keep-shell` keeps it non-interactively); `uninstall project` never touches
 it.
 
-### Late adoption and team rollout
+</details>
+
+<details>
+<summary><b>Late adoption and team rollout</b></summary>
 
 - **Order-independent**: adding bd or codegraph later needs no reinstall —
   organs, ledgers and indexes are detected dynamically at every session start.
   An existing root AGENTS.md created by `bd init` is not taken over; only a
-  managed reference block is added
+  managed reference block is added.
 - **Two delivery layers**: the prompt layer (`.agents/` payload, links,
-  reference block) rides version control and **works from clone alone**; the
+  reference block) rides version control and works from `git clone` alone; the
   injection and enforcement layer (manifest, settings fragments, zshenv line,
-  shell guards) is machine-specific and **is laid by the installer on each
-  machine**
+  shell guards) is machine-specific and is laid by the installer on each
+  machine.
 - **Second person onward**: clone the project, clone dotagents, run
   `bin/agents-setup install project <project>` — one command; the shell layer
   is completed on the way if missing. The installer is idempotent and
-  hash-checked, so it never fights what version control delivered
+  hash-checked, so it never fights what version control delivered.
+
+</details>
+
+<details>
+<summary><b>CLI design notes</b></summary>
+
+The target is **one positional argument** (`user` / `project [dir]` /
+`shell`), never defaulted. Because there is only one position, "user and
+project at once" cannot even be typed — exclusivity is guaranteed by syntax,
+not by runtime validation. The interactive prompt is an arrow-key selector
+(`↑/↓` move, `enter` confirm, `ctrl-c` cancel) that collapses to a single line
+recording what you chose. Output drops color automatically under `NO_COLOR` or
+without a TTY.
+
+</details>
 
 ## Concept
 

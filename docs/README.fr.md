@@ -1,136 +1,199 @@
 # dotagents
 
-Le corpus canonique d'un harnais d'agents IA (partagé par Claude Code et
-Codex) : prompts, skills et application des règles, versionnés ici et
-déployés dans chaque environnement avec [bin/agents-setup](../bin/agents-setup).
+**Un harnais d'agents IA que tu possèdes.** Règles, skills et gardes
+mécaniques pour Claude Code et Codex — versionnés comme un unique corpus,
+déployé vers chaque projet depuis celui-ci.
 
 [English](../README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Español](README.es.md) | Français
 
-## Démarrage rapide
+[![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-Prérequis : git, Node.js ≥ 18, et les organes sur lesquels repose le harnais
-— **[bd (beads)](https://github.com/gastownhall/beads) est requis** (le
-registre des tickets sur lequel reposent le dépôt, la réclamation, les
-portes d'achèvement et l'exclusion de fusion),
-**[codegraph](https://github.com/colbymchenry/codegraph) est recommandé**
-(requêtes de structure ; à câbler avec `codegraph install`, à indexer par
-projet avec `codegraph init`). Le harnais ne les installe jamais à ta place —
-l'installeur et chaque démarrage de session détectent et signalent ce qui
-manque.
+- **Un corpus, de nombreux déploiements.** Prompts, skills, rôles d'agents,
+  gardes shell et instruments de session vivent dans un unique dépôt git.
+  L'installeur les copie dans `~/.agents` ou `<project>/.agents` et câble
+  les liens symboliques et les hooks que lisent Claude Code et Codex.
+- **Un livre de règles, pas une bibliothèque.** Tu modifies les règles, les
+  commit, et tu suis l'upstream seulement quand tu le choisis — rien ne
+  change dans ton dos.
+- **Les règles deviennent mécanisme.** Tout ce qu'un hook ou un wrapper peut
+  imposer est imposé ; tout ce qui a un moment clair devient un skill ;
+  seul le reste a le droit d'occuper l'attention de chaque session. Le
+  raisonnement se trouve dans [Concept](#concept).
 
-```sh
-# Obtenir (une fois) : le corpus arrive comme un dépôt git que tu possèdes et modifies
-npx @hiroiku/dotagents clone ~/dotagents
+## Comment ça marche
 
-# Déployer : choisis une cible explicitement, ou omets-la pour choisir de façon interactive
-~/dotagents/bin/agents-setup install project /path/to/project   # un projet (<dir>/.agents)
-~/dotagents/bin/agents-setup install user                       # niveau utilisateur (~/.agents)
-~/dotagents/bin/agents-setup install shell                      # gardes uniquement (hooks/bin + une ligne dans ~/.zshenv)
+Un corpus alimente chaque environnement. Les déploiements sont de simples
+copies — les sessions ne dépendent jamais de l'accessibilité du corpus, et
+rien ne se déploie dans ton dos :
 
-# Suivre l'upstream (répétable) : affiche les titres des commits entrants, effectue un rebase, exécute les tests
-~/dotagents/bin/agents-setup pull
-
-# Maintenir
-~/dotagents/bin/agents-setup update  project   # appliquer les changements du corpus, élaguer ce que payload/ a abandonné
-~/dotagents/bin/agents-setup status  project   # vérifier manifest, payload, fichiers, liens, fragments
-~/dotagents/bin/agents-setup --help            # commandes, cibles, options, exemples
+```mermaid
+flowchart LR
+    UP["upstream<br>github.com/hiroiku/dotagents"]
+    C["ton corpus<br>~/dotagents — un dépôt git que tu modifies"]
+    A["déploiements<br>~/.agents · .agents par projet"]
+    S["sessions<br>Claude Code · Codex"]
+    UP -->|"clone · une fois"| C
+    UP -->|"pull · quand tu choisis"| C
+    C -->|"install · update"| A
+    A -->|"symlinks · hooks · gardes"| S
+    S -.->|"le démarrage de session signale : déploiement plus ancien que le corpus"| A
 ```
 
-Les verbes se déclinent en trois couches : **clone (obtenir, une fois) / pull
-(suivre, de façon répétée) / install · update (déployer)**. Ce n'est pas une
-bibliothèque que tu consommes, mais un livre de règles que tu opères et
-modifies, si bien que le corpus reste toujours ton propre dépôt git
-modifiable. Il n'existe aucun chemin qui déploie silencieusement depuis un
-cache npx ou une archive tarball décompressée — en dehors d'un corpus, les
-commandes de déploiement délèguent soit au corpus que ta machine connaît
-déjà, soit s'arrêtent avec des instructions pour faire `clone`.
+À l'intérieur d'une session, les trois couches du corpus atteignent l'agent
+par des chemins différents — et plus le chemin est bas, plus la règle est
+forte et bon marché :
 
-La resynchronisation du déploiement n'est jamais poussée : quand le corpus
-avance, l'instrument à chaque entrée de session (agents-doctor) signale
-« déploiement plus ancien que le corpus », et tu exécutes `update` dans ce
-projet.
+```mermaid
+flowchart TB
+    subgraph D[".agents/ — la copie déployée"]
+        R["AGENTS.md<br>règles omniprésentes"]
+        K["skills/<br>règles momentanées"]
+        I["hook SessionStart<br>instruments"]
+        G["hooks/ · bin/<br>gardes : wrapper de bd · git-guard"]
+    end
+    subgraph S["session d'agent"]
+        CTX["contexte (attention finie)"]
+        CMD["commandes bd · git"]
+    end
+    R -->|"toujours injecté"| CTX
+    K -->|"lu seulement quand son moment arrive"| CTX
+    I -->|"acteur · restes · stock, à l'entrée"| CTX
+    G -->|"enveloppe les commandes — coût de contexte nul"| CMD
+```
 
-Le suivi n'est délibérément pas automatisé. Ce que tu récupères par pull, ce
-sont les textes de règles qui gouvernent le comportement de tes agents, donc
-`pull` montre toujours d'abord le diff entrant (les titres des commits sont
-écrits en langage du domaine — ils se lisent comme un journal des
-modifications), s'intègre par rebase, puis exécute les propres tests du
-corpus. Tes modifications personnelles vivent comme des commits et
-chevauchent l'upstream.
+## Démarrage rapide
 
-**La cible est un unique argument positionnel** (`user` / `project [dir]` /
-`shell`) et n'a jamais de valeur par défaut : indique-la, ou choisis de façon
-interactive. L'omettre dans un contexte non interactif (CI, tubes) arrête le
-processus sans rien écrire — aucun chemin où un argument oublié modifierait
-silencieusement un autre emplacement. Et comme il n'y a qu'une seule
-position, « utilisateur et projet à la fois » ne peut même pas être saisi :
-l'exclusivité est garantie par la syntaxe, pas par une validation à
-l'exécution.
+**1 · Vérifie les prérequis**
 
-L'invite interactive est un sélecteur à flèches (`↑/↓` déplacer, `enter`
-confirmer, `ctrl-c` annuler) qui se réduit à une seule ligne montrant ce que
-tu as choisi. La sortie est colorée, et perd automatiquement la couleur sous
-`NO_COLOR` ou sans TTY.
+| Outil | | Pourquoi |
+|---|---|---|
+| git, Node.js ≥ 18 | requis | fait tourner la CLI |
+| [bd (beads)](https://github.com/gastownhall/beads) | requis | le registre de tickets sur lequel tout repose : dépôt, réclamation, portes d'achèvement, exclusion de fusion |
+| [codegraph](https://github.com/colbymchenry/codegraph) | recommandé | requêtes de structure — à câbler une fois avec `codegraph install`, à indexer par projet avec `codegraph init` |
 
-## Ce que fait l'installeur (tout est idempotent)
+Le harnais ne les installe jamais à ta place — l'installeur et chaque
+démarrage de session détectent ce qui manque et le signalent.
 
-- Copie `payload/` → `.agents/` (les empreintes de contenu sont enregistrées
-  dans le manifest `.dotagents.json`)
-- Liens symboliques : `.claude/CLAUDE.md → .agents/AGENTS.md` ; les skills
-  (`.claude/skills/<name>`) et les définitions d'agents
-  (`.claude/agents/<name>.md`) sont **toujours liés un par un**, afin qu'ils
-  coexistent avec les entrées que tu as écrites toi-même (pas de liens par
-  répertoire). Codex reçoit la même forme sous `.codex/` quand ce répertoire
-  existe
-- Ajoute une ligne protégée et gérée à `~/.zshenv` (niveau utilisateur
-  uniquement ; une absence d'effet quand le fichier qu'elle source est
-  absent)
-- Fragments de `settings.json` : `env.BASH_ENV`, `hooks.SessionStart`,
-  `permissions.ask` (push uniquement — la fusion est couverte par la garde
-  `AGENTS_MERGE_SLOT_OK`). Codex reçoit le même fragment SessionStart dans
-  `.codex/hooks.json` quand `.codex/` existe
-- Les produits spécifiques à la machine (le manifest, le fichier de
-  métriques) sont tenus hors du contrôle de version par un
-  `.agents/.gitignore` livré avec le payload. Tout ce que dotagents génère
-  reste dans son propre territoire (`.agents/`) — bd n'écrit que dans
-  `.beads/`, codegraph que dans `.codegraph/`
+**2 · Obtiens ton corpus**
 
-Principe de propriété : l'installeur ne touche jamais qu'à ce qu'il a
-lui-même placé et possède encore (empreinte correspondante). Tes propres
-skills ne sont jamais touchés, les fichiers que tu as modifiés sur place sont
-conservés et signalés (`--force` pour écraser), et seuls les fragments de
-settings qu'il a ajoutés sont jamais retirés.
+```sh
+npx @hiroiku/dotagents clone ~/dotagents
+```
 
-### La couche shell — une ressource partagée qui existe une seule fois
+Un simple `git clone`, et il est à toi : modifie les règles, commit-les,
+personnalise-le.
 
-Les gardes (git-guard, l'enveloppe de bd) n'atteignent les sessions que par
-`hooks/shellenv.sh`, et zsh n'a pas de fichier de démarrage par projet — donc
-cette couche existe **une fois par machine**, quel que soit le nombre de
-projets qui utilisent le harnais. L'installeur l'entretient des deux côtés
-afin que l'ordre ne devienne jamais une connaissance opérationnelle :
-`install project` ajoute la portée shell minimale quand elle manque ;
-`uninstall user` demande confirmation avant de retirer ce que d'autres
-projets partagent (`--keep-shell` la conserve sans interaction) ;
+**3 · Déploie-le**
+
+```sh
+cd ~/dotagents
+bin/agents-setup install project /path/to/project   # un projet     → <dir>/.agents
+bin/agents-setup install user                       # cette machine → ~/.agents
+bin/agents-setup install shell                      # gardes seules → hooks/bin + une ligne dans ~/.zshenv
+```
+
+Omets la cible pour la choisir de façon interactive. Dans un shell non
+interactif, une cible omise arrête le processus sans rien écrire — aucun
+défaut ne décide jamais où atterrissent les règles.
+
+**4 · Opère**
+
+```sh
+bin/agents-setup pull                 # suivre l'upstream : journal des modifications → rebase → tests
+bin/agents-setup update  project ...  # resynchroniser un déploiement (les sessions te le disent)
+bin/agents-setup status  project ...  # vérifier fichiers, liens, fragments — exit 1 en cas de dérive
+bin/agents-setup --help               # toutes les commandes, cibles, options, exemples
+```
+
+## Les trois verbes
+
+| Verbe | Cadence | Ce qu'il fait |
+|---|---|---|
+| **clone** | une fois | matérialise le corpus comme un dépôt git que tu possèdes |
+| **pull** | quand tu choisis | récupère l'upstream, affiche les titres des commits entrants, rebase tes commits par-dessus, exécute les tests du corpus |
+| **install · update** | par machine, par projet | copie le corpus dans `.agents/` et câble liens, hooks, gardes |
+
+Trois règles les relient :
+
+- **Pas de déploiement depuis un jetable.** En dehors d'un corpus (un cache
+  npx, une archive tarball décompressée), les commandes de déploiement
+  délèguent au corpus que ta machine connaît déjà — ou s'arrêtent en
+  pointant vers `clone`.
+- **La resynchronisation se pull, elle ne se push pas.** Quand le corpus
+  avance, l'instrument à chaque entrée de session signale *déploiement plus
+  ancien que le corpus*, et tu exécutes `update` dans ce projet.
+- **Le suivi est délibéré.** Ce que tu récupères par pull, ce sont les
+  textes qui gouvernent tes agents, donc `pull` montre d'abord les titres
+  des commits entrants — écrits en langage du domaine, ils se lisent comme
+  un journal des modifications — puis rebase et exécute les tests. Rien ne
+  se met à jour automatiquement.
+
+## Ce qui atterrit où
+
+| Élément | Destination | Livraison |
+|---|---|---|
+| Règles omniprésentes (`AGENTS.md`) | `.agents/AGENTS.md` | symlink `.claude/CLAUDE.md → .agents/AGENTS.md` ; Codex reçoit la même forme sous `.codex/` |
+| Skills · rôles d'agents | `.agents/skills/` · `.agents/agents/` | un lien par entrée, pour qu'ils coexistent avec les skills que tu as écrits toi-même |
+| Gardes (wrapper `bd` · `git-guard`) | `.agents/bin/` · `.agents/hooks/` | une ligne gérée dans `~/.zshenv` — niveau utilisateur, une fois par machine |
+| Injection de session | `settings.json` · `.codex/hooks.json` | fragments : `hooks.SessionStart`, `env.BASH_ENV`, `permissions.ask` |
+| Produits spécifiques à la machine (manifest · métriques) | `.agents/` | tenus hors du contrôle de version par un `.gitignore` livré avec le payload |
+
+Tout est idempotent et **possédé par empreinte** : l'installeur ne touche
+que ce qu'il a lui-même placé et reconnaît encore. Tes propres skills ne
+sont jamais touchés, les fichiers que tu as modifiés sur place sont
+conservés et signalés (`--force` pour écraser), et `uninstall` retire
+exactement ce que le manifest enregistre — rien d'autre.
+
+<details>
+<summary><b>La couche shell — une par machine, entretenue des deux côtés</b></summary>
+
+Les gardes n'atteignent les sessions que par `hooks/shellenv.sh`, et zsh n'a
+pas de fichier de démarrage par projet — donc cette couche existe **une
+fois par machine**, quel que soit le nombre de projets qui utilisent le
+harnais. L'installeur garde son entretien hors de ta connaissance
+opérationnelle : `install project` ajoute la portée shell minimale quand
+elle manque ; `uninstall user` demande confirmation avant de retirer ce que
+d'autres projets partagent (`--keep-shell` la conserve sans interaction) ;
 `uninstall project` n'y touche jamais.
 
-### Adoption tardive et déploiement en équipe
+</details>
+
+<details>
+<summary><b>Adoption tardive et déploiement en équipe</b></summary>
 
 - **Indépendant de l'ordre** : ajouter bd ou codegraph plus tard ne
   nécessite aucune réinstallation — les organes, les registres et les index
   sont détectés dynamiquement à chaque démarrage de session. Un AGENTS.md
   racine existant créé par `bd init` n'est pas repris ; seul un bloc de
-  référence géré est ajouté
+  référence géré est ajouté.
 - **Deux couches de livraison** : la couche de prompts (le payload de
   `.agents/`, les liens, le bloc de référence) voyage avec le contrôle de
-  version et **fonctionne dès le simple clonage** ; la couche d'injection et
+  version et fonctionne dès le simple `git clone` ; la couche d'injection et
   d'application des règles (manifest, fragments de settings, la ligne
-  zshenv, les gardes shell) est spécifique à la machine et **est posée par
-  l'installeur sur chaque machine**
+  zshenv, les gardes shell) est spécifique à la machine et est posée par
+  l'installeur sur chaque machine.
 - **À partir de la deuxième personne** : cloner le projet, cloner
   dotagents, exécuter `bin/agents-setup install project <project>` — une
   seule commande ; la couche shell est complétée au passage si elle manque.
   L'installeur est idempotent et vérifié par empreinte, si bien qu'il ne
-  combat jamais ce que le contrôle de version a livré
+  combat jamais ce que le contrôle de version a livré.
+
+</details>
+
+<details>
+<summary><b>Notes de conception de la CLI</b></summary>
+
+La cible est **un unique argument positionnel** (`user` / `project [dir]` /
+`shell`), jamais par défaut. Comme il n'y a qu'une seule position,
+« utilisateur et projet à la fois » ne peut même pas être saisi —
+l'exclusivité est garantie par la syntaxe, pas par une validation à
+l'exécution. L'invite interactive est un sélecteur à flèches (`↑/↓`
+déplacer, `enter` confirmer, `ctrl-c` annuler) qui se réduit à une seule
+ligne montrant ce que tu as choisi. La sortie perd automatiquement la
+couleur sous `NO_COLOR` ou sans TTY.
+
+</details>
 
 ## Concept
 
