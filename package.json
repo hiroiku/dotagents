@@ -4,11 +4,17 @@
   "private": true,
   "description": "AI エージェントハーネスの正本。payload/ を ~/.agents / <project>/.agents へ配布する",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hiroiku/dotagents.git"
+  },
   "bin": {
+    "dotagents": "bin/agents-setup",
     "agents-setup": "bin/agents-setup"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "prepublishOnly": "npm test"
   },
   "files": [
     "bin",

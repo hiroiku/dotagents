@@ -1038,7 +1038,126 @@ function status(opts) {
 
 // ---------------------------------------------------------------- main
 
-const COMMANDS = new Set(['install', 'update', 'uninstall', 'status']);
+// ---------------------------------------------------------------- 正本(取得と追従)
+//
+// 三層の動詞を分ける: clone(取得・初回)/ pull(追従・繰り返し)/ install・update(配備)。
+// 追従の本体は git に委ねる — pull が包むのは「差分の提示 → 統合 → 検証」だけで、
+// 配備の再同期は行わない(古さは各セッション入口の計器 agents-doctor が検出する)。
+
+// この実行ファイルが編集可能な正本(git リポジトリ)の中にいるか。
+// npx のキャッシュや tarball 展開は正本ではない — そこから黙って配備しない。
+function isCorpus() {
+  return Boolean(lstatOrNull(path.join(REPO_ROOT, '.git')));
+}
+
+function corpusGit(args, opts = {}) {
+  return execFileSync('git', ['-C', REPO_ROOT, ...args], { encoding: 'utf8', ...opts });
+}
+
+// clone 元の解決: 明示(--from)→ package.json の repository → 実行元リポジトリの origin。
+function cloneSource(opts) {
+  if (opts.from) return opts.from;
+  const repo = pkg().repository;
+  const url = typeof repo === 'string' ? repo : repo?.url;
+  if (url) return url.replace(/^git\+/, '');
+  if (isCorpus()) {
+    try { return corpusGit(['remote', 'get-url', 'origin']).trim(); } catch { /* origin 無し */ }
+  }
+  throw new Error('clone source unknown: pass --from <url|path>.');
+}
+
+function question(title) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(`  ${ui.bold(title)} `, (answer) => { rl.close(); resolve(answer.trim()); });
+  });
+}
+
+async function clone(opts) {
+  let dir = opts.cloneDir;
+  if (!dir) {
+    if (!isInteractive()) {
+      throw new Error('no directory given for `clone`. The corpus lands where you say, never in a default:\n' +
+        '         dotagents clone <dir>\n' +
+        '       (run it in a terminal to type one interactively)');
+    }
+    dir = await question('Clone the corpus into which directory?');
+    if (!dir) throw new Error('cancelled.');
+  }
+  dir = path.resolve(dir);
+  const st = lstatOrNull(dir);
+  if (st && (!st.isDirectory() || fs.readdirSync(dir).length)) {
+    throw new Error(`not an empty directory: ${dir}`);
+  }
+  const src = cloneSource(opts);
+  console.log(`${ui.dim('clone')} ${src} ${ui.dim('→')} ${homePath(dir)}`);
+  execFileSync('git', ['clone', src, dir], { stdio: 'inherit' });
+  console.log(`\n${ui.green('✔')} corpus cloned. It is yours to edit — rules live in git, deployments follow it.`);
+  console.log(`${ui.dim('  next:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} install ${ui.dim('user | project [dir] | shell')}`);
+  console.log(`${ui.dim('  follow upstream later with:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} pull`);
+}
+
+function pull() {
+  if (corpusGit(['status', '--porcelain']).trim()) {
+    throw new Error('the corpus has uncommitted changes. Commit or stash them first —\n' +
+      '       pulling over local edits mixes upstream and your hand in one diff.');
+  }
+  let upstream;
+  try {
+    upstream = corpusGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).trim();
+  } catch {
+    throw new Error('no upstream branch. Set one (git branch --set-upstream-to=origin/<branch>) and retry.');
+  }
+  corpusGit(['fetch', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
+  const incoming = corpusGit(['log', '--oneline', `HEAD..${upstream}`]).trim();
+  if (!incoming) {
+    console.log(`${ui.green('✔')} already following ${upstream} — nothing new upstream.`);
+    return;
+  }
+  // コミットタイトルの規約(業務上何が変わったか)が、そのまま人間の読める changelog になる
+  console.log(`${ui.bold('incoming from')} ${upstream}:`);
+  for (const line of incoming.split('\n')) console.log(`  ${line}`);
+  console.log('');
+  try {
+    execFileSync('git', ['-C', REPO_ROOT, 'pull', '--rebase'], { stdio: 'inherit' });
+  } catch {
+    throw new Error('integration stopped (see git output above). Resolve, `git rebase --continue`, then re-run pull.');
+  }
+  if (pkg().scripts?.test) {
+    console.log(`${ui.dim('verifying the merged corpus…')}`);
+    try {
+      execFileSync('npm', ['test'], { cwd: REPO_ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
+    } catch {
+      throw new Error('pulled, but the corpus fails its own tests. Fix before deploying —\n' +
+        '       do not run `update` from a red corpus.');
+    }
+  }
+  const n = incoming.split('\n').length;
+  console.log(`${ui.green('✔')} pulled ${n} commit${n === 1 ? '' : 's'} and verified.`);
+  console.log(`${ui.dim('  deployments resync per install:')} agents-setup update ${ui.dim('… (each session entrance reports staleness)')}`);
+}
+
+// 正本の外(npx キャッシュ等)から配備系コマンドが呼ばれたら、既知の正本へ委譲する。
+// 使い捨てコピーを source として manifest に記録する経路を作らない。
+function delegateToCorpus(argv) {
+  const manifest = readJson(path.join(os.homedir(), '.agents', MANIFEST_NAME), null);
+  const source = manifest?.source;
+  const bin = source && path.join(source, 'bin', 'agents-setup');
+  if (source && source !== REPO_ROOT && lstatOrNull(bin)) {
+    console.log(`${ui.dim('not a corpus here — delegating to')} ${homePath(source)}`);
+    const r = require('node:child_process').spawnSync(process.execPath, [bin, ...argv], { stdio: 'inherit' });
+    process.exitCode = r.status ?? 1;
+    return;
+  }
+  throw new Error('this copy is disposable (npx cache or tarball), not an editable corpus.\n' +
+    '       Get one first, then deploy from it:\n' +
+    '         npx dotagents clone <dir>\n' +
+    `         <dir>/bin/agents-setup install user | project [dir] | shell`);
+}
+
+const COMMANDS = new Set(['clone', 'pull', 'install', 'update', 'uninstall', 'status']);
+// 対象(配備先)を取らないコマンド。clone は取得先ディレクトリ、pull は引数なし。
+const CORPUS_COMMANDS = new Set(['clone', 'pull']);
 const TARGETS = new Set(['user', 'project', 'shell']);
 // 旧インタフェース。エイリアスとしては生かさない(2 系統は維持費を二重に払う)。
 // 正しい形へ案内するためだけに名前を覚えておく。
@@ -1047,13 +1166,18 @@ const RETIRED = new Set(['--user', '--project', '--shell']);
 // 対象は位置引数 1 つ。位置は 1 つしか無いので「user と project の同時指定」は
 // 表現できない — 排他は検証ではなく構文が保証する。
 function parseArgs(argv) {
-  const opts = { target: null, dir: null, force: false, keepShell: false, interactive: false, help: false, version: false };
+  const opts = { target: null, dir: null, cloneDir: null, from: null, force: false, keepShell: false, interactive: false, help: false, version: false };
   const positional = [];
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
     if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--version' || a === '-v') opts.version = true;
     else if (a === '--force') opts.force = true;
     else if (a === '--keep-shell') opts.keepShell = true;
+    else if (a === '--from') {
+      if (argv[i + 1] === undefined) throw new Error('--from takes a value: --from <url|path>');
+      opts.from = argv[++i];
+    }
     else if (RETIRED.has(a)) {
       throw new Error(`${a} is retired. The target is a positional argument now:\n` +
         `         agents-setup <command> user | project [<dir>] | shell`);
@@ -1066,6 +1190,16 @@ function parseArgs(argv) {
   // ヘルプと版の表示は引数の妥当性より優先する(`install --help` に対象を要求しない)
   if (opts.help || opts.version) return { cmd, opts };
   if (!COMMANDS.has(cmd)) return { cmd, opts };  // 使い方の表示へ
+
+  // clone は取得先ディレクトリを 1 つ、pull は位置引数を取らない(配備の対象語彙と混ぜない)
+  if (CORPUS_COMMANDS.has(cmd)) {
+    if (cmd === 'pull' && target !== undefined) throw new Error(`\`pull\` takes no arguments: ${target}`);
+    if (cmd === 'clone') {
+      if (dir !== undefined || extra.length) throw new Error(`too many arguments: ${[dir, ...extra].filter(Boolean).join(' ')}`);
+      opts.cloneDir = target ?? null;
+    }
+    return { cmd, opts };
+  }
 
   if (target !== undefined) {
     if (!TARGETS.has(target)) {
@@ -1095,6 +1229,35 @@ const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— exactly one. Omit it to 
 const SHELL_NOTE = `The shell layer lives only at the user level and every project shares it.`;
 
 const CMD_HELP = {
+  clone: {
+    usage: '<dir>',
+    line: 'get the corpus as your own editable git repository (first time)',
+    body: [
+      'Clones the rules corpus into <dir> as a git repository you own: edit rules there,',
+      'commit them, and deploy from it with install/update. The directory is explicit or',
+      'asked interactively — never defaulted.',
+    ],
+    options: [['--from <url|path>', 'clone from an explicit source instead of the published repository']],
+    notes: ['A clone is for editing and following. `npx dotagents clone` is the one command that works outside a corpus.'],
+    examples: [
+      ['npx dotagents clone ~/dotagents', 'get the corpus next to your dotfiles'],
+      ['dotagents clone x --from /path/to/repo', 'clone a local fork'],
+    ],
+  },
+  pull: {
+    usage: '',
+    line: 'follow upstream: show incoming commits, integrate, verify (repeatable)',
+    body: [
+      'Fetches upstream, lists the incoming commit titles (the commit convention makes',
+      'them a readable changelog), rebases your local commits on top, then runs the',
+      'corpus tests. Stops on uncommitted changes, conflicts, or red tests.',
+    ],
+    options: [],
+    notes: ['Deployments are not touched: each install resyncs with `update`, and every session entrance reports staleness.'],
+    examples: [
+      ['dotagents pull', 'follow the upstream corpus'],
+    ],
+  },
   install: {
     line: 'copy payload/ into .agents/, then set up links and env fragments',
     body: [
@@ -1184,9 +1347,10 @@ function printHelp(cmd) {
   }
 
   const h = CMD_HELP[cmd];
-  console.log(`${ui.bold(`agents-setup ${cmd}`)} ${ui.dim('<target> [options]')}\n`);
+  const usage = h.usage !== undefined ? h.usage : '<target> [options]';
+  console.log(`${ui.bold(`agents-setup ${cmd}`)}${usage ? ` ${ui.dim(usage)}` : ''}\n`);
   for (const l of h.body) console.log(`  ${l}`);
-  console.log(`\n${TARGET_HELP}`);
+  if (!CORPUS_COMMANDS.has(cmd)) console.log(`\n${TARGET_HELP}`);
   if (h.options.length) {
     console.log(`\n${ui.bold('Options')}`);
     console.log(pad2(h.options).join('\n'));
@@ -1208,7 +1372,12 @@ async function main() {
   if (!COMMANDS.has(cmd)) {
     throw new Error(`unknown command: ${cmd}\n       Run \`agents-setup --help\` to see what is available.`);
   }
+  // clone はどこからでも実行できる。それ以外は編集可能な正本からだけ —
+  // 正本の外(npx キャッシュ等)では既知の正本へ委譲するか、clone への案内で止まる。
+  if (cmd !== 'clone' && !isCorpus()) return delegateToCorpus(process.argv.slice(2));
   switch (cmd) {
+    case 'clone': return clone(opts);
+    case 'pull': return pull();
     case 'install': return install(await resolveTarget(cmd, opts));
     case 'update': return install(await resolveTarget(cmd, opts), { requireExisting: true });
     case 'uninstall': return uninstall(await resolveTarget(cmd, opts));

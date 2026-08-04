@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""ハーネス自身の乖離検出。インストール先だけで完結する(正本リポジトリを必要としない)。
+"""ハーネス自身の乖離検出。基本はインストール先だけで完結する。
 
 照合先は manifest(.dotagents.json)— インストールの副産物として機械が導出した記録であり、
-手で維持する列挙を持たない。検出は一段まで: この検出器自身を見張る仕組みは作らない。
+手で維持する列挙を持たない。manifest の source(正本)が同じマシンで読めるときだけ、
+配備の古さ(正本が進んでいるのに update されていない)も一段だけ照合する — pull した
+正本の変更が配備先に届いていない状態を、各セッションの入口で検出するためである。
+検出は一段まで: この検出器自身を見張る仕組みは作らない。
 乖離があるときだけ出力し(正常時は 0 トークン)、乖離があれば exit 1。
 """
 import hashlib
@@ -49,6 +52,37 @@ def main():
                 problems.append(f"link {lp} — 消失")
         elif not os.path.exists(os.path.realpath(lp)):
             problems.append(f"link {lp} — 参照先が存在しない")
+
+    # 配備の古さ: 正本の payload と manifest の記録を突き合わせる(正本が読めるときだけ)。
+    # npm が配布物から剥ぎ取る .gitignore は payload 側で無印の名前を持つ(installer と同じ写像)。
+    src = m.get("source")
+    src_payload = os.path.join(src, "payload") if src else None
+    if src_payload and os.path.isdir(src_payload):
+        renames = {".gitignore": "gitignore"}
+        stale = sum(
+            1
+            for rel, recorded in m.get("files", {}).items()
+            if os.path.isfile(os.path.join(src_payload, renames.get(rel, rel)))
+            and sha256(os.path.join(src_payload, renames.get(rel, rel))) != recorded
+        )
+        undeployed = 0
+        scope_shell = m.get("scope") == "shell"
+        for dirpath, dirnames, filenames in os.walk(src_payload):
+            dirnames[:] = [d for d in dirnames if d != ".DS_Store"]
+            for name in filenames:
+                if name == ".DS_Store":
+                    continue
+                rel = os.path.relpath(os.path.join(dirpath, name), src_payload)
+                dst = ".gitignore" if rel == "gitignore" else rel
+                if scope_shell and not (rel.startswith("hooks/") or rel.startswith("bin/")):
+                    continue
+                if dst not in m.get("files", {}):
+                    undeployed += 1
+        if stale or undeployed:
+            problems.append(
+                f"配備が正本より古い: 更新 {stale} 件 / 未配布 {undeployed} 件"
+                f"(正本 {src} で agents-setup update を実行)"
+            )
 
     if m.get("kind") == "user":
         zshenv = os.path.join(os.path.expanduser("~"), ".zshenv")
