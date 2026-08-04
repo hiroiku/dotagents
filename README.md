@@ -69,7 +69,7 @@ bd 運用と記憶の線引きは [agents-beads-ops](./payload/skills/agents-bea
 ### 検討中(未実装・未決)
 
 - kuden-os の既存 open の一括トリアージ(`AGENTS_BD_OPEN_OK=1` の包括承認つき、kuden-os のセッションで実施)
-- ~~ユーザーレベル install の実施~~ → 運用モデル決定: **プロンプトはプロジェクトごと(`--project`)、ユーザーレベルは shell スコープ(ガード)だけ**。フルのユーザーレベル install は使わない
+- ~~ユーザーレベル install の実施~~ → 運用モデル決定: **プロンプトはプロジェクトごと(`--project`)、ユーザーレベルは shell スコープ(ガード)だけ**。フルのユーザーレベル install は CLI としては提供する(対象を既定値で決めない以上、対等に選べる必要がある)が、運用では使わない
 - ~~`permissions.ask` の merge 断片の撤去~~ → 実施(2026-08-01): ガードの稼働確認(テスト・Codex 実発火)をもって撤去。update が旧断片を自動で刈り込む
 - 造語の見直しと AGENTS.md `<beads>` のさらなるスリム化 — 移行後、計器の観測が付いてから
 - ~~Codex の強制則配達~~ → 実測で解決(2026-08-01): Codex の実行シェルは zsh で、shell スコープの zshenv 配達がそのまま届く。マーカーは `CODEX_SANDBOX=seatbelt` が Codex 自身により設定され、git-guard が発火することを確認。残る未確認は sandbox 無効時のマーカー有無のみ
@@ -101,15 +101,35 @@ payload/              配布物の唯一の定義。この木がそのまま .ag
 - **codegraph — 推奨**。探索の導出 — [colbymchenry/codegraph](https://github.com/colbymchenry/codegraph)(配線は `codegraph install`、index はプロジェクトごとに `codegraph init`)
 
 ```sh
-# ユーザーレベル(~/.agents)
+# 対象を聞く(ターミナルなら対話。ユーザーレベルか、カレントディレクトリか)
 bin/agents-setup install
 
-# プロジェクトレベル(<project>/.agents。リンクは相対)
-bin/agents-setup install --project /path/to/project
+# プロジェクトレベル(<dir>/.agents。リンクは相対。dir の省略はカレントディレクトリ)
+bin/agents-setup install project /path/to/project
+
+# ユーザーレベル(~/.agents)
+bin/agents-setup install user
 
 # シェル層のみ(強制則 hooks / bin + zshenv 行。プロンプト・リンク・settings 断片なし)
-# zsh の起動ファイルはユーザーグローバルしか無いため、ガードの zsh 配達はこのスコープが最小形
-bin/agents-setup install --shell
+bin/agents-setup install shell
+```
+
+**対象は位置引数 1 つ**(`user` / `project [dir]` / `shell`)で、既定値では決まらない。
+明示するか対話で選ぶかのどちらかであり、非対話(CI・パイプ)で省略すれば何も書かずに止まる —
+指定し忘れが黙って別の場所を書き換える経路を作らないため。
+
+位置は 1 つしか無いので「`user` と `project` の同時指定」は**書こうとしても書けない**。
+排他を実行時の検証で弾くのではなく、構文が保証する形に寄せてある(`--force` / `--keep-shell`
+は対象ではなく動作の修飾なので、フラグのまま)。
+
+対話は矢印キーで選ぶセレクター(`↑/↓` 移動・`enter` 決定・`ctrl-c` 中止)で、決めた後は
+選んだ結果の 1 行だけが残る。CLI の表示は英語・色つきで、`NO_COLOR` と非 TTY では
+自動的に色を落とす。ヘルプは `--help` / `-h` で、コマンドごとにも引ける:
+
+```sh
+bin/agents-setup --help              # 全体(コマンド一覧・対象・オプション)
+bin/agents-setup install --help      # そのコマンドの説明・対象・オプション・例(-h も可)
+bin/agents-setup --version           # 版
 ```
 
 installer が行うこと(すべて冪等):
@@ -128,6 +148,20 @@ installer が行うこと(すべて冪等):
   すべて dotagents の領分(`.agents/`)で完結する — bd は `.beads/`、codegraph は
   `.codegraph/`、dotagents は `.agents/` にしか書かない
 
+### シェル層 — 1 つしかない共有資源
+
+ガード(git-guard / bd ラッパー)がセッションに届く経路は `hooks/shellenv.sh` だけであり、
+zsh の起動ファイルがユーザーグローバル(`~/.zshenv`)にしか無いため、**この層はプロジェクトの
+数によらず 1 つしか存在しない**(`settings.json` の `env.BASH_ENV` は bash 専用で、
+エージェントのツールシェルが zsh の環境には届かない)。共有資源なので、順序と回数を運用知識に
+させず installer が両側から面倒を見る:
+
+- `install project` は、シェル層が無ければユーザーレベルへ最小形(shell スコープ)で**補う**。
+  既にユーザーレベルが full なら縮小せず、欠けた配達行だけを直す
+- `uninstall user` は、消す前に**ガードを残すか確認する**(`--keep-shell` で非対話でも残せる)。
+  残す場合はプロンプト層だけを外し、シェル層を最小形で敷き直す
+- `uninstall project` はシェル層に触れない(他のプロジェクトが共有しているため)
+
 ### 後からの導入・チーム展開
 
 - **導入の順序に依存しない**: bd / codegraph を後から入れても installer の再実行は不要 —
@@ -139,16 +173,20 @@ installer が行うこと(すべて冪等):
   **clone だけで効く**。注入と強制則(manifest・settings 断片・zshenv 行・シェルガード)は
   マシン固有で、**各マシンで installer が敷く**
 - **2 人目以降の手順**: プロジェクトを clone → dotagents を clone →
-  `bin/agents-setup install --project <プロジェクト>` と `install --shell`。
-  installer は冪等でハッシュ照合するため、版管理で届いた配布物と衝突しない
+  `bin/agents-setup install project <プロジェクト>` の 1 本。シェル層はこのとき
+  無ければ補完されるので、順序も回数も覚えなくてよい。installer は冪等でハッシュ照合する
+  ため、版管理で届いた配布物と衝突しない
 
 ## 更新・照合・アンインストール
 
 ```sh
-bin/agents-setup update      # payload の変更を反映し、payload から消えた配布物を刈り込む
-bin/agents-setup status      # manifest・payload・実体・リンク・断片を照合(乖離時 exit 1)
-bin/agents-setup uninstall   # 自分が置いたものだけを除去する
+bin/agents-setup update    project   # payload の変更を反映し、payload から消えた配布物を刈り込む
+bin/agents-setup status    project   # manifest・payload・実体・リンク・断片を照合(乖離時 exit 1)
+bin/agents-setup uninstall project   # 自分が置いたものだけを除去する
 ```
+
+対象の指定は install と同じ規則(`user` / `project [dir]` / `shell`、省略時は対話)で、
+4 コマンドとも共通。
 
 所有権の原則: installer が触れるのは「自分が置き、内容ハッシュが一致するもの」だけ。
 

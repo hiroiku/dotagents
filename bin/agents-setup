@@ -10,11 +10,17 @@
 //   自前スキルは常に保護される。
 // - 環境断片(~/.zshenv の管理行・settings.json の env / hooks / permissions)も
 //   「自分が追加したものだけを覚えて、それだけを除去する」。
+// - 対象(ユーザーレベル / プロジェクト)は決して既定値で決まらない。フラグで明示するか、
+//   対話で選ぶかのどちらかである — 指定し忘れが黙って別の場所を書き換える経路を作らない。
+// - シェル層(hooks/bin + ~/.zshenv 行)は強制則の唯一の配達経路であり、zsh の起動ファイルが
+//   ユーザーグローバルにしか無いため、プロジェクトの数によらず 1 つしか存在しない。共有資源
+//   なので install は無ければ補い、uninstall は巻き添えで消さないか確認する。
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const readline = require('node:readline');
 const { execFileSync } = require('node:child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -45,7 +51,7 @@ function readJson(file, fallback) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
     if (e.code === 'ENOENT') return fallback;
-    throw new Error(`${file} を JSON として読めません: ${e.message}`);
+    throw new Error(`cannot parse ${file} as JSON: ${e.message}`);
   }
 }
 
@@ -78,10 +84,12 @@ function removeEmptyDirsUpTo(from, stopAt) {
 
 // ---------------------------------------------------------------- context
 
+// 対象は opts.target(user / project / shell)ただ 1 つ。shell は「ユーザーレベルの最小形」
+// なので場所としては user と同じ木を指す — 違うのは配る範囲(scope)だけである。
 function makeCtx(opts) {
-  if (opts.project) {
-    const proj = path.resolve(opts.project);
-    if (!lstatOrNull(proj)?.isDirectory()) throw new Error(`プロジェクトが存在しません: ${proj}`);
+  if (opts.target === 'project') {
+    const proj = path.resolve(opts.dir ?? '.');
+    if (!lstatOrNull(proj)?.isDirectory()) throw new Error(`no such directory: ${proj}`);
     return {
       kind: 'project',
       root: path.join(proj, '.agents'),
@@ -192,12 +200,12 @@ function ensureLink(ctx, l, log) {
         log.ok(`link ${l.link}`);
         return 'exists';
       }
-      log.warn(`link 競合(別の場所を指す symlink。触れません): ${l.link} -> ${cur}`);
+      log.warn(`link conflict, leaving it alone (symlink points elsewhere): ${l.link} -> ${cur}`);
       return 'conflict';
     }
-    log.warn(`link 競合(既存の実体があります。触れません): ${l.link}`);
+    log.warn(`link conflict, leaving it alone (a real file is already there): ${l.link}`);
     if (l.link.endsWith('CLAUDE.md') || l.link.endsWith('AGENTS.md')) {
-      console.log(`  → 既存ファイルに .agents/AGENTS.md への参照を足せばハーネスは載る(root AGENTS.md なら installer が参照ブロックを管理する)`);
+      console.log(ui.dim(`    add a reference to .agents/AGENTS.md inside it and the harness still loads`));
     }
     return 'conflict';
   }
@@ -233,13 +241,13 @@ function zshenvState(ctx) {
 
 function ensureZshenvLine(ctx, log) {
   if (!ctx.zshenv) return;
-  if (zshenvState(ctx) === 'ok') { log.ok(`zshenv 管理行`); return; }
+  if (zshenvState(ctx) === 'ok') { log.ok(`zshenv managed line`); return; }
   const text = fs.existsSync(ctx.zshenv) ? fs.readFileSync(ctx.zshenv, 'utf8') : '';
   const kept = text.split('\n').filter((l) => !l.includes(MARKER));
   while (kept.length && kept[kept.length - 1] === '') kept.pop();
   kept.push(SHELLENV_LINE, '');
   fs.writeFileSync(ctx.zshenv, kept.join('\n'));
-  log.add(`zshenv 管理行(ガード付き)を設定`);
+  log.add(`zshenv managed line (guarded)`);
 }
 
 function removeZshenvLine(ctx, log) {
@@ -248,7 +256,7 @@ function removeZshenvLine(ctx, log) {
   const kept = text.split('\n').filter((l) => !l.includes(MARKER));
   if (kept.join('\n') !== text) {
     fs.writeFileSync(ctx.zshenv, kept.join('\n'));
-    log.del(`zshenv 管理行`);
+    log.del(`zshenv managed line`);
   }
 }
 
@@ -282,7 +290,7 @@ function applySettings(ctx, oldFragments, log) {
     owned.bashEnv = oldFragments?.bashEnv === true;
     log.ok(`settings env.BASH_ENV`);
   } else {
-    log.warn(`settings env.BASH_ENV は別の値が設定済みです。触れません: ${s.env.BASH_ENV}`);
+    log.warn(`settings env.BASH_ENV already set to something else, leaving it: ${s.env.BASH_ENV}`);
   }
 
   s.hooks = s.hooks || {};
@@ -307,14 +315,14 @@ function applySettings(ctx, oldFragments, log) {
     if (!defs.ask.includes(rule) && s.permissions.ask.includes(rule)) {
       s.permissions.ask = s.permissions.ask.filter((r) => r !== rule);
       changed = true;
-      log.del(`settings permissions.ask ${rule}(defs から削除済み)`);
+      log.del(`settings permissions.ask ${rule} (no longer in defs)`);
     }
   }
   for (const rule of defs.ask) {
     if (s.permissions.ask.includes(rule)) {
       // 以前の install で自分が足した記録があるときだけ所有を引き継ぐ
       if ((oldFragments?.ask || []).includes(rule)) owned.ask.push(rule);
-      else log.ok(`settings permissions.ask ${rule}(既存。所有しません)`);
+      else log.ok(`settings permissions.ask ${rule} (pre-existing, not ours)`);
     } else {
       s.permissions.ask.push(rule);
       owned.ask.push(rule);
@@ -448,13 +456,13 @@ function applyRefBlock(ctx, log) {
   const text = fs.readFileSync(file, 'utf8');
   const desired = [REF_BEGIN, REF_BODY, REF_END].join('\n');
   if (text.includes(desired)) {
-    log.ok('AGENTS.md 参照ブロック');
+    log.ok('AGENTS.md reference block');
     return true;
   }
   const kept = stripRefBlock(text.split('\n'));
   while (kept.length && kept[kept.length - 1] === '') kept.pop();
   fs.writeFileSync(file, [...kept, '', desired, ''].join('\n'));
-  log.add('AGENTS.md 参照ブロック(既存の root AGENTS.md からハーネス正本へ)');
+  log.add('AGENTS.md reference block (points the existing root AGENTS.md at the harness)');
   return true;
 }
 
@@ -467,7 +475,7 @@ function removeRefBlock(ctx, fragments, log) {
   if (kept.join('\n') !== text) {
     while (kept.length && kept[kept.length - 1] === '') kept.pop();
     fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
-    log.del('AGENTS.md 参照ブロック');
+    log.del('AGENTS.md reference block');
   }
 }
 
@@ -489,8 +497,8 @@ function organReport() {
     } catch { return false; }
   };
   const lines = [];
-  if (!has('bd')) lines.push('! 前提: bd(必須)が見つかりません — 起票・claim・完了ゲート・merge 排他の台帳がこの上に建ちます: https://github.com/gastownhall/beads');
-  if (!has('codegraph')) lines.push('! 前提: codegraph(推奨)が見つかりません — 探索を 1 回の explore に置換します: https://github.com/colbymchenry/codegraph');
+  if (!has('bd')) lines.push(`${ui.yellow('!')} missing prerequisite ${ui.bold('bd')} (required) — the ledger this harness builds on: https://github.com/gastownhall/beads`);
+  if (!has('codegraph')) lines.push(`${ui.yellow('!')} missing prerequisite ${ui.bold('codegraph')} (recommended) — replaces search loops with one explore: https://github.com/colbymchenry/codegraph`);
   return lines;
 }
 
@@ -498,31 +506,325 @@ function organReport() {
 
 function makeLog() {
   const counts = { add: 0, update: 0, ok: 0, del: 0, warn: 0 };
-  const line = (sym, key) => (msg) => { counts[key]++; console.log(`${sym} ${msg}`); };
+  const line = (sym, key, paint) => (msg) => { counts[key]++; console.log(`  ${paint(sym)} ${msg}`); };
   return {
-    add: line('+', 'add'),
-    update: line('~', 'update'),
+    add: line('+', 'add', ui.green),
+    update: line('~', 'update', ui.yellow),
     ok: (msg) => { counts.ok++; },
-    del: line('-', 'del'),
-    warn: line('!', 'warn'),
+    del: line('-', 'del', ui.gray),
+    warn: line('!', 'warn', ui.yellow),
     counts,
   };
 }
 
+// 完了行。0 の項目は出さない(何が起きたかだけを残す)。
+function summary(counts) {
+  const parts = [];
+  if (counts.add) parts.push(ui.green(`${counts.add} added`));
+  if (counts.update) parts.push(ui.yellow(`${counts.update} updated`));
+  if (counts.del) parts.push(ui.gray(`${counts.del} removed`));
+  if (counts.ok) parts.push(ui.dim(`${counts.ok} unchanged`));
+  if (counts.warn) parts.push(ui.yellow(`${counts.warn} warning${counts.warn > 1 ? 's' : ''}`));
+  return parts.length ? parts.join(ui.dim(' · ')) : ui.dim('nothing to do');
+}
+
+// ---------------------------------------------------------------- 表示(色・幅)
+
+// 色は端末が受け取れるときだけ。NO_COLOR(no-color.org)と dumb 端末を尊重する。
+const COLOR = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR && process.env.TERM !== 'dumb';
+const sgr = (on, off) => (s) => (COLOR ? `\x1b[${on}m${s}\x1b[${off}m` : String(s));
+const ui = {
+  bold: sgr(1, 22),
+  dim: sgr(2, 22),
+  red: sgr(31, 39),
+  green: sgr(32, 39),
+  yellow: sgr(33, 39),
+  cyan: sgr(36, 39),
+  gray: sgr(90, 39),
+};
+
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+// 東アジアの全角は 2 桁を占める。行が端末幅で折り返すと再描画の行数計算が壊れるため、
+// セレクターは必ずこの幅で測ってから切り詰める。
+function isWide(cp) {
+  return (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0x303e) ||
+    (cp >= 0x3041 && cp <= 0x33ff) || (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0xa000 && cp <= 0xa4cf) ||
+    (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe30 && cp <= 0xfe6f) || (cp >= 0xff00 && cp <= 0xff60) ||
+    (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x20000 && cp <= 0x3fffd);
+}
+
+function textWidth(s) {
+  let w = 0;
+  for (const ch of String(s).replace(ANSI_RE, '')) w += isWide(ch.codePointAt(0)) ? 2 : 1;
+  return w;
+}
+
+function pad(s, width) {
+  return s + ' '.repeat(Math.max(0, width - textWidth(s)));
+}
+
+// パスは末尾(どのプロジェクトか)が情報なので、あふれたら頭を落とす。
+function truncHead(s, max) {
+  if (textWidth(s) <= max) return s;
+  const chars = [...s];
+  let out = '';
+  let w = 0;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const cw = isWide(chars[i].codePointAt(0)) ? 2 : 1;
+    if (w + cw > max - 1) break;
+    out = chars[i] + out;
+    w += cw;
+  }
+  return '…' + out;
+}
+
+function homePath(p) {
+  const home = os.homedir();
+  return p === home || p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p;
+}
+
+function termWidth() {
+  return process.stdout.columns && process.stdout.columns > 20 ? process.stdout.columns : 80;
+}
+
+// ---------------------------------------------------------------- 対話(セレクター)
+
+function isInteractive() {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
+const CANCELLED = Symbol('cancelled');
+
+// 矢印キーで選ぶ。何を打てばよいかを覚えさせず、選べる物を常に画面へ出す。
+// options: [{ label, detail, hint, tone }]
+function select({ title, notes = [], options }) {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const width = termWidth();
+    const labelWidth = Math.max(...options.map((o) => textWidth(o.label)));
+    let index = 0;
+    let drawn = 0;
+
+    const paint = () => {
+      const lines = [];
+      lines.push('');
+      lines.push(`  ${ui.bold(title)}`);
+      for (const n of notes) lines.push(`  ${ui.dim(n)}`);
+      lines.push('');
+      options.forEach((o, i) => {
+        const on = i === index;
+        const tone = o.tone === 'danger' ? ui.red : ui.cyan;
+        const label = on ? tone(ui.bold(pad(o.label, labelWidth))) : pad(o.label, labelWidth);
+        const room = width - labelWidth - 8;
+        const detail = o.detail ? (on ? ui.gray(truncHead(o.detail, room)) : ui.dim(truncHead(o.detail, room))) : '';
+        lines.push(`  ${on ? tone('❯') : ' '} ${label}   ${detail}`.trimEnd());
+        if (o.hint) lines.push(`      ${ui.dim(truncHead(o.hint, width - 8))}`);
+      });
+      lines.push('');
+      lines.push(`  ${ui.dim('↑/↓ move · enter select · ctrl-c cancel')}`);
+
+      let out = drawn ? `\x1b[${drawn}A` : '';
+      out += lines.map((l) => `\x1b[2K${l}`).join('\n') + '\n';
+      process.stdout.write(out);
+      drawn = lines.length;
+    };
+
+    const finish = (value) => {
+      stdin.removeListener('keypress', onKey);
+      if (stdin.isTTY) stdin.setRawMode(false);
+      stdin.pause();
+      // 選択肢を畳んで、決めた結果だけを 1 行残す。
+      const chosen = value === CANCELLED ? ui.red('cancelled') : ui.cyan(options[value].label);
+      process.stdout.write(`\x1b[${drawn}A\x1b[0J  ${ui.green('✔')} ${ui.bold(title)}  ${chosen}\n`);
+      process.stdout.write('\x1b[?25h');
+      resolve(value);
+    };
+
+    const onKey = (str, key = {}) => {
+      if (key.name === 'up' || key.name === 'k') { index = (index - 1 + options.length) % options.length; paint(); }
+      else if (key.name === 'down' || key.name === 'j') { index = (index + 1) % options.length; paint(); }
+      else if (key.name === 'return' || key.name === 'enter') finish(index);
+      else if (key.name === 'escape' || key.name === 'q' || (key.ctrl && (key.name === 'c' || key.name === 'd'))) finish(CANCELLED);
+    };
+
+    readline.emitKeypressEvents(stdin);
+    if (stdin.isTTY) stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on('keypress', onKey);
+    process.stdout.write('\x1b[?25l');
+    paint();
+  });
+}
+
+// 2 択も同じ器で聞く。返すのは真偽ではなく選ばれた値 — yes/no にすると、安全側を
+// 先頭に置いた瞬間に呼び出し側が反転を抱える(`!yes` が「実行する」になる)。
+// 先頭は常に影響範囲の狭い側に置く: 連打や早合点で決まっても被害が小さい方を既定にする。
+async function pick(title, notes, options) {
+  const i = await select({ title, notes, options });
+  return i === CANCELLED ? CANCELLED : options[i].value;
+}
+
+function closePrompt() {
+  if (process.stdout.isTTY) process.stdout.write('\x1b[?25h');
+}
+
+const TITLE = {
+  install: 'Install where?',
+  update: 'Update which installation?',
+  uninstall: 'Uninstall from where?',
+  status: 'Check which installation?',
+};
+
+// 対象は既定値では決まらない。明示されていれば対話しない、無ければ選ばせる、
+// 選べない環境(非 TTY)なら止める — 指定し忘れが黙って別の場所に効く経路を作らない。
+async function resolveTarget(cmd, opts) {
+  if (opts.target) return opts;
+  if (!isInteractive()) {
+    throw new Error(
+      `no target given for \`${cmd}\`. Pick exactly one:\n` +
+      `         agents-setup ${cmd} user              ~/.agents\n` +
+      `         agents-setup ${cmd} project [<dir>]   <dir>/.agents (defaults to the current directory)\n` +
+      `       (run it in a terminal to choose interactively)`);
+  }
+  const cwd = process.cwd();
+  // 影響範囲の狭い方(このプロジェクト)を初期選択に置く。連打や早合点で決まっても
+  // 被害が 1 プロジェクトに閉じ、全プロジェクトに効く側は必ず一手を要する。
+  const choice = await select({
+    title: TITLE[cmd],
+    options: [
+      {
+        label: 'This project',
+        detail: homePath(path.join(cwd, '.agents')),
+        hint: cwd === REPO_ROOT
+          ? 'Prompts for this project only — note: this is the dotagents repo itself'
+          : 'Prompts for this project only',
+      },
+      {
+        label: 'User level',
+        detail: homePath(path.join(os.homedir(), '.agents')),
+        hint: 'Prompts and guard delivery, for every project',
+      },
+    ],
+  });
+  if (choice === CANCELLED) throw new Error('cancelled.');
+  if (choice === 0) { opts.target = 'project'; opts.dir = cwd; }
+  else opts.target = 'user';
+  opts.interactive = true;
+  return opts;
+}
+
+// ---------------------------------------------------------------- シェル層(共有資源)
+
+// シェル層はユーザーレベルにしか存在できず、全プロジェクトが共有する。その健全性は
+// 「manifest がある・配達フックの実体がある・zshenv 管理行が正しい」の 3 点で決まる。
+function shellLayerState() {
+  const uctx = makeCtx({});
+  const m = readJson(manifestPath(uctx), null);
+  if (!m) return 'missing';
+  const delivered = !!lstatOrNull(path.join(uctx.root, 'hooks', 'shellenv.sh'));
+  return delivered && zshenvState(uctx) === 'ok' ? 'ok' : 'partial';
+}
+
+// プロジェクト install の後始末。既存のユーザーレベル manifest があればその scope を保つ
+// (full を shell へ縮小しない)。無ければ最小形の shell スコープで敷く。
+async function ensureShellLayer(opts) {
+  if (shellLayerState() === 'ok') return;
+  const m = readJson(manifestPath(makeCtx({})), null);
+  if (opts.interactive) {
+    const answer = await pick(
+      'Set up guard delivery now?',
+      [
+        'It is missing — without it neither the merge-slot lock nor the bd issue guard can fire.',
+        'zsh only has a user-global startup file, so delivery always lives at the user level.',
+      ],
+      [
+        { label: 'Skip', hint: 'Guards stay off; run `agents-setup install shell` later', value: 'skip' },
+        {
+          label: 'Set it up',
+          detail: homePath(path.join(os.homedir(), '.agents')),
+          hint: 'Adds hooks/bin here and one line to ~/.zshenv',
+          value: 'setup',
+        },
+      ],
+    );
+    if (answer !== 'setup') return;
+  } else {
+    console.log(ui.dim(`\nAdding the missing guard delivery at the user level (its only possible home).`));
+  }
+  await install({ target: !m || m.scope === 'shell' ? 'shell' : 'user', force: opts.force });
+}
+
+// uninstall の前に、共有資源であるシェル層の扱いを決める。'keep' なら除去後に最小形で
+// 敷き直し、'abort' なら何もしない。プロジェクトの uninstall はシェル層に届かないので、
+// 判断の対象はユーザーレベルだけである。
+async function resolveShellDisposition(ctx, m, opts) {
+  if (ctx.kind === 'project') {
+    if (opts.interactive) {
+      console.log(ui.dim(`\n  Guard delivery lives at the user level; this removal does not touch it.`));
+    }
+    return 'remove';
+  }
+  if (opts.keepShell) return 'keep';
+  if (m.scope === 'shell') {
+    // 全体がシェル層なので「残す」は無い。壊す範囲を伝えて既定は中止に倒す。
+    if (!opts.interactive) return 'remove';
+    const answer = await pick(
+      'Remove the guard delivery itself?',
+      [
+        'This installation IS the delivery (scope=shell).',
+        'Removing it turns off the merge-slot lock and the bd issue guard everywhere on this HOME.',
+      ],
+      [
+        { label: 'Cancel', hint: 'Leave the guards in place', value: 'abort' },
+        {
+          label: 'Remove anyway',
+          detail: homePath(ctx.root),
+          hint: 'Enforcement stops everywhere on this HOME',
+          tone: 'danger',
+          value: 'remove',
+        },
+      ],
+    );
+    return answer === 'remove' ? 'remove' : 'abort';
+  }
+  if (!opts.interactive) return 'remove';
+  const answer = await pick(
+    'Keep the guard delivery?',
+    [
+      'The user level also holds it: hooks/bin plus one line in ~/.zshenv, shared by every project.',
+      'A project-level .agents cannot replace it — zsh is only reachable from here.',
+    ],
+    [
+      { label: 'Keep the guards', hint: 'Remove the prompt layer only, keep enforcement working', value: 'keep' },
+      {
+        label: 'Remove everything',
+        detail: homePath(ctx.root),
+        hint: 'Enforcement stops in every project on this HOME',
+        tone: 'danger',
+        value: 'remove',
+      },
+    ],
+  );
+  if (answer === CANCELLED) return 'abort';
+  return answer;
+}
+
 // ---------------------------------------------------------------- commands
 
-function install(opts, { requireExisting = false } = {}) {
+async function install(opts, { requireExisting = false } = {}) {
   const ctx = makeCtx(opts);
   const log = makeLog();
   const old = readJson(manifestPath(ctx), null);
   if (requireExisting && !old) {
-    throw new Error(`${ctx.root} に manifest がありません。先に install を実行してください。`);
+    throw new Error(`no manifest in ${homePath(ctx.root)} — run \`agents-setup install\` first.`);
   }
-  if (opts.shell && ctx.kind === 'project') {
-    throw new Error('シェル層(--shell)はユーザーレベルの担当です(zsh の起動ファイルはユーザーグローバルのみ)。');
-  }
-  // update はスコープを維持する。install --shell で縮小、install(フラグなし)で全量へ拡大
-  const scope = opts.shell ? 'shell' : (requireExisting && old?.scope === 'shell' ? 'shell' : 'full');
+  // 対象 shell は必ずユーザーレベルを指すので、「project にシェル層を入れる」は表現できない
+  // (以前は組み合わせを検証で弾いていた。構文で閉じたので検査は要らない)。
+  // update はスコープを維持する。install shell で縮小、install user で全量へ拡大。
+  const scope = opts.target === 'shell' ? 'shell' : (requireExisting && old?.scope === 'shell' ? 'shell' : 'full');
 
   // 1. payload → .agents/(所有ハッシュに基づく外科的コピー)
   const entries = payloadEntries(scope);
@@ -553,7 +855,7 @@ function install(opts, { requireExisting = false } = {}) {
       files[dstRel] = srcHash;
       log.update(`${dstRel}(--force で上書き)`);
     } else {
-      log.warn(`改変されています。触れません(--force で上書き): ${dst}`);
+      log.warn(`modified in place, leaving it (use --force to overwrite): ${dst}`);
       if (recorded) files[dstRel] = recorded; // 所有記録は保持し、状態は status が報告する
     }
   }
@@ -568,9 +870,9 @@ function install(opts, { requireExisting = false } = {}) {
     if (sha256(dst) === hash) {
       fs.unlinkSync(dst);
       removeEmptyDirsUpTo(path.dirname(dst), ctx.root);
-      log.del(`${rel}(payload から削除済み)`);
+      log.del(`${rel} (gone from payload)`);
     } else {
-      log.warn(`payload から消えましたが改変されているため残します: ${dst}`);
+      log.warn(`gone from payload but modified in place, keeping it: ${dst}`);
     }
   }
 
@@ -618,17 +920,24 @@ function install(opts, { requireExisting = false } = {}) {
   });
 
   const c = log.counts;
-  console.log(`\n${ctx.kind} → ${ctx.root}`);
-  console.log(`完了: 追加 ${c.add} / 更新 ${c.update} / 既存一致 ${c.ok} / 削除 ${c.del} / 警告 ${c.warn}`);
+  console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.root)}`);
+  console.log(`  ${summary(c)}`);
   for (const l of organReport()) console.log(l);
   if (c.warn > 0) process.exitCode = 1;
+
+  // プロジェクトへ入れてもシェル層は付いてこない(配達はユーザーレベルにしかない)。
+  // 「無ければ足す」を installer 側の責務にして、順序と回数の運用知識を要らなくする。
+  if (ctx.kind === 'project') await ensureShellLayer(opts);
 }
 
-function uninstall(opts) {
+async function uninstall(opts) {
   const ctx = makeCtx(opts);
   const log = makeLog();
   const m = readJson(manifestPath(ctx), null);
-  if (!m) throw new Error(`${ctx.root} に manifest がありません。アンインストール対象がありません。`);
+  if (!m) throw new Error(`no manifest in ${homePath(ctx.root)} — nothing of ours to remove.`);
+
+  const shell = await resolveShellDisposition(ctx, m, opts);
+  if (shell === 'abort') { console.log(ui.dim('  Cancelled.')); return; }
 
   for (const l of m.links || []) removeLink(ctx, l, log);
   removeZshenvLine(ctx, log);
@@ -645,7 +954,7 @@ function uninstall(opts) {
       removeEmptyDirsUpTo(path.dirname(dst), ctx.root);
       log.del(rel);
     } else {
-      log.warn(`改変されているため残します: ${dst}`);
+      log.warn(`modified in place, keeping it: ${dst}`);
     }
   }
 
@@ -653,39 +962,51 @@ function uninstall(opts) {
   try { fs.rmdirSync(ctx.root); } catch { /* 自前スキル等が残っていれば残す */ }
 
   const c = log.counts;
-  console.log(`\n完了: 削除 ${c.del} / 警告 ${c.warn}(自前スキルと改変ファイルには触れていません)`);
+  console.log(`\n  ${ui.bold('uninstall')} ${ui.dim('→')} ${homePath(ctx.root)}`);
+  console.log(`  ${summary(c)}${ui.dim(' · your own skills and modified files were left alone')}`);
+
+  // 一度すべて除去してから最小形で敷き直す。除去の外科性(自分が置いたものだけ)を
+  // 保ったまま、共有資源だけが残る。
+  if (shell === 'keep') {
+    console.log(ui.dim(`\n  Keeping the guards: removing the prompt layer, re-laying the shell layer.`));
+    await install({ target: 'shell', force: opts.force });
+  }
 }
 
 function status(opts) {
   const ctx = makeCtx(opts);
   const m = readJson(manifestPath(ctx), null);
   let drift = 0;
-  const report = (okc, msg) => { console.log(`${okc ? 'ok  ' : 'NG  '}${msg}`); if (!okc) drift++; };
+  const report = (okc, msg) => {
+    console.log(`  ${okc ? ui.green('ok') : ui.red('NG')}  ${okc ? msg : ui.bold(msg)}`);
+    if (!okc) drift++;
+  };
 
   if (!m) {
-    console.log(`未インストールです: ${ctx.root}(manifest がありません)`);
+    console.log(`\n  ${ui.yellow('not installed')} ${ui.dim('—')} no manifest in ${homePath(ctx.root)}`);
     process.exitCode = 1;
     return;
   }
 
   const scope = m.scope === 'shell' ? 'shell' : 'full';
-  console.log(`kind=${m.kind} scope=${scope} version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installedAt=${m.installedAt}`);
-  console.log(`source=${m.source}\n`);
+  console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.root)}`);
+  console.log(ui.dim(`  scope=${scope} version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installed=${m.installedAt}`));
+  console.log(ui.dim(`  source=${m.source}\n`));
 
   // payload との照合
   const entries = payloadEntries(scope);
   for (const { src: srcRel, dst: dstRel } of entries) {
     const dst = path.join(ctx.root, dstRel);
     const st = lstatOrNull(dst);
-    if (!st) { report(false, `${dstRel} — 未配置`); continue; }
+    if (!st) { report(false, `${dstRel} — missing`); continue; }
     const h = sha256(dst);
     if (h === sha256(path.join(PAYLOAD, srcRel))) report(true, dstRel);
-    else if (h === m.files?.[dstRel]) report(false, `${dstRel} — payload が新しい(update で反映)`);
-    else report(false, `${dstRel} — インストール先で改変`);
+    else if (h === m.files?.[dstRel]) report(false, `${dstRel} — payload is newer, run update`);
+    else report(false, `${dstRel} — modified in place`);
   }
   const dstSet = new Set(entries.map((e) => e.dst));
   for (const rel of Object.keys(m.files || {})) {
-    if (!dstSet.has(rel)) report(false, `${rel} — payload から削除済み(update で刈り込み)`);
+    if (!dstSet.has(rel)) report(false, `${rel} — gone from payload, run update to prune`);
   }
 
   // リンク・環境断片(shell スコープはリンクと settings / codex 断片を持たない)
@@ -698,7 +1019,7 @@ function status(opts) {
       report(okc, `link ${l.link}`);
     }
   }
-  if (ctx.zshenv) report(zshenvState(ctx) === 'ok', `zshenv 管理行`);
+  if (ctx.zshenv) report(zshenvState(ctx) === 'ok', `zshenv managed line`);
   if (scope !== 'shell') {
     const st = settingsState(ctx);
     report(st.bashEnv, `settings env.BASH_ENV`);
@@ -707,55 +1028,197 @@ function status(opts) {
     const cx = codexHooksState(ctx);
     if (cx !== null) report(cx, `codex hooks.SessionStart`);
     const rb = refBlockState(ctx);
-    if (rb !== null) report(rb, `AGENTS.md 参照ブロック`);
+    if (rb !== null) report(rb, `AGENTS.md reference block`);
   }
 
-  console.log(drift === 0 ? '\n乖離なし' : `\n乖離 ${drift} 件`);
+  console.log(drift === 0 ? `\n  ${ui.green('no drift')}` : `\n  ${ui.red(`drift: ${drift}`)}`);
   for (const l of organReport()) console.log(l);
   if (drift > 0) process.exitCode = 1;
 }
 
 // ---------------------------------------------------------------- main
 
+const COMMANDS = new Set(['install', 'update', 'uninstall', 'status']);
+const TARGETS = new Set(['user', 'project', 'shell']);
+// 旧インタフェース。エイリアスとしては生かさない(2 系統は維持費を二重に払う)。
+// 正しい形へ案内するためだけに名前を覚えておく。
+const RETIRED = new Set(['--user', '--project', '--shell']);
+
+// 対象は位置引数 1 つ。位置は 1 つしか無いので「user と project の同時指定」は
+// 表現できない — 排他は検証ではなく構文が保証する。
 function parseArgs(argv) {
-  const opts = { project: null, force: false };
-  const rest = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--project') opts.project = argv[++i] ?? '.';
-    else if (a === '--shell') opts.shell = true;
+  const opts = { target: null, dir: null, force: false, keepShell: false, interactive: false, help: false, version: false };
+  const positional = [];
+  for (const a of argv) {
+    if (a === '--help' || a === '-h') opts.help = true;
+    else if (a === '--version' || a === '-v') opts.version = true;
     else if (a === '--force') opts.force = true;
-    else rest.push(a);
+    else if (a === '--keep-shell') opts.keepShell = true;
+    else if (RETIRED.has(a)) {
+      throw new Error(`${a} is retired. The target is a positional argument now:\n` +
+        `         agents-setup <command> user | project [<dir>] | shell`);
+    }
+    else if (a.startsWith('-')) throw new Error(`unknown argument: ${a}`);
+    else positional.push(a);
   }
-  return { cmd: rest[0], opts };
+
+  const [cmd, target, dir, ...extra] = positional;
+  // ヘルプと版の表示は引数の妥当性より優先する(`install --help` に対象を要求しない)
+  if (opts.help || opts.version) return { cmd, opts };
+  if (!COMMANDS.has(cmd)) return { cmd, opts };  // 使い方の表示へ
+
+  if (target !== undefined) {
+    if (!TARGETS.has(target)) {
+      throw new Error(`unknown target: ${target} (expected user, project or shell)`);
+    }
+    opts.target = target;
+  }
+  if (dir !== undefined) {
+    if (TARGETS.has(dir)) throw new Error(`pick exactly one target (got ${target} and ${dir}).`);
+    if (target !== 'project') throw new Error(`only \`project\` takes a directory: ${dir}`);
+    opts.dir = dir;
+  }
+  if (extra.length) throw new Error(`too many arguments: ${extra.join(' ')}`);
+
+  return { cmd, opts };
 }
 
-function main() {
+// ---------------------------------------------------------------- help
+
+// 対象の説明は 4 コマンドで同一なので 1 箇所に持つ(コマンドごとに書き写すと黙って古くなる)。
+const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— exactly one. Omit it to choose interactively; never defaulted.')}
+  ${ui.cyan('user')}           the user level (~/.agents)
+  ${ui.cyan('project')} [dir]  a project (<dir>/.agents; defaults to the current directory)
+  ${ui.cyan('shell')}          guard delivery only: hooks/bin and one line in ~/.zshenv.
+                 No prompts, links or settings — every zsh gets the guards, nothing else.`;
+
+const SHELL_NOTE = `The shell layer lives only at the user level and every project shares it.`;
+
+const CMD_HELP = {
+  install: {
+    line: 'copy payload/ into .agents/, then set up links and env fragments',
+    body: [
+      'Copies payload/ into .agents/, links it into .claude/ (and .codex/ when present),',
+      'and writes the env fragments. Everything is idempotent and hash-owned: files you',
+      'edited after installation are kept and reported, and skills you wrote yourself are',
+      'never touched.',
+    ],
+    options: [['--force', 'overwrite files that were modified after installation']],
+    notes: [SHELL_NOTE, 'Installing into a project adds that layer when it is missing.'],
+    examples: [
+      ['agents-setup install', 'choose the target interactively'],
+      ['agents-setup install project', 'into the current directory'],
+      ['agents-setup install project /path/to/x', 'into a specific project'],
+      ['agents-setup install shell', 'guards only, nothing else'],
+    ],
+  },
+  update: {
+    line: 'same as install, and prune whatever disappeared from payload/',
+    body: [
+      'Requires an existing installation. Beyond what install does, it removes files that',
+      'are gone from payload/ but still recorded in the manifest. The installed scope is',
+      'preserved: a shell-only installation stays shell-only.',
+    ],
+    options: [['--force', 'overwrite files that were modified after installation']],
+    notes: ['Edit prompts in this repository, never in the installed tree — update carries them over.'],
+    examples: [
+      ['agents-setup update project', 'refresh the current directory'],
+      ['agents-setup update user --force', 'refresh, discarding local edits'],
+    ],
+  },
+  uninstall: {
+    line: 'remove only what this installer placed and still owns (hash-matched)',
+    body: [
+      'Removes files whose content still matches the manifest, plus the links and env',
+      'fragments it added. Your own skills, files you modified, and settings entries you',
+      'wrote are left in place.',
+    ],
+    options: [['--keep-shell', 'keep the guard delivery other projects share']],
+    notes: [
+      SHELL_NOTE,
+      'Removing the user level takes it away from every project, so it asks first.',
+    ],
+    examples: [
+      ['agents-setup uninstall project', 'remove from the current directory'],
+      ['agents-setup uninstall user --keep-shell', 'drop the prompts, keep the guards'],
+    ],
+  },
+  status: {
+    line: 'verify manifest, payload, files, links and fragments (exit 1 on drift)',
+    body: [
+      'Compares the installed tree against both the manifest and payload/, and reports',
+      'every difference: missing files, edits made in place, and payload changes that are',
+      'not applied yet. Exits 1 when anything differs.',
+    ],
+    options: [],
+    notes: [],
+    examples: [
+      ['agents-setup status project', 'check the current directory'],
+      ['agents-setup status user', 'check the user level'],
+    ],
+  },
+};
+
+function printHelp(cmd) {
+  const pad2 = (rows) => {
+    const w = Math.max(...rows.map(([l]) => textWidth(l)));
+    return rows.map(([l, r]) => `  ${ui.cyan(pad(l, w))}  ${ui.dim(r)}`);
+  };
+
+  if (!cmd) {
+    console.log(`${ui.bold('agents-setup')} ${ui.dim('<command> [target] [options]')}\n`);
+    console.log(ui.bold('Commands'));
+    console.log(pad2(Object.entries(CMD_HELP).map(([k, h]) => [k, h.line])).join('\n'));
+    console.log(`\n${TARGET_HELP}`);
+    console.log(`\n${ui.bold('Options')}`);
+    console.log(pad2([
+      ['--force', 'overwrite files that were modified after installation'],
+      ['--keep-shell', 'on uninstall, keep the guard delivery other projects share'],
+      ['--help, -h', 'show this help, or the help for a command'],
+      ['--version, -v', 'print the version'],
+    ]).join('\n'));
+    console.log(`\n${SHELL_NOTE}`);
+    console.log(`${ui.dim('install project')} adds it when missing; ${ui.dim('uninstall user')} asks before taking it away.`);
+    console.log(`\n${ui.dim(`Run \`agents-setup <command> --help\` for what a single command does.`)}`);
+    return;
+  }
+
+  const h = CMD_HELP[cmd];
+  console.log(`${ui.bold(`agents-setup ${cmd}`)} ${ui.dim('<target> [options]')}\n`);
+  for (const l of h.body) console.log(`  ${l}`);
+  console.log(`\n${TARGET_HELP}`);
+  if (h.options.length) {
+    console.log(`\n${ui.bold('Options')}`);
+    console.log(pad2(h.options).join('\n'));
+  }
+  if (h.notes.length) {
+    console.log('');
+    for (const n of h.notes) console.log(n);
+  }
+  console.log(`\n${ui.bold('Examples')}`);
+  console.log(pad2(h.examples).join('\n'));
+}
+
+// ---------------------------------------------------------------- main
+
+async function main() {
   const { cmd, opts } = parseArgs(process.argv.slice(2));
+  if (opts.version) return void console.log(pkg().version);
+  if (opts.help || !cmd) return void printHelp(COMMANDS.has(cmd) ? cmd : null);
+  if (!COMMANDS.has(cmd)) {
+    throw new Error(`unknown command: ${cmd}\n       Run \`agents-setup --help\` to see what is available.`);
+  }
   switch (cmd) {
-    case 'install': return install(opts);
-    case 'update': return install(opts, { requireExisting: true });
-    case 'uninstall': return uninstall(opts);
-    case 'status': return status(opts);
-    default:
-      console.log(`使い方: agents-setup <install|update|uninstall|status> [--project <dir>] [--force]
-
-  install    payload/ を .agents/ へ配布し、リンクと環境断片を冪等に設定する
-  update     install と同じ + 既存 manifest を要求し、payload から消えた配布物を刈り込む
-  uninstall  自分が置いたもの(ハッシュ一致)だけを除去する。自前スキル・改変には触れない
-  status     manifest・payload・実体・リンク・環境断片を照合し、乖離を報告する(乖離時 exit 1)
-
-  --project <dir>  プロジェクトレベル(<dir>/.agents)を対象にする。省略時はユーザーレベル(~/.agents)
-  --shell          強制則の層(hooks / bin + zshenv 行)だけを入れる(ユーザーレベル専用。
-                   プロンプト・リンク・settings 断片を伴わない — 全 zsh にガードだけが届く)
-  --force          インストール先で改変されたファイルも payload の内容で上書きする`);
-      process.exitCode = cmd ? 1 : 0;
+    case 'install': return install(await resolveTarget(cmd, opts));
+    case 'update': return install(await resolveTarget(cmd, opts), { requireExisting: true });
+    case 'uninstall': return uninstall(await resolveTarget(cmd, opts));
+    case 'status': return status(await resolveTarget(cmd, opts));
   }
 }
 
-try {
-  main();
-} catch (e) {
-  console.error(`エラー: ${e.message}`);
-  process.exit(1);
-}
+main()
+  .catch((e) => {
+    console.error(`${ui.red('Error:')} ${e.message}`);
+    process.exitCode = 1;
+  })
+  .finally(closePrompt);
