@@ -1,6 +1,6 @@
 {
   "name": "@hiroiku/dotagents",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "AI エージェントハーネスの正本。payload/ を ~/.agents / <project>/.agents へ配布する",
   "license": "MIT",
   "repository": {
