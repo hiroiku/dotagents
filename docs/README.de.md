@@ -1,31 +1,19 @@
 # dotagents
 
-**Ein KI-Agenten-Harness, den du besitzt.** Regeln, Skills und mechanische
-Guards für Claude Code und Codex — als ein einziger Korpus versioniert und
-von dort in jedes Projekt bereitgestellt.
+**Ein KI-Agenten-Harness, den du besitzt.** Regeln, Skills und mechanische Guards für Claude Code und Codex — als ein einziger Korpus versioniert und von dort in jedes Projekt bereitgestellt.
 
 [English](../README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md) | Deutsch | [Español](README.es.md) | [Français](README.fr.md)
 
 [![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-- **Ein Korpus, viele Bereitstellungen.** Prompts, Skills, Agentenrollen,
-  Shell-Guards und Sitzungsinstrumente leben in einem einzigen Git-Repository.
-  Der Installer kopiert sie nach `~/.agents` oder `<project>/.agents` und
-  verdrahtet die Symlinks und Hooks, die Claude Code und Codex lesen.
-- **Ein Regelwerk, keine Bibliothek.** Du bearbeitest die Regeln, committest
-  sie und folgst dem Upstream nur, wenn du dich dafür entscheidest — nichts
-  ändert sich hinter deinem Rücken.
-- **Regeln werden zu Mechanismus.** Was ein Hook oder Wrapper durchsetzen
-  kann, wird durchgesetzt; was einen eindeutigen Moment hat, wird zu einem
-  Skill; nur der Rest darf die Aufmerksamkeit jeder Sitzung besetzen. Die
-  Begründung steht unter [Konzept](#konzept).
+- **Ein Korpus, viele Bereitstellungen.** Prompts, Skills, Agentenrollen, Shell-Guards und Sitzungsinstrumente leben in einem einzigen Git-Repository. Der Installer kopiert sie nach `~/.agents` oder `<project>/.agents` und verdrahtet die Symlinks und Hooks, die Claude Code und Codex lesen.
+- **Ein Regelwerk, keine Bibliothek.** Du bearbeitest die Regeln, committest sie und folgst dem Upstream nur, wenn du dich dafür entscheidest — nichts ändert sich hinter deinem Rücken.
+- **Regeln werden zu Mechanismus.** Was ein Hook oder Wrapper durchsetzen kann, wird durchgesetzt; was einen eindeutigen Moment hat, wird zu einem Skill; nur der Rest darf die Aufmerksamkeit jeder Sitzung besetzen. Die Begründung steht unter [Der mitgelieferte Harness](HARNESS.de.md).
 
 ## Wie es funktioniert
 
-Ein Korpus versorgt jede Umgebung. Bereitstellungen sind reine Kopien —
-Sitzungen hängen nie davon ab, dass der Korpus erreichbar ist, und nichts
-wird hinter deinem Rücken bereitgestellt:
+Ein Korpus versorgt jede Umgebung. Bereitstellungen sind reine Kopien — Sitzungen hängen nie davon ab, dass der Korpus erreichbar ist, und nichts wird hinter deinem Rücken bereitgestellt:
 
 ```mermaid
 flowchart LR
@@ -40,28 +28,6 @@ flowchart LR
     S -.->|"Sitzungsstart meldet: Bereitstellung älter als Korpus"| A
 ```
 
-Innerhalb einer Sitzung erreichen die drei Schichten des Korpus den Agenten
-über unterschiedliche Wege — und je niedriger der Weg, desto stärker und
-billiger die Regel:
-
-```mermaid
-flowchart TB
-    subgraph D[".agents/ — die bereitgestellte Kopie"]
-        R["AGENTS.md<br>allgegenwärtige Regeln"]
-        K["skills/<br>momentane Regeln"]
-        I["SessionStart-Hook<br>Instrumente"]
-        G["hooks/ · bin/<br>Guards: bd-Wrapper · git-guard"]
-    end
-    subgraph S["Agentensitzung"]
-        CTX["Kontext (endliche Aufmerksamkeit)"]
-        CMD["bd- · git-Befehle"]
-    end
-    R -->|"immer injiziert"| CTX
-    K -->|"nur gelesen, wenn ihr Moment kommt"| CTX
-    I -->|"Akteur · Reste · Bestand, beim Eintritt"| CTX
-    G -->|"umhüllt Befehle — Kontextkosten null"| CMD
-```
-
 ## Schnellstart
 
 **1 · Voraussetzungen prüfen**
@@ -69,11 +35,10 @@ flowchart TB
 | Werkzeug | | Warum |
 |---|---|---|
 | git, Node.js ≥ 18 | erforderlich | betreibt die CLI |
-| [bd (beads)](https://github.com/gastownhall/beads) | erforderlich | das Issue-Journal, auf dem alles läuft: Anlegen, Beanspruchen, Abschlusssperren, Merge-Ausschluss |
+| [bd (beads)](https://github.com/gastownhall/beads) | erforderlich | das Issue-Journal, auf dem der mitgelieferte Harness läuft: Anlegen, Beanspruchen, Abschlusssperren, Merge-Ausschluss |
 | [codegraph](https://github.com/colbymchenry/codegraph) | empfohlen | Strukturabfragen — einmal einbinden mit `codegraph install`, pro Projekt indizieren mit `codegraph init` |
 
-Der Harness installiert diese nie für dich — der Installer und jeder
-Sitzungsstart erkennen, was fehlt, und melden es.
+Der Harness installiert diese nie für dich — der Installer und jeder Sitzungsstart erkennen, was fehlt, und melden es.
 
 **2 · Deinen Korpus holen**
 
@@ -81,8 +46,7 @@ Sitzungsstart erkennen, was fehlt, und melden es.
 npx @hiroiku/dotagents clone ~/dotagents
 ```
 
-Ein einfacher Git-Clone, und er gehört dir: Regeln bearbeiten, committen,
-personalisieren.
+Ein einfacher Git-Clone, und er gehört dir: Regeln bearbeiten, committen, personalisieren.
 
 **3 · Bereitstellen**
 
@@ -93,9 +57,7 @@ bin/agents-setup install user                       # diese Maschine → ~/.agen
 bin/agents-setup install shell                      # nur Guards     → hooks/bin + eine ~/.zshenv-Zeile
 ```
 
-Lässt du das Ziel weg, wird es interaktiv gewählt. In einer nicht-interaktiven
-Shell stoppt ein weggelassenes Ziel, ohne etwas zu schreiben — kein
-Standardwert entscheidet je, wo Regeln landen.
+Lässt du das Ziel weg, wird es interaktiv gewählt. In einer nicht-interaktiven Shell stoppt ein weggelassenes Ziel, ohne etwas zu schreiben — kein Standardwert entscheidet je, wo Regeln landen.
 
 **4 · Betreiben**
 
@@ -116,17 +78,9 @@ bin/agents-setup --help               # jeder Befehl, jedes Ziel, jede Option, j
 
 Drei Regeln verbinden sie:
 
-- **Kein Deployment aus einem Wegwerfobjekt.** Außerhalb eines Korpus (ein
-  npx-Cache, ein entpackter Tarball) delegieren die Deploy-Befehle an den
-  Korpus, den deine Maschine bereits kennt — oder stoppen mit einem Hinweis
-  auf `clone`.
-- **Resync wird gepullt, nicht gepusht.** Läuft der Korpus voraus, meldet das
-  Instrument bei jedem Sitzungseintritt *Bereitstellung älter als der
-  Korpus*, und du führst `update` in diesem Projekt aus.
-- **Folgen ist absichtlich.** Was du pullst, sind die Texte, die deine
-  Agenten regieren, daher zeigt `pull` zuerst die eingehenden Commit-Titel —
-  in Fachsprache geschrieben, lesen sie sich wie ein Changelog — und rebased
-  und testet erst danach. Nichts aktualisiert sich automatisch.
+- **Kein Deployment aus einem Wegwerfobjekt.** Außerhalb eines Korpus (ein npx-Cache, ein entpackter Tarball) delegieren die Deploy-Befehle an den Korpus, den deine Maschine bereits kennt — oder stoppen mit einem Hinweis auf `clone`.
+- **Resync wird gepullt, nicht gepusht.** Läuft der Korpus voraus, meldet das Instrument bei jedem Sitzungseintritt *Bereitstellung älter als der Korpus*, und du führst `update` in diesem Projekt aus.
+- **Folgen ist absichtlich.** Was du pullst, sind die Texte, die deine Agenten regieren, daher zeigt `pull` zuerst die eingehenden Commit-Titel — in Fachsprache geschrieben, lesen sie sich wie ein Changelog — und rebased und testet erst danach. Nichts aktualisiert sich automatisch.
 
 ## Was wo landet
 
@@ -138,211 +92,30 @@ Drei Regeln verbinden sie:
 | Sitzungsinjektion | `settings.json` · `.codex/hooks.json` | Fragmente: `hooks.SessionStart`, `env.BASH_ENV`, `permissions.ask` |
 | Maschinenlokale Produkte (Manifest · Metriken) | `.agents/` | durch eine `.gitignore`, die mit der Payload ausgeliefert wird, aus der Versionskontrolle herausgehalten |
 
-Alles ist idempotent und **Hash-besessen**: Der Installer rührt nur an, was er
-selbst platziert hat und noch erkennt. Deine eigenen Skills werden nie
-berührt, Dateien, die du an Ort und Stelle bearbeitet hast, werden behalten
-und gemeldet (`--force` zum Überschreiben), und `uninstall` entfernt genau
-das, was das Manifest aufzeichnet — nichts sonst.
+Alles ist idempotent und **Hash-besessen**: Der Installer rührt nur an, was er selbst platziert hat und noch erkennt. Deine eigenen Skills werden nie berührt, Dateien, die du an Ort und Stelle bearbeitet hast, werden behalten und gemeldet (`--force` zum Überschreiben), und `uninstall` entfernt genau das, was das Manifest aufzeichnet — nichts sonst.
 
 <details>
 <summary><b>Die Shell-Schicht — eine pro Maschine, von beiden Seiten gepflegt</b></summary>
 
-Guards erreichen Sitzungen nur über `hooks/shellenv.sh`, und zsh hat keine
-projektspezifische Startdatei — daher existiert diese Schicht **einmal pro
-Maschine**, unabhängig davon, wie viele Projekte den Harness nutzen. Der
-Installer hält seine Pflege aus deinem operativen Wissen heraus: `install
-project` legt den minimalen Shell-Scope an, wenn er fehlt; `uninstall user`
-fragt nach, bevor es wegnimmt, was andere Projekte teilen (`--keep-shell`
-behält ihn nicht-interaktiv); `uninstall project` rührt ihn nie an.
+Guards erreichen Sitzungen nur über `hooks/shellenv.sh`, und zsh hat keine projektspezifische Startdatei — daher existiert diese Schicht **einmal pro Maschine**, unabhängig davon, wie viele Projekte den Harness nutzen. Der Installer hält seine Pflege aus deinem operativen Wissen heraus: `install project` legt den minimalen Shell-Scope an, wenn er fehlt; `uninstall user` fragt nach, bevor es wegnimmt, was andere Projekte teilen (`--keep-shell` behält ihn nicht-interaktiv); `uninstall project` rührt ihn nie an.
 
 </details>
 
 <details>
 <summary><b>Späte Übernahme und Team-Rollout</b></summary>
 
-- **Reihenfolge-unabhängig**: bd oder codegraph später hinzuzufügen erfordert
-  keine Neuinstallation — Organe, Journale und Indizes werden dynamisch bei
-  jedem Sitzungsstart erkannt. Eine bestehende Root-AGENTS.md, die von
-  `bd init` erstellt wurde, wird nicht übernommen; nur ein verwalteter
-  Referenzblock wird hinzugefügt.
-- **Zwei Zustellungsschichten**: Die Prompt-Schicht (`.agents/`-Payload,
-  Links, Referenzblock) reitet auf der Versionskontrolle und funktioniert
-  allein aus dem `git clone`; die Injektions- und Durchsetzungsschicht
-  (Manifest, Settings-Fragmente, zshenv-Zeile, Shell-Guards) ist
-  maschinenspezifisch und wird vom Installer auf jeder Maschine gelegt.
-- **Ab der zweiten Person**: das Projekt klonen, dotagents klonen,
-  `bin/agents-setup install project <project>` ausführen — ein Befehl; die
-  Shell-Schicht wird dabei mit vervollständigt, falls sie fehlt. Der
-  Installer ist idempotent und Hash-geprüft, sodass er nie gegen das
-  ankämpft, was die Versionskontrolle geliefert hat.
+- **Reihenfolge-unabhängig**: bd oder codegraph später hinzuzufügen erfordert keine Neuinstallation — Organe, Journale und Indizes werden dynamisch bei jedem Sitzungsstart erkannt. Eine bestehende Root-AGENTS.md, die von `bd init` erstellt wurde, wird nicht übernommen; nur ein verwalteter Referenzblock wird hinzugefügt.
+- **Zwei Zustellungsschichten**: Die Prompt-Schicht (`.agents/`-Payload, Links, Referenzblock) reitet auf der Versionskontrolle und funktioniert allein aus dem `git clone`; die Injektions- und Durchsetzungsschicht (Manifest, Settings-Fragmente, zshenv-Zeile, Shell-Guards) ist maschinenspezifisch und wird vom Installer auf jeder Maschine gelegt.
+- **Ab der zweiten Person**: das Projekt klonen, dotagents klonen, `bin/agents-setup install project <project>` ausführen — ein Befehl; die Shell-Schicht wird dabei mit vervollständigt, falls sie fehlt. Der Installer ist idempotent und Hash-geprüft, sodass er nie gegen das ankämpft, was die Versionskontrolle geliefert hat.
 
 </details>
 
 <details>
 <summary><b>Hinweise zum CLI-Design</b></summary>
 
-Das Ziel ist **ein einziges Positionsargument** (`user` / `project [dir]` /
-`shell`), nie mit einem Standardwert belegt. Weil es nur eine Position gibt,
-kann "Benutzer und Projekt gleichzeitig" gar nicht erst getippt werden —
-Exklusivität wird durch Syntax garantiert, nicht durch Laufzeitvalidierung.
-Die interaktive Eingabeaufforderung ist eine Pfeiltasten-Auswahl (`↑/↓`
-bewegen, `enter` bestätigen, `ctrl-c` abbrechen), die sich zu einer einzigen
-Zeile zusammenfaltet, die zeigt, was du gewählt hast. Die Ausgabe verliert die
-Farbe automatisch unter `NO_COLOR` oder ohne TTY.
+Das Ziel ist **ein einziges Positionsargument** (`user` / `project [dir]` / `shell`), nie mit einem Standardwert belegt. Weil es nur eine Position gibt, kann "Benutzer und Projekt gleichzeitig" gar nicht erst getippt werden — Exklusivität wird durch Syntax garantiert, nicht durch Laufzeitvalidierung. Die interaktive Eingabeaufforderung ist eine Pfeiltasten-Auswahl (`↑/↓` bewegen, `enter` bestätigen, `ctrl-c` abbrechen), die sich zu einer einzigen Zeile zusammenfaltet, die zeigt, was du gewählt hast. Die Ausgabe verliert die Farbe automatisch unter `NO_COLOR` oder ohne TTY.
 
 </details>
-
-## Konzept
-
-Was dieser Harness baut, ist nicht "ein fähiger Agent", sondern **eine
-Organisation, die endliche Aufmerksamkeit (Kontext) über Rollen aufteilt und
-sie durch externe Aufzeichnungen verbindet**. Jede Regel unten leitet sich aus
-einer einzigen Prämisse ab: Kontext ist endlich und stirbt mit der Sitzung.
-
-### Drei Schichten von Regeln — allgegenwärtig, momentan, durchgesetzt
-
-Vor ihrem Inhalt wird die Natur einer Regel dadurch bestimmt, **wie sie
-zugestellt wird**.
-
-- **Allgegenwärtige Regeln** (Kern = AGENTS.md) — immer injiziert. Sie
-  besteuern die Aufmerksamkeit jeder Sitzung und gelten nur als
-  **Bestmögliches**, daher darf diese Schicht nur die wenigen Regeln tragen,
-  deren Beobachtungsmoment nicht benannt werden kann
-- **Momentane Regeln** (Skills) — just-in-time injiziert. Sie treten nur in
-  den Kontext ein, wenn ihr Moment eintritt, sodass Detail hier keinen anderen
-  Moment etwas kostet
-- **Durchgesetzte Regeln** (hooks / bin / permissions) — nie injiziert. Ein
-  Mechanismus entscheidet, sodass sie keine Aufmerksamkeit verbrauchen und
-  nicht gebrochen werden können (oder eine Spur hinterlassen, wenn sie es
-  doch werden)
-
-**Das Gesetz des Abstiegs**: Schiebe jede Regel so weit nach unten, wie sie
-gehen wird. Untere Schichten sind zugleich stärker *und* billiger — ein
-Einbahn-Gefälle, auf dem die Stärke steigt, während die Aufmerksamkeitskosten
-verschwinden. Ein Prompt ist bloß das Wartezimmer für Regeln, die noch nicht
-in Mechanismus verwandelt wurden.
-
-### Trennung — Grenzen, die keine Duplizierung zulassen
-
-Subagenten werden nicht nach Fähigkeit geschnitten, sondern nach **Grenzen, an
-denen Duplizierung nicht auftreten kann**: Einheiten, deren Eingaben (Kontext),
-Suchbereiche und Schreibziele (Worktrees) sich nicht überschneiden. Gib zwei
-Kontexten dieselbe Information, und du zahlst die Aufmerksamkeit zweimal; lass
-zwei an derselben Stelle schreiben, und du hast einen Merge-Punkt geschaffen.
-Die Merge-Punkte, die Struktur nicht entfernen kann (der Integrations-Branch
-und das Journal), sind die einzigen, die durch Ausschluss geschützt werden.
-
-Trennung ist auch Verbergen. Die Umstände der Implementierung nicht zu kennen,
-ist es, was dem Review seine Erkennungskraft gibt — **"nicht weitergeben" ist
-eine Design-Entscheidung, so stark wie "weitergeben"**.
-
-### Organe — Deklaration versus Ableitung
-
-Jedes Werkzeug dient als Organ, das eine Art von Frage beantwortet, und keine
-native Fähigkeit eines Organs wird anderswo neu implementiert. Die Achse ist
-**Deklaration versus Ableitung**:
-
-- **Aufzeichnungen der Deklaration** (was entschieden wurde, kann nicht
-  abgeleitet werden, also wird es aufgezeichnet): bd = das Journal von Absicht
-  und Zustand (was wir zu tun beschlossen haben, wer was hält, warum etwas
-  gestoppt ist); ADRs = die Spur der Entscheidungen; das Glossar = die
-  allgegenwärtige Sprache
-- **Ableitung** (was eine Maschine aus dem Artefakt ableiten kann, wird nie
-  von Hand geschrieben): codegraph = die aktuelle Struktur des Codes
-  (Symbole, Aufrufpfade, Wirkungsradius); git = die Geschichte der Änderung
-
-In dem Moment, in dem du etwas Ableitbares von Hand schreibst, beginnt Drift.
-Das Gedächtnis sitzt auf derselben Achse: Zustand wird abgeleitet (die
-Query-Injektion von bd prime); nur Invarianten werden deklariert (bd
-remember). Was Kontext über Sitzungen hinweg trägt, ist kein Transkript,
-sondern eine externe Aufzeichnung mit einer Adresse (**die Kontextbrücke**).
-
-codegraph ist das alltägliche Explorations-Organ, und seine allgegenwärtige
-Regel ("erst mit explore ableiten") wird **durch die Werkzeugbeschreibung
-(MCP-Server-Anweisungen) zugestellt** — nie in Prompts kopiert, wo sie zu
-einer veralteten Kopie würde. Werkzeugwahl kann nicht maschinell geprüft
-werden, daher kann sie auch nicht an die Durchsetzung fallen: die
-Werkzeugschicht mit Injektionskosten null ist die niedrigste Schicht, in der
-diese Regel leben kann. Die Harness-Prompts benennen nur die Momente, in denen
-das Werkzeug *nicht* zu benutzen einen Vertrag bricht (der Abgleich mit der
-Grundwahrheit vor dem Einfrieren, das Ableiten des horizontalen Durchlaufs,
-der Scan des Reviewers). Einbindung (`codegraph install`) und der Index
-(`codegraph init`) sind codegraphs eigene Verantwortung — der Harness prüft
-sie weder noch implementiert er sie neu; SessionStart erkennt lediglich
-`.codegraph/` und injiziert eine Zeile Erinnerung.
-
-### Kontradiktorisches Review — Auslassungen existieren nicht, bis man sie sucht
-
-Der Fehlermodus, der für KI-Agenten eigentümlich ist, ist "erledigt!", wenn es
-nicht erledigt ist, und seine Substanz ist nicht Lüge, sondern **Auslassung**
-— jemand, dessen Kontext nur enthält, was er geschrieben hat, kann nicht
-sehen, was er nicht geschrieben hat.
-
-Review ist daher keine Inspektion (das Betrachten dessen, was existiert, und
-das Urteilen darüber), sondern **Existenzbeweis**: ausgehend von den
-Anforderungen muss der Reviewer die Implementierung und Verifikation finden,
-die jede einzelne im Artefakt erfüllt — ein Scan in umgekehrter Richtung. Dem
-Reviewer wird der Diff nicht zuerst gezeigt, weil Aufmerksamkeit, die durch
-das Verifizieren des Geschriebenen gebunden ist, aufhört, nach dem zu suchen,
-was nicht geschrieben wurde.
-
-### Sinken — Schleifen enden, weil Wissen absteigt
-
-Review, allein wiederholt, divergiert (Befunde quellen ohne Ende hervor). Die
-Schleife konvergiert, weil jede Runde Wissen eine Schicht **sinken** lässt:
-einzelne Befunde → artikulierte Fehlerklassen (gebrochene Verträge) →
-Durchsetzung (eine Struktur, ein Typ, ein einziger Guard). Eine Hypothese, die
-gesunken ist, wird aus der Charta entfernt, sodass der Treibstoff des Reviews
-Runde für Runde schrumpft. Wenn dieselbe Fehlerklasse zweimal auftaucht, ist
-das Signal nicht, dass die Behebung falsch war, sondern dass **das Sinken es
-war**.
-
-Das Issue-Journal konvergiert auf demselben Prinzip: keine Beobachtungen in
-Open häufen; nur öffnen, was entschieden wurde; gleichförmige Issues
-zusammenfalten; jedem neuen Issue seinen Verdauungsweg bei der Geburt
-mitgeben.
-
-### Tests — Anzahl ist nicht das Maß an Schutz
-
-Ein Test darf nur einen **Vertrag** festnageln (ein Versprechen, auf das sich
-das Geschäft verlässt); eine Kopie eines Symptoms schützt vor nichts vor
-Regression. Die erste Verteidigungslinie ist Struktur, die nicht brechen kann
-(Designs und Typen, in denen die Fehlerbedingung nicht existieren kann); Tests
-sind das letzte Mittel für Verträge, die Struktur nicht abdichten kann.
-
-### Beobachter und Aufzählungen — keine Meta-Qualitätsprüfungen
-
-Beobachter von Beobachtern, Tests von Tests, Wächter von Wächtern —
-Meta-Prüfungen, die keinen Geschäftsvertrag bewachen, vermehren sich leicht
-und fressen Wartung, während sie nichts schützen. Drei Prinzipien schließen
-sie aus:
-
-- **Keine Beobachter hinzufügen; stattdessen sinken lassen** — der Wunsch,
-  einen Wächter zu beobachten, ist ein Symptom, dass er zu hoch sitzt. Die
-  Antwort ist das Gesetz des Abstiegs, nicht mehr Überwachung: schiebe ihn
-  nach unten, und das zu Beobachtende verschwindet
-- **Erkennung geht nur einen Schritt weit** — nur Verträge, die Struktur
-  nicht abdichten kann, dürfen Detektoren haben, und Detektoren bekommen
-  keine Detektoren. Dass ein defekter Detektor unbemerkt bleibt, ist der
-  akzeptierte Preis, weshalb Detektoren minimal und einfach bleiben
-- **Niemals durch Aufzählung absichern** — jedes Schema, dessen Abdeckung
-  eine von Hand gepflegte Liste ist, macht vergessene Ergänzungen zu stillen
-  Lücken. Formen bevorzugen, bei denen die Struktur selbst die Definition ist
-  (das payload-Prinzip) oder bei denen die Maschine die Liste als
-  Nebenprodukt ableitet (das manifest-Prinzip)
-
-Die Regeltexte selbst werden hier nicht dupliziert (eine Kopie der payload
-würde still verrotten). Der kanonische Index: Rollen, Qualitätsinvarianten,
-Git-Autorität und die allgegenwärtigen beads-Regeln stehen in
-[AGENTS.md](../payload/AGENTS.md); Vorarbeit und Komposition in
-[agents-kickoff](../payload/skills/agents-kickoff/SKILL.md); der Betrieb der
-Qualitätsschleife in
-[agents-quality-loop](../payload/skills/agents-quality-loop/SKILL.md);
-bd-Operationen und die Gedächtnisgrenze in
-[agents-beads-ops](../payload/skills/agents-beads-ops/SKILL.md); Testdesign in
-[agents-test-design](../payload/skills/agents-test-design/SKILL.md); die drei
-Schichten und die Ablations-Disziplin in
-[prompt-guidelines.md](../payload/docs/prompt-guidelines.md).
 
 ## Aufbau
 
@@ -358,21 +131,9 @@ payload/              die einzige Definition dessen, was verteilt wird; dieser B
 └── docs/             Richtlinien zur Aktualisierung der Prompts
 ```
 
-[payload/](../payload/) ist die kanonische Definition der Distribution; der
-Installer hält keine Liste seines Inhalts (replizierte Listen verrotten still
-— [package.json](../package.json) `files` nennt nur `bin` und `payload`).
+[payload/](../payload/) ist die kanonische Definition der Distribution; der Installer hält keine Liste seines Inhalts (replizierte Listen verrotten still — [package.json](../package.json) `files` nennt nur `bin` und `payload`). Was die Payload ausliefert — der mitgelieferte Harness und die Begründung hinter seinen Regeln — wird in [Der mitgelieferte Harness](HARNESS.de.md) beschrieben.
 
 ## Aktualisieren der Prompts
 
-Folge [payload/docs/prompt-guidelines.md](../payload/docs/prompt-guidelines.md).
-Bearbeite nur in diesem Repository und liefere mit `agents-setup update` aus —
-einen installierten Baum direkt zu bearbeiten, lässt `update` die Datei
-schützen und warnen, was die Drift-Erkennung ist, die funktioniert.
+Folge [payload/docs/prompt-guidelines.md](../payload/docs/prompt-guidelines.md). Bearbeite nur in diesem Repository und liefere mit `agents-setup update` aus — einen installierten Baum direkt zu bearbeiten, lässt `update` die Datei schützen und warnen, was die Drift-Erkennung ist, die funktioniert.
 
-## Offene Fragen
-
-- Massentriage vorbestehender offener Issues bei der Übernahme des Harness in
-  einem Projekt mit einem etablierten Journal (mit pauschaler
-  `AGENTS_BD_OPEN_OK=1`-Genehmigung)
-- Überprüfung geprägter Begriffe, und weitere Verschlankung des `<beads>`-Blocks
-  in AGENTS.md — nachdem die Instrumente Beobachtungen gesammelt haben
