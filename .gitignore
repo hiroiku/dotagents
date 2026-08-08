@@ -1,12 +1,6 @@
 .DS_Store
 node_modules/
 
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
-.beads/proxieddb/
-
-# 導出物(器官の index・ブラウザの作業痕)
+# 導出物(codegraph の index・ブラウザの作業痕)
 .codegraph/
 .playwright-mcp/
