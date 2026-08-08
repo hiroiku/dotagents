@@ -1,5 +1,4 @@
 ---
-name: dotagents-git
 description: git のコミットや push を行うときに使用する。
 ---
 

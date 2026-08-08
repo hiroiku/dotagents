@@ -1,5 +1,4 @@
 ---
-name: dotagents-prompting
 description: プロンプト自体を更新するときに使用する。
 ---
 

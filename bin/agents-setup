@@ -1,22 +1,18 @@
 #!/usr/bin/env node
 'use strict';
 
-// dotagents installer — payload/ を各ツールのネイティブな置き場へ実ファイルとしてコピーし、
-// manifest で所有権を管理する。
+// dotagents installer — modules/ から選んだ物を各ツールが読む場所へ実ファイルで配り、
+// manifest(~/.dotagents/)で所有権を管理する。
 //
-// 設計原則:
-// - 配備は plain copy だけ。symlink も中間ディレクトリ(.agents)も作らない —
-//   ツールが読む場所(.claude/ / .codex/)にあるファイルがそのまま実体である。
-// - payload/ の最上位の種類が配達先を決める: AGENTS.md は各ツールの規則ファイルへの
-//   管理ブロック、skills/ は両ツールの skills/ へ、agents/ は .claude/agents/ へ。
-//   それ以外(解説・docs)は配備しない。
-// - manifest(~/.dotagents/ に集約)は「自分が置いたもの」だけを内容ハッシュ付きで記録する。
-//   update / uninstall はハッシュが一致するファイルにしか触れない — ユーザーの改変と
-//   自前スキルは常に保護される。マシン固有の記録なのでプロジェクトには何も残さない。
-// - 対象(ユーザーレベル / プロジェクト)は決して既定値で決まらない。フラグで明示するか、
-//   対話で選ぶかのどちらかである — 指定し忘れが黙って別の場所を書き換える経路を作らない。
-// - 旧レイアウト(.agents + symlink + zshenv 行 + settings 断片)は install / update が
-//   同じ所有権規則で検出・刈り込みし、新レイアウトへ移行する。
+// 配達先:
+// - Claude: .claude/skills/dotagents/ 1 つに plugin として。skills・agents・hooks が
+//   名前空間 /dotagents:* の下に入り、settings.json を触らずにフックまで届く。
+// - Codex : .codex/skills/dotagents-<name>/ へ素のコピー(plugin が無いので名前へ畳む)。
+// - AGENTS.md: 各ツールの規則ファイルへマーカー付きの管理ブロックとして。
+//
+// install はハッシュが一致するファイルにしか触れず、uninstall は manifest の記録だけを外す。
+// 旧レイアウト(.agents・symlink・zshenv 行・settings 断片・名前空間の外の素のコピー)は
+// install / update が同じ所有権規則で刈り込む。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -26,7 +22,9 @@ const readline = require('node:readline');
 const { execFileSync } = require('node:child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const PAYLOAD = path.join(REPO_ROOT, 'payload');
+const MODULES_DIR = path.join(REPO_ROOT, 'modules');
+// Claude へ配る plugin の名前 = スキルとエージェントの名前空間(/dotagents:git など)。
+const PLUGIN = 'dotagents';
 // マシン固有の記録(manifest)の集約先。
 const STATE_DIR = () => path.join(os.homedir(), '.dotagents');
 // 旧レイアウト(<base>/.agents)の manifest 名と zshenv 管理行 — 刈り込み(移行)専用。
@@ -36,7 +34,18 @@ const MARKER = '# agents-harness';
 // ---------------------------------------------------------------- helpers
 
 function sha256(file) {
-  return 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  return sha256buf(fs.readFileSync(file));
+}
+
+function sha256buf(buf) {
+  return 'sha256:' + crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+// requires の検出に使う。
+function onPath(cmd) {
+  return (process.env.PATH || '').split(path.delimiter).filter(Boolean).some((d) => {
+    try { fs.accessSync(path.join(d, cmd), fs.constants.X_OK); return true; } catch { return false; }
+  });
 }
 
 function walk(dir, base = dir) {
@@ -86,8 +95,8 @@ function removeEmptyDirsUpTo(from, stopAt) {
   }
 }
 
-// 空ディレクトリの遡り削除は各ツールのディレクトリ(.claude / .codex)で止める —
-// それ自体はユーザーの持ち物であり、空でも消さない。
+// 空ディレクトリの遡り削除は各ツールのディレクトリ(.claude / .codex)で止める。
+// それ自体はユーザーの持ち物なので、空でも消さない。
 function pruneStop(ctx, dst) {
   for (const d of [ctx.claudeDir, ctx.codexDir]) {
     if (dst.startsWith(d + path.sep)) return d;
@@ -97,10 +106,10 @@ function pruneStop(ctx, dst) {
 
 // ---------------------------------------------------------------- context
 
-// 対象は opts.target(user / project)ただ 1 つ。base = 配達の基準ディレクトリで、
-// manifest のファイルキーはすべて base 相対。legacyRoot は旧レイアウトの刈り込み専用。
+// 対象は既定でカレントのプロジェクト、-g のときだけユーザーレベル。base = 配達の基準
+// ディレクトリで、manifest のファイルキーはすべて base 相対。legacyRoot は刈り込み専用。
 function makeCtx(opts) {
-  if (opts.target === 'project') {
+  if (!opts.global) {
     let proj = path.resolve(opts.dir ?? '.');
     if (!lstatOrNull(proj)?.isDirectory()) throw new Error(`no such directory: ${proj}`);
     proj = fs.realpathSync(proj); // manifest のキーを安定させる(symlink 経由の表記揺れを吸収)
@@ -139,56 +148,121 @@ function settingsPath(ctx) {
   return path.join(ctx.claudeDir, ctx.kind === 'project' ? 'settings.local.json' : 'settings.json');
 }
 
-function ownedSkillNames() {
-  const dir = path.join(PAYLOAD, 'skills');
-  if (!lstatOrNull(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
+// ---------------------------------------------------------------- modules(正本側の編成単位)
+
+// MODULE.md を持つディレクトリが module である。
+function moduleNames() {
+  if (!lstatOrNull(MODULES_DIR)?.isDirectory()) return [];
+  return fs.readdirSync(MODULES_DIR, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && lstatOrNull(path.join(MODULES_DIR, e.name, 'MODULE.md')))
     .map((e) => e.name)
     .sort();
 }
 
-function ownedAgentNames() {
-  const dir = path.join(PAYLOAD, 'agents');
-  if (!lstatOrNull(dir)) return [];
-  return fs.readdirSync(dir)
-    .filter((n) => n.endsWith('.md'))
-    .sort();
+function moduleMeta(name) {
+  const file = path.join(MODULES_DIR, name, 'MODULE.md');
+  const text = lstatOrNull(file) ? fs.readFileSync(file, 'utf8') : '';
+  const fm = /^---\n([\s\S]*?)\n---/.exec(text);
+  const field = (k) => (fm ? new RegExp(`^${k}:\\s*(.+)$`, 'm').exec(fm[1])?.[1].trim() ?? '' : '');
+  return {
+    name,
+    description: field('description'),
+    requires: field('requires').split(',').map((s) => s.trim()).filter(Boolean),
+  };
 }
 
-// 配達先の導出。payload の最上位の種類が行き先を決める:
-// - skills/<name>/  → .claude/skills/<name>/ と(.codex/ がある環境では).codex/skills/<name>/
-//   スキル単位でコピーする — 自前スキルの実体と同じ場所に同居させるため。
-// - agents/<f>.md   → .claude/agents/<f>(Codex にエージェント定義の置き場は無い)
-// - AGENTS.md       → コピーではなく規則ファイルへの管理ブロック(rulesTargets)
-// - それ以外(README / docs)→ 配備しない。解説は正本と npm パッケージで読む。
-function deliveryEntries(ctx) {
+// module が要る外部コマンドのうち、この機械に無いもの。導入は代行せず、
+// 無くても配備は通す。
+function missingRequirements(name) {
+  return moduleMeta(name).requires.filter((cmd) => !onPath(cmd));
+}
+
+function assertKnownModules(names) {
+  const known = new Set(moduleNames());
+  const unknown = names.filter((n) => !known.has(n));
+  if (unknown.length) {
+    throw new Error(`unknown module: ${unknown.join(' ')}\n` +
+      `       Run \`agents-setup list\` to see what this corpus offers.`);
+  }
+}
+
+// plugin の身元。内容は選んだ module 群から導出されるので、コピーではなく生成して配る。
+function pluginManifest(modules) {
+  return JSON.stringify({
+    name: PLUGIN,
+    description: `dotagents — ${modules.join(' · ')}`,
+    version: pkg().version,
+  }, null, 2) + '\n';
+}
+
+// 配達先の導出。module の最上位の種類が行き先を決める:
+// - skills/<name>/ → Claude: plugin の skills/<name>/(呼び名は /dotagents:<name> になる)
+//                    Codex : .codex/skills/dotagents-<name>/(名前空間が無いので名前へ畳む)
+// - agents/<f>.md  → Claude: plugin の agents/<f>(Codex にエージェント定義の置き場は無い)
+// - hooks/**       → Claude: plugin の hooks/(settings.json を触らずにフックを配る経路)
+// - AGENTS.md      → コピーではなく規則ファイルへの管理ブロック(rulesTargets)
+// - それ以外(MODULE.md / README / docs)→ 配備しない。
+function deliveryEntries(ctx, modules) {
   const entries = [];
-  // unit = 配達の単位(スキルならそのディレクトリ)。unit 自体が symlink の環境では
+  const seen = new Map();
+  // unit = 配達の単位(plugin ならそのディレクトリ)。unit 自体が symlink の環境では
   // リンク越しに書き込まないよう、コピー側が unit を見て丸ごと退く。
-  const add = (src, dst, unit) => entries.push({ src, dst, unit, rel: path.relative(ctx.base, dst) });
+  const add = (e) => {
+    const rel = path.relative(ctx.base, e.dst);
+    const owner = seen.get(rel);
+    if (owner !== undefined && owner !== e.module) {
+      throw new Error(`modules ${owner} and ${e.module} both deliver ${rel}.`);
+    }
+    seen.set(rel, e.module);
+    entries.push({ ...e, rel });
+  };
+  const pluginRoot = path.join(ctx.claudeDir, 'skills', PLUGIN);
   const codex = lstatOrNull(ctx.codexDir)?.isDirectory();
-  for (const name of ownedSkillNames()) {
-    const dir = path.join(PAYLOAD, 'skills', name);
-    for (const rel of walk(dir)) {
-      const claudeUnit = path.join(ctx.claudeDir, 'skills', name);
-      add(path.join(dir, rel), path.join(claudeUnit, rel), claudeUnit);
-      if (codex) {
-        const codexUnit = path.join(ctx.codexDir, 'skills', name);
-        add(path.join(dir, rel), path.join(codexUnit, rel), codexUnit);
+
+  for (const m of modules) {
+    const root = path.join(MODULES_DIR, m);
+    for (const kind of ['skills', 'agents', 'hooks']) {
+      const dir = path.join(root, kind);
+      if (!lstatOrNull(dir)?.isDirectory()) continue;
+      for (const rel of walk(dir)) {
+        add({ module: m, src: path.join(dir, rel), dst: path.join(pluginRoot, kind, rel), unit: pluginRoot });
+      }
+    }
+    const skills = path.join(root, 'skills');
+    if (codex && lstatOrNull(skills)?.isDirectory()) {
+      for (const e of fs.readdirSync(skills, { withFileTypes: true }).filter((x) => x.isDirectory())) {
+        const unit = path.join(ctx.codexDir, 'skills', `${PLUGIN}-${e.name}`);
+        for (const rel of walk(path.join(skills, e.name))) {
+          add({ module: m, src: path.join(skills, e.name, rel), dst: path.join(unit, rel), unit });
+        }
       }
     }
   }
-  for (const file of ownedAgentNames()) {
-    const dst = path.join(ctx.claudeDir, 'agents', file);
-    add(path.join(PAYLOAD, 'agents', file), dst, dst);
+  if (entries.length) {
+    add({
+      module: null,
+      content: pluginManifest(modules),
+      dst: path.join(pluginRoot, '.claude-plugin', 'plugin.json'),
+      unit: pluginRoot,
+    });
   }
   return entries;
 }
 
+// 生成される配達物(plugin.json)と、正本からコピーされる物を同じ所有権規則で扱う。
+function entryHash(e) {
+  return e.content !== undefined ? sha256buf(Buffer.from(e.content)) : sha256(e.src);
+}
+
+function writeEntry(e) {
+  fs.mkdirSync(path.dirname(e.dst), { recursive: true });
+  if (e.content !== undefined) return void fs.writeFileSync(e.dst, e.content);
+  fs.copyFileSync(e.src, e.dst);
+  fs.chmodSync(e.dst, fs.statSync(e.src).mode & 0o777); // フックの実行ビットを保つ
+}
+
 // 消してよいのは自分が張った(created: true の)旧リンクだけ。
 // インストール前から存在した同内容のリンクはユーザーの持ち物であり、触れない。
-// 新レイアウトはリンクを張らない — これは旧レイアウトの刈り込み専用である。
 function removeLink(l, log) {
   if (l.created !== true) return;
   const st = lstatOrNull(l.link);
@@ -200,10 +274,9 @@ function removeLink(l, log) {
   }
 }
 
-// 配達先に残った旧 symlink の掃除。.agents を指すリンクと切れたリンクは、旧レイアウトの
-// 残骸であり実体をコピーする場所を塞ぐので除去する(所有記録に無い手張りのリンクも、
-// 行き先が .agents か切れている限り機能し得ないため同じ扱い)。それ以外の生きた symlink は
-// ユーザーの構成として残し、後段が conflict として警告する。
+// .agents を指すリンクと切れたリンクは、実体をコピーする場所を塞ぐので除去する
+// (所有記録に無い手張りでも、行き先が .agents か切れている限り機能し得ない)。
+// それ以外の生きた symlink はユーザーの構成として残し、後段が conflict として警告する。
 function clearStaleSymlink(ctx, p, log) {
   const st = lstatOrNull(p);
   if (!st?.isSymbolicLink()) return;
@@ -215,23 +288,19 @@ function clearStaleSymlink(ctx, p, log) {
   }
 }
 
-// 掃除の対象 = これから配達する場所すべて(規則ファイル・スキル単位・エージェント単位)。
-function staleSymlinkCandidates(ctx) {
-  const out = [path.join(ctx.claudeDir, 'CLAUDE.md')];
-  const codex = lstatOrNull(ctx.codexDir)?.isDirectory();
-  if (ctx.kind === 'user' && codex) out.push(path.join(ctx.codexDir, 'AGENTS.md'));
-  for (const name of ownedSkillNames()) {
-    out.push(path.join(ctx.claudeDir, 'skills', name));
-    if (codex) out.push(path.join(ctx.codexDir, 'skills', name));
+// 掃除の対象 = これから配達する場所すべて(規則ファイルと、各配達単位)。
+function staleSymlinkCandidates(ctx, entries) {
+  const out = new Set([path.join(ctx.claudeDir, 'CLAUDE.md')]);
+  if (ctx.kind === 'user' && lstatOrNull(ctx.codexDir)?.isDirectory()) {
+    out.add(path.join(ctx.codexDir, 'AGENTS.md'));
   }
-  for (const file of ownedAgentNames()) out.push(path.join(ctx.claudeDir, 'agents', file));
-  return out;
+  for (const e of entries) out.add(e.unit);
+  return [...out];
 }
 
 // ---------------------------------------------------------------- ~/.zshenv(刈り込み専用)
 
-// 旧レイアウトのシェル配達が ~/.zshenv に残した管理行(マーカー付き = 常に自分の持ち物)を
-// 除去する。新レイアウトは zshenv に何も書かない。
+// ~/.zshenv に残った管理行(マーカー付き = 常に自分の持ち物)を除去する。
 function removeZshenvLine(ctx, log) {
   if (!ctx.zshenv || !fs.existsSync(ctx.zshenv)) return;
   const text = fs.readFileSync(ctx.zshenv, 'utf8');
@@ -313,20 +382,25 @@ function removeCodexHooks(ctx, fragments, log) {
 
 // ---------------------------------------------------------------- 規則ブロック
 
-// payload/AGENTS.md は各ツールの規則ファイルへ、マーカー付きの管理ブロックとして届ける。
-// コピーではなくブロックなのは、規則ファイル(CLAUDE.md / AGENTS.md)はユーザー自身の
-// 記述と同居する前提のファイルだからである。マーカー間は installer の完全管理領域:
-// install / update が望む内容へ書き直し、uninstall が除去する。
+// module の AGENTS.md は、各ツールの規則ファイルへマーカー付きの管理ブロックとして届ける。
+// 規則ファイルはユーザー自身の記述と同居するので、コピーではなくブロックである。
+// マーカー間は installer の管理領域: install / update が書き直し、uninstall が除去する。
 // - Claude: <claudeDir>/CLAUDE.md — 無ければ作る
 // - Codex(user): ~/.codex/AGENTS.md — .codex/ がある環境でだけ、無ければ作る
 // - Codex(project): <project>/AGENTS.md — 既存のファイルにだけ足す(プロジェクトの
 //   ルートに新しいファイルを作って見た目を変えない)
-const BLOCK_BEGIN = '<!-- agents-harness:begin (dotagents installer が管理。手で編集しない) -->';
+const BLOCK_BEGIN = '<!-- agents-harness:begin -->';
 const BLOCK_END = '<!-- agents-harness:end -->';
+// 目印は agents-harness:begin までで、行の残りは飾りである。
+const hasBlock = (text) => /^[ \t]*<!-- agents-harness:begin/m.test(text);
 
-function rulesBody() {
-  const src = path.join(PAYLOAD, 'AGENTS.md');
-  return lstatOrNull(src) ? fs.readFileSync(src, 'utf8').trim() : null;
+function rulesBody(modules) {
+  const parts = [];
+  for (const m of modules) {
+    const src = path.join(MODULES_DIR, m, 'AGENTS.md');
+    if (lstatOrNull(src)) parts.push(fs.readFileSync(src, 'utf8').trim());
+  }
+  return parts.length ? parts.join('\n\n') : null;
 }
 
 function desiredBlock(body) { return [BLOCK_BEGIN, body, BLOCK_END].join('\n'); }
@@ -347,7 +421,7 @@ function stripBlock(lines) {
   const kept = [];
   let inBlock = false;
   for (const l of lines) {
-    if (l.trim() === BLOCK_BEGIN) { inBlock = true; continue; }
+    if (l.trim().startsWith('<!-- agents-harness:begin')) { inBlock = true; continue; }
     if (inBlock) { if (l.trim() === BLOCK_END) inBlock = false; continue; }
     kept.push(l);
   }
@@ -385,7 +459,7 @@ function removeRulesBlock(ctx, record, log) {
   const file = path.join(ctx.base, record.file);
   if (!lstatOrNull(file)?.isFile()) return;
   const text = fs.readFileSync(file, 'utf8');
-  if (!text.includes(BLOCK_BEGIN)) return; // ブロックが無ければユーザーのファイルに触れない
+  if (!hasBlock(text)) return; // ブロックが無ければユーザーのファイルに触れない
   const kept = stripBlock(text.split('\n'));
   while (kept.length && kept[kept.length - 1] === '') kept.pop();
   if (record.createdFile === true && kept.join('\n').trim() === '') {
@@ -563,57 +637,125 @@ function closePrompt() {
   if (process.stdout.isTTY) process.stdout.write('\x1b[?25h');
 }
 
-const TITLE = {
-  install: 'Install where?',
-  update: 'Update which installation?',
-  uninstall: 'Uninstall from where?',
-  status: 'Check which installation?',
-};
+// 複数選択。何を入れるかは既定値で決まらないので、初期選択は空である。
+function multiSelect({ title, options }) {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const width = termWidth();
+    const labelWidth = Math.max(...options.map((o) => textWidth(o.label)));
+    const chosen = new Set();
+    let index = 0;
+    let drawn = 0;
 
-// 対象は既定値では決まらない。明示されていれば対話しない、無ければ選ばせる、
-// 選べない環境(非 TTY)なら止める — 指定し忘れが黙って別の場所に効く経路を作らない。
-async function resolveTarget(cmd, opts) {
-  if (opts.target) return opts;
+    const paint = () => {
+      const lines = ['', `  ${ui.bold(title)}`, ''];
+      options.forEach((o, i) => {
+        const on = i === index;
+        const mark = chosen.has(i) ? ui.green('◉') : ui.dim('◯');
+        const label = on ? ui.cyan(ui.bold(pad(o.label, labelWidth))) : pad(o.label, labelWidth);
+        const room = width - labelWidth - 10;
+        const detail = o.detail ? (on ? ui.gray(truncHead(o.detail, room)) : ui.dim(truncHead(o.detail, room))) : '';
+        lines.push(`  ${on ? ui.cyan('❯') : ' '} ${mark} ${label}   ${detail}`.trimEnd());
+        if (o.hint) lines.push(`        ${ui.dim(truncHead(o.hint, width - 10))}`);
+      });
+      lines.push('');
+      lines.push(`  ${ui.dim('↑/↓ move · space toggle · enter confirm · ctrl-c cancel')}`);
+
+      let out = drawn ? `\x1b[${drawn}A` : '';
+      out += lines.map((l) => `\x1b[2K${l}`).join('\n') + '\n';
+      process.stdout.write(out);
+      drawn = lines.length;
+    };
+
+    const finish = (value) => {
+      stdin.removeListener('keypress', onKey);
+      if (stdin.isTTY) stdin.setRawMode(false);
+      stdin.pause();
+      const picked = value === CANCELLED
+        ? ui.red('cancelled')
+        : value.length ? ui.cyan(value.map((i) => options[i].label).join(' ')) : ui.dim('nothing');
+      process.stdout.write(`\x1b[${drawn}A\x1b[0J  ${ui.green('✔')} ${ui.bold(title)}  ${picked}\n`);
+      process.stdout.write('\x1b[?25h');
+      resolve(value);
+    };
+
+    const onKey = (str, key = {}) => {
+      if (key.name === 'up' || key.name === 'k') { index = (index - 1 + options.length) % options.length; paint(); }
+      else if (key.name === 'down' || key.name === 'j') { index = (index + 1) % options.length; paint(); }
+      else if (key.name === 'space') { chosen.has(index) ? chosen.delete(index) : chosen.add(index); paint(); }
+      else if (key.name === 'return' || key.name === 'enter') finish([...chosen].sort((a, b) => a - b));
+      else if (key.name === 'escape' || (key.ctrl && (key.name === 'c' || key.name === 'd'))) finish(CANCELLED);
+    };
+
+    readline.emitKeypressEvents(stdin);
+    if (stdin.isTTY) stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on('keypress', onKey);
+    process.stdout.write('\x1b[?25l');
+    paint();
+  });
+}
+
+// 何を入れるかは既定値では決まらない。明示されていれば対話しない、無ければ選ばせる、
+// 選べない環境(非 TTY)なら止める。
+async function resolveModules(cmd, opts) {
+  if (opts.modules.length) { assertKnownModules(opts.modules); return opts; }
+  const available = moduleNames();
+  if (!available.length) throw new Error(`this corpus has no modules/.`);
   if (!isInteractive()) {
     throw new Error(
-      `no target given for \`${cmd}\`. Pick exactly one:\n` +
-      `         agents-setup ${cmd} user              ~/.claude + ~/.codex\n` +
-      `         agents-setup ${cmd} project [<dir>]   <dir>/.claude + <dir>/.codex (defaults to the current directory)\n` +
+      `no module given for \`${cmd}\`. Name at least one:\n` +
+      available.map((n) => `         agents-setup ${cmd} ${n}`).join('\n') + '\n' +
       `       (run it in a terminal to choose interactively)`);
   }
-  const cwd = process.cwd();
-  // 影響範囲の狭い方(このプロジェクト)を初期選択に置く。連打や早合点で決まっても
-  // 被害が 1 プロジェクトに閉じ、全プロジェクトに効く側は必ず一手を要する。
-  const choice = await select({
-    title: TITLE[cmd],
-    options: [
-      {
-        label: 'This project',
-        detail: homePath(cwd),
-        hint: cwd === REPO_ROOT
-          ? 'Rules for this project only — note: this is the dotagents repo itself'
-          : 'Rules for this project only',
-      },
-      {
-        label: 'User level',
-        detail: '~/.claude · ~/.codex',
-        hint: 'Rules, skills and review agents for every project',
-      },
-    ],
+  const picked = await multiSelect({
+    title: cmd === 'uninstall' ? 'Which modules to remove?' : 'Which modules?',
+    options: available.map((n) => {
+      const meta = moduleMeta(n);
+      const missing = missingRequirements(n);
+      return {
+        label: n,
+        detail: meta.description,
+        hint: !meta.requires.length ? ''
+          : missing.length
+            ? `requires ${meta.requires.join(' ')} — missing: ${missing.join(' ')}`
+            : `requires ${meta.requires.join(' ')} — found`,
+      };
+    }),
   });
-  if (choice === CANCELLED) throw new Error('cancelled.');
-  if (choice === 0) { opts.target = 'project'; opts.dir = cwd; }
-  else opts.target = 'user';
+  if (picked === CANCELLED) throw new Error('cancelled.');
+  if (!picked.length) throw new Error('no module chosen — nothing was written.');
+  opts.modules = picked.map((i) => available[i]);
   opts.interactive = true;
   return opts;
+}
+
+// 配備先の既定はカレントディレクトリである。-C も -g も無いまま無関係な場所で走った
+// ときに黙って書かないよう、git リポジトリでなければ一手を要求する。
+async function confirmLooseTarget(opts) {
+  if (opts.global || opts.dirExplicit) return;
+  const cwd = process.cwd();
+  if (lstatOrNull(path.join(cwd, '.git'))) return;
+  if (!isInteractive()) {
+    throw new Error(`${homePath(cwd)} is not a git repository, and no target was named.\n` +
+      `       Name it explicitly with \`-C .\`, or use \`-g\` for the user level.`);
+  }
+  const choice = await select({
+    title: `Deploy into ${homePath(cwd)}?`,
+    options: [
+      { label: 'Cancel', hint: 'Nothing is written' },
+      { label: 'Yes, here', detail: homePath(cwd), hint: 'This directory is not a git repository' },
+    ],
+  });
+  if (choice !== 1) throw new Error('cancelled.');
+  opts.interactive = true;
 }
 
 // ---------------------------------------------------------------- 旧レイアウトの移行
 
 // 旧レイアウト(<base>/.agents + symlink + zshenv 行 + settings / codex 断片 + 参照ブロック)を
-// 検出し、旧 manifest の所有記録に基づいて刈り込む。install / update / uninstall の入口で
-// 走る。ユーザーの改変(hash 不一致)と自前スキルは残して警告する — 所有権規則は
-// 新レイアウトと同一である。
+// 旧 manifest の所有記録に基づいて刈り込む。install / update / uninstall の入口で走る。
+// ユーザーの改変(hash 不一致)と自前スキルは残して警告する。
 function migrateLegacy(ctx, log) {
   const m = readJson(legacyManifestPath(ctx), null);
   if (!m) return false;
@@ -622,12 +764,12 @@ function migrateLegacy(ctx, log) {
   removeSettings(ctx, m.fragments, log);
   removeCodexHooks(ctx, m.fragments, log);
   if (m.fragments?.refBlock) {
-    // 旧・参照ブロック(マーカーは現行の規則ブロックと同一)。剥ぐだけでよい —
-    // 対象が rulesTargets に含まれる場合は、新しい規則ブロックが同じ場所に入り直す。
+    // 旧・参照ブロック(マーカーは現行の規則ブロックと同一)。剥ぐだけでよい:
+    // 対象が rulesTargets に含まれるなら、新しい規則ブロックが同じ場所に入り直す。
     const file = path.join(ctx.base, 'AGENTS.md');
     if (lstatOrNull(file)?.isFile()) {
       const text = fs.readFileSync(file, 'utf8');
-      if (text.includes(BLOCK_BEGIN)) {
+      if (hasBlock(text)) {
         const kept = stripBlock(text.split('\n'));
         while (kept.length && kept[kept.length - 1] === '') kept.pop();
         fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
@@ -654,23 +796,31 @@ function migrateLegacy(ctx, log) {
 
 // ---------------------------------------------------------------- commands
 
-async function install(opts, { requireExisting = false } = {}) {
+async function install(opts, { requireExisting = false, replaceModules = false } = {}) {
   const ctx = makeCtx(opts);
   const log = makeLog();
   const old = readJson(manifestPath(ctx), null);
-  if (requireExisting && !old && !readJson(legacyManifestPath(ctx), null)) {
-    throw new Error(`nothing installed for ${homePath(ctx.base)} — run \`agents-setup install\` first.`);
+  const legacy = readJson(legacyManifestPath(ctx), null);
+  if (requireExisting && !old && !legacy) {
+    throw new Error(`nothing installed for ${homePath(ctx.base)} — run \`agents-setup install <module>\` first.`);
   }
+
+  // 憶えている選択に今回の指定を足す(install は加算、uninstall が減算)。module の概念を
+  // 持たない旧記録(新旧どちらのレイアウトでも)は、当時の唯一の配布物とみなして harness へ寄せる。
+  const remembered = old ? old.modules ?? ['harness'] : legacy ? ['harness'] : [];
+  const modules = replaceModules ? opts.modules : [...new Set([...remembered, ...opts.modules])].sort();
+  assertKnownModules(modules);
+  const entries = deliveryEntries(ctx, modules);
 
   // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込みと、配達先を塞ぐ旧 symlink の掃除
   migrateLegacy(ctx, log);
-  for (const p of staleSymlinkCandidates(ctx)) clearStaleSymlink(ctx, p, log);
+  for (const p of staleSymlinkCandidates(ctx, entries)) clearStaleSymlink(ctx, p, log);
 
-  // 1. payload → 各ツールの置き場(所有ハッシュに基づく外科的コピー)
-  const entries = deliveryEntries(ctx);
+  // 1. module → 各ツールの置き場(所有ハッシュに基づく外科的コピー)
   const files = {};
   const blockedUnits = new Set();
-  for (const { src, dst, unit, rel } of entries) {
+  for (const e of entries) {
+    const { dst, unit, rel } = e;
     // 掃除を生き延びた symlink はユーザーの構成。リンク越しに書き込まず、警告して退く
     if (lstatOrNull(unit)?.isSymbolicLink()) {
       if (!blockedUnits.has(unit)) {
@@ -679,26 +829,22 @@ async function install(opts, { requireExisting = false } = {}) {
       }
       continue;
     }
-    const srcHash = sha256(src);
+    const srcHash = entryHash(e);
     const st = lstatOrNull(dst);
     const recorded = old?.files?.[rel];
     if (!st) {
-      fs.mkdirSync(path.dirname(dst), { recursive: true });
-      fs.copyFileSync(src, dst);
-      fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
+      writeEntry(e);
       files[rel] = srcHash;
       log.add(rel);
     } else if (sha256(dst) === srcHash) {
       files[rel] = srcHash;
       log.ok(rel);
     } else if (recorded && sha256(dst) === recorded) {
-      fs.copyFileSync(src, dst);
-      fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
+      writeEntry(e);
       files[rel] = srcHash;
       log.update(rel);
     } else if (opts.force) {
-      fs.copyFileSync(src, dst);
-      fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
+      writeEntry(e);
       files[rel] = srcHash;
       log.update(`${rel}(--force で上書き)`);
     } else {
@@ -707,7 +853,8 @@ async function install(opts, { requireExisting = false } = {}) {
     }
   }
 
-  // 2. payload から消えたファイルの刈り込み(自分が置いた内容のままのものだけ)
+  // 2. 配達されなくなったファイルの刈り込み(自分が置いた内容のままのものだけ)。
+  //    module を外したとき・正本から消えたとき・旧配置から移ったときの、どれにも同じ規則が効く。
   const relSet = new Set(entries.map((e) => e.rel));
   for (const [rel, hash] of Object.entries(old?.files || {})) {
     if (files[rel] !== undefined || relSet.has(rel)) continue;
@@ -717,14 +864,14 @@ async function install(opts, { requireExisting = false } = {}) {
     if (sha256(dst) === hash) {
       fs.unlinkSync(dst);
       removeEmptyDirsUpTo(path.dirname(dst), pruneStop(ctx, dst));
-      log.del(`${rel} (gone from payload)`);
+      log.del(`${rel} (no longer delivered)`);
     } else {
-      log.warn(`gone from payload but modified in place, keeping it: ${dst}`);
+      log.warn(`no longer delivered but modified in place, keeping it: ${dst}`);
     }
   }
 
   // 3. 規則ブロック(旧記録から外れた先の刈り込み → 現在の対象への適用)
-  const body = rulesBody();
+  const body = rulesBody(modules);
   const oldBlocks = new Map((old?.rulesBlocks || []).map((r) => [r.file, r]));
   const rulesRecords = [];
   if (body !== null) {
@@ -740,9 +887,10 @@ async function install(opts, { requireExisting = false } = {}) {
 
   // 4. manifest(マシン固有の記録なので ~/.dotagents/ に置き、配備先には何も残さない)
   writeJson(manifestPath(ctx), {
-    schema: 2,
+    schema: 3,
     kind: ctx.kind,
     base: ctx.base,
+    modules,
     version: pkg().version,
     source: REPO_ROOT,
     commit: gitCommit(),
@@ -752,8 +900,17 @@ async function install(opts, { requireExisting = false } = {}) {
   });
 
   const c = log.counts;
-  console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.base)}`);
+  console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan(modules.join(' '))}`);
   console.log(`  ${summary(c)}`);
+  // 依存の不在は配備の失敗ではない。伝えるが、終了コードは変えない。
+  for (const m of modules) {
+    const missing = missingRequirements(m);
+    if (missing.length) console.log(`  ${ui.yellow('!')} ${m} expects ${missing.join(' ')} on PATH — install it when you need it`);
+  }
+  // plugin の agents / hooks は次のセッションから効く(SKILL.md だけは即時に読まれる)。
+  if (c.add + c.update + c.del > 0) {
+    console.log(ui.dim('  run /reload-plugins in a running Claude Code session, or start a new one'));
+  }
   if (c.warn > 0) process.exitCode = 1;
 }
 
@@ -764,6 +921,19 @@ async function uninstall(opts) {
   const hasLegacy = !!readJson(legacyManifestPath(ctx), null);
   if (!m && !hasLegacy) {
     throw new Error(`nothing installed for ${homePath(ctx.base)} — nothing of ours to remove.`);
+  }
+
+  // module 名を挙げた uninstall は減算である。残りがあるなら、残りだけを配り直す —
+  // 外れた module のファイルは「配達されなくなった物」として同じ所有権規則で刈られる。
+  if (opts.modules.length && m) {
+    assertKnownModules(opts.modules);
+    const remembered = m.modules ?? ['harness'];
+    const unknown = opts.modules.filter((n) => !remembered.includes(n));
+    if (unknown.length) throw new Error(`not installed here: ${unknown.join(' ')} (installed: ${remembered.join(' ')})`);
+    const remaining = remembered.filter((n) => !opts.modules.includes(n));
+    if (remaining.length) {
+      return install({ ...opts, modules: remaining }, { requireExisting: true, replaceModules: true });
+    }
   }
 
   // 旧レイアウトの持ち物(リンク・断片・.agents 内のファイル)も同じ所有権規則で外す
@@ -813,29 +983,34 @@ function status(opts) {
     return;
   }
 
-  console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.base)}`);
+  const modules = m.modules ?? ['harness'];
+  console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan(modules.join(' '))}`);
   console.log(ui.dim(`  version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installed=${m.installedAt}`));
   console.log(ui.dim(`  source=${m.source}\n`));
 
-  // payload との照合
-  const entries = deliveryEntries(ctx);
-  for (const { src, dst, unit, rel } of entries) {
+  const gone = modules.filter((n) => !moduleNames().includes(n));
+  for (const n of gone) report(false, `module ${n} — gone from the corpus, run update to prune`);
+
+  // 正本との照合
+  const entries = gone.length ? [] : deliveryEntries(ctx, modules);
+  for (const e of entries) {
+    const { dst, unit, rel } = e;
     if (lstatOrNull(unit)?.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
     const st = lstatOrNull(dst);
     if (!st) { report(false, `${rel} — missing`); continue; }
     if (st.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
     const h = sha256(dst);
-    if (h === sha256(src)) report(true, rel);
-    else if (h === m.files?.[rel]) report(false, `${rel} — payload is newer, run update`);
+    if (h === entryHash(e)) report(true, rel);
+    else if (h === m.files?.[rel]) report(false, `${rel} — the corpus is newer, run update`);
     else report(false, `${rel} — modified in place`);
   }
   const relSet = new Set(entries.map((e) => e.rel));
   for (const rel of Object.keys(m.files || {})) {
-    if (!relSet.has(rel)) report(false, `${rel} — gone from payload, run update to prune`);
+    if (!relSet.has(rel)) report(false, `${rel} — no longer delivered, run update to prune`);
   }
 
   // 規則ブロック
-  const body = rulesBody();
+  const body = rulesBody(modules);
   if (body !== null) {
     for (const t of rulesTargets(ctx)) {
       const st = rulesBlockState(ctx, t, body);
@@ -851,11 +1026,30 @@ function status(opts) {
   if (drift > 0) process.exitCode = 1;
 }
 
+// 正本が何を提供しているか。導入は代行しないので、依存は在るか無いかだけを添える。
+function list() {
+  const names = moduleNames();
+  if (!names.length) {
+    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} this corpus has no modules/`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`\n  ${ui.bold('modules')} ${ui.dim(`— ${homePath(MODULES_DIR)}`)}\n`);
+  const w = Math.max(...names.map((n) => textWidth(n)));
+  for (const n of names) {
+    const meta = moduleMeta(n);
+    const missing = missingRequirements(n);
+    console.log(`  ${ui.cyan(pad(n, w))}  ${ui.dim(meta.description)}`);
+    if (meta.requires.length) {
+      const mark = missing.length ? ui.yellow(`missing: ${missing.join(' ')}`) : ui.green('found');
+      console.log(`  ${pad('', w)}  ${ui.dim(`requires ${meta.requires.join(' ')}`)} ${mark}`);
+    }
+  }
+  console.log(`\n${ui.dim('  agents-setup install <module>       into this project')}`);
+  console.log(`${ui.dim('  agents-setup install <module> -g    for every project on this machine')}`);
+}
+
 // ---------------------------------------------------------------- 正本(取得と追従)
-//
-// 動詞を分ける: clone(取得・初回)/ pull(追従・繰り返し)/ install・update(配備)。
-// 追従の本体は git に委ねる — pull が包むのは「差分の提示 → 統合 → 検証」だけで、
-// 配備の再同期は行わない(乖離は status が検出する)。
 
 // この実行ファイルが編集可能な正本(git リポジトリ)の中にいるか。
 // npx のキャッシュや tarball 展開は正本ではない — そこから黙って配備しない。
@@ -952,8 +1146,7 @@ function pull() {
 
 // 正本の外(npx キャッシュ等)から配備系コマンドが呼ばれたら、既知の正本へ委譲する。
 // 使い捨てコピーを source として manifest に記録する経路を作らない。
-// 正本の在処は ~/.dotagents/ の記録から引く(旧レイアウトの ~/.agents/.dotagents.json も
-// 移行期間の後方互換として読む)。
+// 正本の在処は ~/.dotagents/ の記録から引く(旧レイアウトの ~/.agents/.dotagents.json も読む)。
 function knownCorpusSource() {
   const user = readJson(path.join(STATE_DIR(), 'user.json'), null);
   if (user?.source) return user.source;
@@ -980,72 +1173,79 @@ function delegateToCorpus(argv) {
     `         <dir>/bin/agents-setup install user | project [dir]`);
 }
 
-const COMMANDS = new Set(['clone', 'pull', 'install', 'update', 'uninstall', 'status']);
-// 対象(配備先)を取らないコマンド。clone は取得先ディレクトリ、pull は引数なし。
-const CORPUS_COMMANDS = new Set(['clone', 'pull']);
-const TARGETS = new Set(['user', 'project']);
-// 旧インタフェース。エイリアスとしては生かさない(2 系統は維持費を二重に払う)。
-// 正しい形へ案内するためだけに名前を覚えておく。
+const COMMANDS = new Set(['clone', 'pull', 'list', 'install', 'update', 'uninstall', 'status']);
+// 配備先を取らないコマンド。clone は取得先ディレクトリ、pull と list は引数なし。
+const CORPUS_COMMANDS = new Set(['clone', 'pull', 'list']);
+// module 名を取るコマンド。update / status は憶えている選択に対して働くので取らない。
+const MODULE_COMMANDS = new Set(['install', 'uninstall']);
+// 旧インタフェース。エイリアスとしては生かさず、正しい形へ案内するためだけに覚えておく。
+const RETIRED_TARGETS = new Set(['user', 'project', 'shell']);
 const RETIRED = new Set(['--user', '--project', '--shell']);
 const RETIRED_FLAGS = new Set(['--keep-shell']);
 
-// 対象は位置引数 1 つ。位置は 1 つしか無いので「user と project の同時指定」は
-// 表現できない — 排他は検証ではなく構文が保証する。
+// 位置引数は module 名だけ。配備先は真偽フラグ(-g)なので、-C との併用だけを矛盾として止める。
 function parseArgs(argv) {
-  const opts = { target: null, dir: null, cloneDir: null, from: null, force: false, interactive: false, help: false, version: false };
+  const opts = {
+    global: false, dir: null, dirExplicit: false, modules: [],
+    cloneDir: null, from: null, force: false, interactive: false, help: false, version: false,
+  };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--version' || a === '-v') opts.version = true;
     else if (a === '--force') opts.force = true;
+    else if (a === '--global' || a === '-g') opts.global = true;
+    else if (a === '--directory' || a === '-C') {
+      if (argv[i + 1] === undefined) throw new Error('-C takes a value: -C <dir>');
+      opts.dir = argv[++i];
+      opts.dirExplicit = true;
+    }
     else if (a === '--from') {
       if (argv[i + 1] === undefined) throw new Error('--from takes a value: --from <url|path>');
       opts.from = argv[++i];
     }
     else if (RETIRED.has(a)) {
-      throw new Error(`${a} is retired. The target is a positional argument now:\n` +
-        `         agents-setup <command> user | project [<dir>]`);
+      throw new Error(`${a} is retired. The target is a flag now — project by default:\n` +
+        `         agents-setup <command> [module...] [-g] [-C <dir>]`);
     }
     else if (RETIRED_FLAGS.has(a)) {
-      throw new Error(`${a} is retired: the payload no longer ships a shell layer, so there is nothing to keep.\n` +
+      throw new Error(`${a} is retired: no module ships a shell layer, so there is nothing to keep.\n` +
         `       Use plain \`uninstall\`; \`update\` prunes any old shell wiring.`);
     }
     else if (a.startsWith('-')) throw new Error(`unknown argument: ${a}`);
     else positional.push(a);
   }
 
-  const [cmd, target, dir, ...extra] = positional;
-  // ヘルプと版の表示は引数の妥当性より優先する(`install --help` に対象を要求しない)
+  const [cmd, ...rest] = positional;
+  // ヘルプと版の表示は引数の妥当性より優先する(`install --help` に module を要求しない)
   if (opts.help || opts.version) return { cmd, opts };
   if (!COMMANDS.has(cmd)) return { cmd, opts };  // 使い方の表示へ
 
-  // clone は取得先ディレクトリを 1 つ、pull は位置引数を取らない(配備の対象語彙と混ぜない)
+  // clone は取得先ディレクトリを 1 つ、pull と list は位置引数を取らない
   if (CORPUS_COMMANDS.has(cmd)) {
-    if (cmd === 'pull' && target !== undefined) throw new Error(`\`pull\` takes no arguments: ${target}`);
+    if (cmd !== 'clone' && rest.length) throw new Error(`\`${cmd}\` takes no arguments: ${rest.join(' ')}`);
     if (cmd === 'clone') {
-      if (dir !== undefined || extra.length) throw new Error(`too many arguments: ${[dir, ...extra].filter(Boolean).join(' ')}`);
-      opts.cloneDir = target ?? null;
+      if (rest.length > 1) throw new Error(`too many arguments: ${rest.slice(1).join(' ')}`);
+      opts.cloneDir = rest[0] ?? null;
     }
     return { cmd, opts };
   }
 
-  if (target !== undefined) {
-    if (target === 'shell') {
-      throw new Error('the `shell` target is retired: the payload no longer ships a shell layer.\n' +
-        '       Use `user` or `project [<dir>]`; `update` prunes any old shell wiring.');
-    }
-    if (!TARGETS.has(target)) {
-      throw new Error(`unknown target: ${target} (expected user or project)`);
-    }
-    opts.target = target;
+  if (opts.global && opts.dirExplicit) {
+    throw new Error('-g and -C are exclusive: the user level has no directory to choose.');
   }
-  if (dir !== undefined) {
-    if (TARGETS.has(dir)) throw new Error(`pick exactly one target (got ${target} and ${dir}).`);
-    if (target !== 'project') throw new Error(`only \`project\` takes a directory: ${dir}`);
-    opts.dir = dir;
+  if (RETIRED_TARGETS.has(rest[0])) {
+    throw new Error(`the \`${rest[0]}\` target is retired. The target is a flag now, and project is the default:\n` +
+      `         agents-setup ${cmd} <module>          this project (the current directory)\n` +
+      `         agents-setup ${cmd} <module> -g       this machine (~/.claude and ~/.codex)\n` +
+      `         agents-setup ${cmd} <module> -C <dir> a specific project`);
   }
-  if (extra.length) throw new Error(`too many arguments: ${extra.join(' ')}`);
+  if (rest.length && !MODULE_COMMANDS.has(cmd)) {
+    throw new Error(`\`${cmd}\` takes no module names: ${rest.join(' ')}\n` +
+      `       It works on whatever is recorded for the target.`);
+  }
+  opts.modules = rest;
 
   return { cmd, opts };
 }
@@ -1053,9 +1253,10 @@ function parseArgs(argv) {
 // ---------------------------------------------------------------- help
 
 // 対象の説明は 4 コマンドで同一なので 1 箇所に持つ(コマンドごとに書き写すと黙って古くなる)。
-const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— exactly one. Omit it to choose interactively; never defaulted.')}
-  ${ui.cyan('user')}           this machine (~/.claude and ~/.codex)
-  ${ui.cyan('project')} [dir]  a project (<dir>/.claude and <dir>/.codex; defaults to the current directory)`;
+const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— this project by default; the wider scope always takes a flag.')}
+  ${ui.cyan('(default)')}      the current directory (<cwd>/.claude and <cwd>/.codex)
+  ${ui.cyan('-g, --global')}   this machine (~/.claude and ~/.codex)
+  ${ui.cyan('-C <dir>')}       a specific project`;
 
 const CMD_HELP = {
   clone: {
@@ -1087,63 +1288,86 @@ const CMD_HELP = {
       ['dotagents pull', 'follow the upstream corpus'],
     ],
   },
-  install: {
-    line: 'copy payload/ into the tool directories (.claude/ and .codex/)',
+  list: {
+    usage: '',
+    line: 'show the modules this corpus offers, and whether their tools are present',
     body: [
-      'Copies skills and agent definitions into .claude/ (and .codex/ when present) as',
-      'plain files, and delivers the rules as a managed block in CLAUDE.md / AGENTS.md.',
-      'Everything is idempotent and hash-owned: files you edited after installation are',
-      'kept and reported, and skills you wrote yourself are never touched.',
+      'Reads modules/ and prints each module with its description and the external',
+      'commands it expects. Requirements are detected, never installed: a missing one',
+      'is reported and nothing is blocked — adding it later needs no reinstall.',
     ],
-    options: [['--force', 'overwrite whatever sits in the way and does not match the payload']],
-    notes: ['A legacy .agents layout (symlinks, zshenv line, settings fragments) is migrated automatically.'],
+    options: [],
+    notes: [],
     examples: [
-      ['agents-setup install', 'choose the target interactively'],
-      ['agents-setup install project', 'into the current directory'],
-      ['agents-setup install project /path/to/x', 'into a specific project'],
-      ['agents-setup install user', 'for every project on this machine'],
+      ['agents-setup list', 'see what you can install'],
+    ],
+  },
+  install: {
+    usage: '[module...] [options]',
+    line: 'deliver the named modules into the tool directories (.claude/ and .codex/)',
+    body: [
+      'Delivers to Claude as one plugin directory (.claude/skills/dotagents/), which',
+      'namespaces its skills and agents as /dotagents:* and carries hooks without',
+      'touching settings.json; Codex gets the skills as plain copies. The rules arrive',
+      'as a managed block in CLAUDE.md / AGENTS.md. Adding a module is additive: what',
+      'you installed before stays. Everything is idempotent and hash-owned, so files you',
+      'edited after installation are kept and reported, and your own skills are untouched.',
+    ],
+    options: [['--force', 'overwrite whatever sits in the way and does not match the corpus']],
+    notes: ['Name no module to pick interactively; a non-interactive shell stops instead of choosing for you.'],
+    examples: [
+      ['agents-setup install harness', 'into the current project'],
+      ['agents-setup install harness -g', 'for every project on this machine'],
+      ['agents-setup install harness -C ~/x', 'into a specific project'],
+      ['agents-setup install', 'choose the modules interactively'],
     ],
   },
   update: {
-    line: 'same as install, and prune whatever disappeared from payload/',
+    usage: '[options]',
+    line: 'redeliver whatever is recorded here, and prune what is no longer delivered',
     body: [
-      'Requires an existing installation. Beyond what install does, it removes files that',
-      'are gone from payload/ but still recorded in the manifest (kept machine-locally',
-      'under ~/.dotagents/), and prunes any legacy .agents layout it finds.',
+      'Requires an existing installation, and works on the module set the manifest',
+      'remembers — no module names, no flags to recall. Beyond what install does, it',
+      'removes files still recorded but no longer delivered, and prunes any legacy',
+      '.agents layout it finds.',
     ],
-    options: [['--force', 'overwrite whatever sits in the way and does not match the payload']],
+    options: [['--force', 'overwrite whatever sits in the way and does not match the corpus']],
     notes: ['Edit prompts in this repository, never in the installed tree — update carries them over.'],
     examples: [
-      ['agents-setup update project', 'refresh the current directory'],
-      ['agents-setup update user --force', 'refresh, discarding local edits'],
+      ['agents-setup update', 'refresh the current project'],
+      ['agents-setup update -g --force', 'refresh this machine, discarding local edits'],
     ],
   },
   uninstall: {
+    usage: '[module...] [options]',
     line: 'remove only what this installer placed and still owns (hash-matched)',
     body: [
-      'Removes files whose content still matches the manifest and strips the managed',
-      'rules blocks. Your own skills, files you modified, and everything you wrote',
-      'around the blocks are left in place.',
+      'Naming modules is subtractive: the rest is redelivered and the removed module\'s',
+      'files are pruned. Naming none removes everything. Only files whose content still',
+      'matches the manifest are touched, and the managed rules blocks are stripped —',
+      'your own skills, your edits, and whatever you wrote around the blocks stay.',
     ],
     options: [],
     notes: [],
     examples: [
-      ['agents-setup uninstall project', 'remove from the current directory'],
-      ['agents-setup uninstall user', 'remove from this machine'],
+      ['agents-setup uninstall <module>', 'drop one module, keep the rest'],
+      ['agents-setup uninstall', 'remove everything from the current project'],
+      ['agents-setup uninstall -g', 'remove everything from this machine'],
     ],
   },
   status: {
-    line: 'verify manifest, payload, files and rules blocks (exit 1 on drift)',
+    usage: '[options]',
+    line: 'verify manifest, corpus, files and rules blocks (exit 1 on drift)',
     body: [
-      'Compares the installed files against both the manifest and payload/, and reports',
-      'every difference: missing files, edits made in place, payload changes not yet',
-      'applied, and leftover legacy layouts. Exits 1 when anything differs.',
+      'Compares the installed files against both the manifest and the modules recorded',
+      'here, and reports every difference: missing files, edits made in place, corpus',
+      'changes not yet applied, and leftover legacy layouts. Exits 1 when anything differs.',
     ],
     options: [],
     notes: [],
     examples: [
-      ['agents-setup status project', 'check the current directory'],
-      ['agents-setup status user', 'check this machine'],
+      ['agents-setup status', 'check the current project'],
+      ['agents-setup status -g', 'check this machine'],
     ],
   },
 };
@@ -1155,13 +1379,16 @@ function printHelp(cmd) {
   };
 
   if (!cmd) {
-    console.log(`${ui.bold('agents-setup')} ${ui.dim('<command> [target] [options]')}\n`);
-    console.log(ui.bold('Commands'));
-    console.log(pad2(Object.entries(CMD_HELP).map(([k, h]) => [k, h.line])).join('\n'));
+    console.log(`${ui.bold('agents-setup')} ${ui.dim('<command> [module...] [options]')}\n`);
+    // 対象が 2 つあるので、語彙も 2 つに分けて示す — 入口の多さではなく、object の違いである。
+    console.log(`${ui.bold('The corpus')} ${ui.dim('— the git repository of rules you own')}`);
+    console.log(pad2(['clone', 'pull', 'list'].map((k) => [k, CMD_HELP[k].line])).join('\n'));
+    console.log(`\n${ui.bold('Deployments')} ${ui.dim('— what a tool actually reads')}`);
+    console.log(pad2(['install', 'update', 'uninstall', 'status'].map((k) => [k, CMD_HELP[k].line])).join('\n'));
     console.log(`\n${TARGET_HELP}`);
     console.log(`\n${ui.bold('Options')}`);
     console.log(pad2([
-      ['--force', 'overwrite whatever sits in the way and does not match the payload'],
+      ['--force', 'overwrite whatever sits in the way and does not match the corpus'],
       ['--help, -h', 'show this help, or the help for a command'],
       ['--version, -v', 'print the version'],
     ]).join('\n'));
@@ -1171,7 +1398,7 @@ function printHelp(cmd) {
   }
 
   const h = CMD_HELP[cmd];
-  const usage = h.usage !== undefined ? h.usage : '<target> [options]';
+  const usage = h.usage !== undefined ? h.usage : '[options]';
   console.log(`${ui.bold(`agents-setup ${cmd}`)}${usage ? ` ${ui.dim(usage)}` : ''}\n`);
   for (const l of h.body) console.log(`  ${l}`);
   if (!CORPUS_COMMANDS.has(cmd)) console.log(`\n${TARGET_HELP}`);
@@ -1202,10 +1429,15 @@ async function main() {
   switch (cmd) {
     case 'clone': return clone(opts);
     case 'pull': return pull();
-    case 'install': return install(await resolveTarget(cmd, opts));
-    case 'update': return install(await resolveTarget(cmd, opts), { requireExisting: true });
-    case 'uninstall': return uninstall(await resolveTarget(cmd, opts));
-    case 'status': return status(await resolveTarget(cmd, opts));
+    case 'list': return list();
+    case 'install':
+      await confirmLooseTarget(opts);
+      return install(await resolveModules(cmd, opts));
+    // update / uninstall は既存の記録に対して働く。記録が無ければそちらで止まるので、
+    // 迷子のカレントディレクトリを塞ぐ関門は install にだけ要る。
+    case 'update': return install(opts, { requireExisting: true });
+    case 'uninstall': return uninstall(opts);
+    case 'status': return status(opts);
   }
 }
 

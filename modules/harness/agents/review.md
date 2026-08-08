@@ -1,5 +1,5 @@
 ---
-name: dotagents-review
+name: review
 description: コードや変更の敵対的レビュー(反証)の専用役。実装や修正を終えて独立の視点で検証したいときに使用する。委譲時は要件(満たすべきこと)・レビュー対象の特定方法(パス・ブランチ・差分の範囲)・実行方法を渡すこと。実装側の自己報告は渡さない。
 tools: Read, Glob, Grep, Bash
 color: orange

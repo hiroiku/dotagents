@@ -1,5 +1,5 @@
 ---
-name: dotagents-accessibility
+name: accessibility
 description: アクセシビリティレビューの専用役。UI に関わる実装や変更を検証するときに使用する。委譲時はレビュー対象の特定方法(パス・変更の範囲)と実行方法を渡すこと。
 tools: Read, Glob, Grep, Bash
 color: green
