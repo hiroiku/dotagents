@@ -93,13 +93,14 @@ bin/agents-setup --help               # 全部指令、選項、範例
 bin/agents-setup      安裝程式 CLI(clone / pull / list / install / update / uninstall / status)
 test/                 針對安裝程式的契約測試(npm test)
 modules/              可分發內容的唯一定義
-└── harness/          隨附的 module——沒有外部依賴
-    ├── MODULE.md     名稱、說明,以及它期望 PATH 上有什麼
-    ├── AGENTS.md     唯一的普遍規則——以受管理區塊的形式交付
-    ├── skills/       瞬時規則(只在其時機到來時才被讀取)
-    ├── agents/       審查角色(對抗式 · 安全性 · 無障礙)
-    ├── README.md     隨附的框架——分發了什麼,以及為何它說得如此之少
-    └── docs/         該說明的各語言翻譯(僅屬文件;不會被部署)
+├── harness/          隨附的 module——沒有外部依賴
+│   ├── MODULE.md     名稱、說明,以及它期望 PATH 上有什麼
+│   ├── AGENTS.md     唯一的普遍規則——以受管理區塊的形式交付
+│   ├── skills/       瞬時規則(只在其時機到來時才被讀取)
+│   ├── agents/       審查角色(對抗式 · 安全性 · 無障礙)
+│   ├── README.md     隨附的框架——分發了什麼,以及為何它說得如此之少
+│   └── docs/         該說明的各語言翻譯(僅屬文件;不會被部署)
+└── beads/            選用 module — 需要 PATH 上有 bd
 ```
 
 [modules/](../modules/) 是這份分發內容的權威定義:帶有 `MODULE.md` 的目錄就是一個 module,其頂層的種類決定各項內容的落腳位置,而安裝程式自身並不持有檔案的清單——重複維護的清單會無聲腐壞,因此 [package.json](../package.json) 的 `files` 欄位只列出 `bin` 與 `modules`。在隨附的 module 旁邊寫下你自己的 module,它會以完全相同的方式被安裝。

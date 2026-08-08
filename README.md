@@ -93,13 +93,14 @@ Project-scope plugins load only when Claude Code starts at the repository root, 
 bin/agents-setup      installer CLI (clone / pull / list / install / update / uninstall / status)
 test/                 contract tests for the installer (npm test)
 modules/              the single definition of what can be distributed
-└── harness/          the bundled module — no external dependencies
-    ├── MODULE.md     name, description, what it expects on PATH
-    ├── AGENTS.md     the one ubiquitous rule — delivered as a managed block
-    ├── skills/       momentary rules (read only when their moment arrives)
-    ├── agents/       review roles (adversarial · security · accessibility)
-    ├── README.md     the bundled harness — what ships, and why it says so little
-    └── docs/         translations of that guide (documentation; not deployed)
+├── harness/          the bundled module — no external dependencies
+│   ├── MODULE.md     name, description, what it expects on PATH
+│   ├── AGENTS.md     the one ubiquitous rule — delivered as a managed block
+│   ├── skills/       momentary rules (read only when their moment arrives)
+│   ├── agents/       review roles (adversarial · security · accessibility)
+│   ├── README.md     the bundled harness — what ships, and why it says so little
+│   └── docs/         translations of that guide (documentation; not deployed)
+└── beads/            an optional module — requires bd on PATH
 ```
 
 [modules/](./modules/) is the canonical definition of the distribution: a directory with a `MODULE.md` is a module, its top-level kinds decide where things land, and the installer holds no list of the files — replicated lists silently rot, so [package.json](./package.json) `files` names only `bin` and `modules`. Write your own module beside the bundled one and it installs the same way.

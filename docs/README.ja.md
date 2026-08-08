@@ -93,13 +93,14 @@ bin/agents-setup --help               # 全コマンド・オプション・例
 bin/agents-setup      installer CLI(clone / pull / list / install / update / uninstall / status)
 test/                 installer の契約テスト(npm test)
 modules/              配布できる物の唯一の定義
-└── harness/          同梱 module — 外部依存は無い
-    ├── MODULE.md     名前、説明、PATH に期待する物
-    ├── AGENTS.md     唯一の遍在則 — 管理ブロックとして届く
-    ├── skills/       瞬間則(その瞬間が来たときだけ読む)
-    ├── agents/       レビューの役割(敵対的 · セキュリティ · アクセシビリティ)
-    ├── README.md     同梱ハーネス — 何を積んでいるか、なぜこれだけしか書いていないか
-    └── docs/         そのガイドの翻訳(ドキュメントであり、配備されない)
+├── harness/          同梱 module — 外部依存は無い
+│   ├── MODULE.md     名前、説明、PATH に期待する物
+│   ├── AGENTS.md     唯一の遍在則 — 管理ブロックとして届く
+│   ├── skills/       瞬間則(その瞬間が来たときだけ読む)
+│   ├── agents/       レビューの役割(敵対的 · セキュリティ · アクセシビリティ)
+│   ├── README.md     同梱ハーネス — 何を積んでいるか、なぜこれだけしか書いていないか
+│   └── docs/         そのガイドの翻訳(ドキュメントであり、配備されない)
+└── beads/            任意の module — PATH に bd を要求する
 ```
 
 [modules/](../modules/) が配布物の正本の定義である: `MODULE.md` を持つディレクトリが module であり、その最上位の種別が物の届く先を決め、installer 側にファイルの列挙は存在しない — 列挙の複製は黙って古びるため、[package.json](../package.json) の `files` が挙げるのは `bin` と `modules` の 2 項のみ。同梱 module の隣に自分の module を書けば、同じように install される。

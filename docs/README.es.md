@@ -93,13 +93,14 @@ Los plugins de alcance de proyecto solo se cargan cuando Claude Code arranca en 
 bin/agents-setup      CLI del instalador (clone / pull / list / install / update / uninstall / status)
 test/                 pruebas de contrato para el instalador (npm test)
 modules/              la única definición de lo que se puede distribuir
-└── harness/          el módulo incluido — sin dependencias externas
-    ├── MODULE.md     nombre, descripción, qué espera en PATH
-    ├── AGENTS.md     la única regla ubicua — entregada como un bloque gestionado
-    ├── skills/       reglas momentáneas (leídas solo cuando llega su momento)
-    ├── agents/       roles de revisión (adversarial · seguridad · accesibilidad)
-    ├── README.md     el arnés incluido — qué se entrega, y por qué dice tan poco
-    └── docs/         traducciones de esa guía (documentación; no se despliega)
+├── harness/          el módulo incluido — sin dependencias externas
+│   ├── MODULE.md     nombre, descripción, qué espera en PATH
+│   ├── AGENTS.md     la única regla ubicua — entregada como un bloque gestionado
+│   ├── skills/       reglas momentáneas (leídas solo cuando llega su momento)
+│   ├── agents/       roles de revisión (adversarial · seguridad · accesibilidad)
+│   ├── README.md     el arnés incluido — qué se entrega, y por qué dice tan poco
+│   └── docs/         traducciones de esa guía (documentación; no se despliega)
+└── beads/            un módulo opcional — requiere bd en el PATH
 ```
 
 [modules/](../modules/) es la definición canónica de la distribución: un directorio con un `MODULE.md` es un módulo, sus tipos de primer nivel deciden dónde aterrizan las cosas, y el instalador no mantiene ninguna lista de los archivos — las listas replicadas se pudren en silencio, así que [package.json](../package.json) `files` solo nombra `bin` y `modules`. Escribe tu propio módulo junto al incluido y se instala igual.

@@ -93,13 +93,14 @@ Plugins im Projekt-Geltungsbereich werden nur geladen, wenn Claude Code in der R
 bin/agents-setup      Installer-CLI (clone / pull / list / install / update / uninstall / status)
 test/                 Vertragstests für den Installer (npm test)
 modules/              die einzige Definition dessen, was verteilt werden kann
-└── harness/          das mitgelieferte Modul — keine externen Abhängigkeiten
-    ├── MODULE.md     Name, Beschreibung, was es auf PATH erwartet
-    ├── AGENTS.md     die eine allgegenwärtige Regel — als verwalteter Block zugestellt
-    ├── skills/       momentane Regeln (nur gelesen, wenn ihr Moment eintritt)
-    ├── agents/       Review-Rollen (kontradiktorisch · Security · Accessibility)
-    ├── README.md     der mitgelieferte Harness — was ausgeliefert wird, und warum er so wenig sagt
-    └── docs/         Übersetzungen dieses Leitfadens (Dokumentation; nicht bereitgestellt)
+├── harness/          das mitgelieferte Modul — keine externen Abhängigkeiten
+│   ├── MODULE.md     Name, Beschreibung, was es auf PATH erwartet
+│   ├── AGENTS.md     die eine allgegenwärtige Regel — als verwalteter Block zugestellt
+│   ├── skills/       momentane Regeln (nur gelesen, wenn ihr Moment eintritt)
+│   ├── agents/       Review-Rollen (kontradiktorisch · Security · Accessibility)
+│   ├── README.md     der mitgelieferte Harness — was ausgeliefert wird, und warum er so wenig sagt
+│   └── docs/         Übersetzungen dieses Leitfadens (Dokumentation; nicht bereitgestellt)
+└── beads/            ein optionales Modul — erwartet bd im PATH
 ```
 
 [modules/](../modules/) ist die kanonische Definition der Distribution: Ein Verzeichnis mit einer `MODULE.md` ist ein Modul, seine Top-Level-Arten entscheiden, wo die Dinge landen, und der Installer hält keine Liste der Dateien — replizierte Listen verrotten still, daher nennt [package.json](../package.json) `files` nur `bin` und `modules`. Schreibe dein eigenes Modul neben das mitgelieferte, und es installiert sich genauso.

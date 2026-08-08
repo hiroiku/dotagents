@@ -93,13 +93,14 @@ Les plugins de portée projet ne se chargent que si Claude Code démarre à la r
 bin/agents-setup      CLI de l'installeur (clone / pull / list / install / update / uninstall / status)
 test/                 tests de contrat pour l'installeur (npm test)
 modules/              la définition unique de ce qui peut être distribué
-└── harness/          le module fourni — sans dépendance externe
-    ├── MODULE.md     nom, description, ce qu'il attend dans le PATH
-    ├── AGENTS.md     la règle omniprésente unique — livrée comme un bloc géré
-    ├── skills/       règles momentanées (lues seulement quand leur moment arrive)
-    ├── agents/       rôles de revue (contradictoire · sécurité · accessibilité)
-    ├── README.md     le harnais fourni — ce qui est livré, et pourquoi il en dit si peu
-    └── docs/         traductions de ce guide (documentation ; non déployée)
+├── harness/          le module fourni — sans dépendance externe
+│   ├── MODULE.md     nom, description, ce qu'il attend dans le PATH
+│   ├── AGENTS.md     la règle omniprésente unique — livrée comme un bloc géré
+│   ├── skills/       règles momentanées (lues seulement quand leur moment arrive)
+│   ├── agents/       rôles de revue (contradictoire · sécurité · accessibilité)
+│   ├── README.md     le harnais fourni — ce qui est livré, et pourquoi il en dit si peu
+│   └── docs/         traductions de ce guide (documentation ; non déployée)
+└── beads/            un module optionnel — requiert bd dans le PATH
 ```
 
 [modules/](../modules/) est la définition canonique de la distribution : un répertoire doté d'un `MODULE.md` est un module, ses catégories de premier niveau décident où atterrissent les choses, et l'installeur ne tient aucune liste des fichiers — les listes répliquées pourrissent en silence, donc `files` dans [package.json](../package.json) ne nomme que `bin` et `modules`. Écris ton propre module à côté de celui qui est fourni, et il s'installe de la même façon.

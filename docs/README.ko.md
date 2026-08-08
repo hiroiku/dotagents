@@ -93,13 +93,14 @@ bin/agents-setup --help               # 모든 명령, 옵션, 예시
 bin/agents-setup      installer CLI (clone / pull / list / install / update / uninstall / status)
 test/                 installer의 contract 테스트 (npm test)
 modules/              배포할 수 있는 것의 단일 정의
-└── harness/          동봉된 module — 외부 의존이 없다
-    ├── MODULE.md     이름, 설명, PATH에 무엇을 기대하는지
-    ├── AGENTS.md     단 하나의 편재 규칙 — 관리 블록으로 전달된다
-    ├── skills/       순간 규칙 (그 순간이 왔을 때만 읽는다)
-    ├── agents/       리뷰 역할 (적대적 · 보안 · 접근성)
-    ├── README.md     동봉된 하네스 — 무엇이 실려 오고, 왜 이토록 말을 아끼는가
-    └── docs/         그 안내서의 번역 (문서일 뿐, 배포되지 않는다)
+├── harness/          동봉된 module — 외부 의존이 없다
+│   ├── MODULE.md     이름, 설명, PATH에 무엇을 기대하는지
+│   ├── AGENTS.md     단 하나의 편재 규칙 — 관리 블록으로 전달된다
+│   ├── skills/       순간 규칙 (그 순간이 왔을 때만 읽는다)
+│   ├── agents/       리뷰 역할 (적대적 · 보안 · 접근성)
+│   ├── README.md     동봉된 하네스 — 무엇이 실려 오고, 왜 이토록 말을 아끼는가
+│   └── docs/         그 안내서의 번역 (문서일 뿐, 배포되지 않는다)
+└── beads/            선택적 module — PATH 에 bd 를 요구한다
 ```
 
 [modules/](../modules/)가 배포물의 정본 정의다: `MODULE.md`를 가진 디렉터리가 곧 module이고, 그 최상위 항목의 종류가 각각이 어디에 놓일지를 결정하며, installer 쪽에는 파일 목록이 따로 존재하지 않는다 — 목록을 복제하면 조용히 낡아가기 때문에, [package.json](../package.json)의 `files`는 `bin`과 `modules`만을 지정한다. 동봉된 module 옆에 자신의 module을 써 두면 같은 방식으로 설치된다.
