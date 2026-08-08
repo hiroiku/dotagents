@@ -26,7 +26,13 @@ const MODULES_DIR = path.join(REPO_ROOT, 'modules');
 // Claude へ配る plugin の名前 = スキルとエージェントの名前空間(/dotagents:git など)。
 const PLUGIN = 'dotagents';
 // マシン固有の記録(manifest)の集約先。
-const STATE_DIR = () => path.join(os.homedir(), '.dotagents');
+// この仕組みの本拠地。根は 1 つだけ環境変数で動かせ、中身の位置はすべてそこから導出する。
+const DOTAGENTS_HOME = () => (process.env.DOTAGENTS_HOME
+  ? path.resolve(process.env.DOTAGENTS_HOME)
+  : path.join(os.homedir(), '.dotagents'));
+const CORPUS_DIR = () => path.join(DOTAGENTS_HOME(), 'corpus');
+const PERSONAL_MODULES_DIR = () => path.join(DOTAGENTS_HOME(), 'modules');
+const STATE_DIR = () => path.join(DOTAGENTS_HOME(), 'state');
 // 旧レイアウト(<base>/.agents)の manifest 名と zshenv 管理行 — 刈り込み(移行)専用。
 const LEGACY_MANIFEST_NAME = '.dotagents.json';
 const MARKER = '# agents-harness';
@@ -144,6 +150,19 @@ function manifestPath(ctx) {
 
 function legacyManifestPath(ctx) { return path.join(ctx.legacyRoot, LEGACY_MANIFEST_NAME); }
 
+// 記録は本拠地の直下に置いていた。corpus/ と modules/ と並ぶようになったので state/ へ移す。
+function migrateStateDir() {
+  const home = DOTAGENTS_HOME();
+  const moves = [['user.json', 'user.json'], ['projects', 'projects']];
+  for (const [from, to] of moves) {
+    const src = path.join(home, from);
+    const dst = path.join(STATE_DIR(), to);
+    if (!lstatOrNull(src) || lstatOrNull(dst)) continue;
+    fs.mkdirSync(STATE_DIR(), { recursive: true });
+    fs.renameSync(src, dst);
+  }
+}
+
 // 旧レイアウトが断片を書いた settings の場所(プロジェクトは settings.local.json)。刈り込みに使う。
 function settingsPath(ctx) {
   return path.join(ctx.claudeDir, ctx.kind === 'project' ? 'settings.local.json' : 'settings.json');
@@ -151,24 +170,53 @@ function settingsPath(ctx) {
 
 // ---------------------------------------------------------------- modules(正本側の編成単位)
 
-// MODULE.md を持つディレクトリが module である。
+// module の供給元は 2 つ。正本の modules/ は公開され pull で追従し、
+// ~/.dotagents/modules/ はこのマシンだけの物である。どちらも module.json を持つ
+// ディレクトリが module で、名前はディレクトリ名 — 同一性の出どころを 2 つにしない。
+function moduleSources() {
+  return [
+    { root: MODULES_DIR, personal: false },
+    { root: PERSONAL_MODULES_DIR(), personal: true },
+  ];
+}
+
+// 名前 → { dir, personal }。同じ名前が 2 箇所にあれば、どちらが効くかを黙って決めない。
+function moduleIndex() {
+  const index = new Map();
+  for (const src of moduleSources()) {
+    if (!lstatOrNull(src.root)?.isDirectory()) continue;
+    for (const e of fs.readdirSync(src.root, { withFileTypes: true })) {
+      if (!e.isDirectory() || !lstatOrNull(path.join(src.root, e.name, 'module.json'))) continue;
+      const dir = path.join(src.root, e.name);
+      const found = index.get(e.name);
+      if (found) {
+        throw new Error(`two modules are named ${e.name}:\n` +
+          `         ${homePath(found.dir)}\n` +
+          `         ${homePath(dir)}\n` +
+          `       Rename one — a rule must have a single place it comes from.`);
+      }
+      index.set(e.name, { name: e.name, dir, personal: src.personal });
+    }
+  }
+  return index;
+}
+
 function moduleNames() {
-  if (!lstatOrNull(MODULES_DIR)?.isDirectory()) return [];
-  return fs.readdirSync(MODULES_DIR, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && lstatOrNull(path.join(MODULES_DIR, e.name, 'MODULE.md')))
-    .map((e) => e.name)
-    .sort();
+  return [...moduleIndex().keys()].sort();
+}
+
+function moduleDir(name) {
+  const found = moduleIndex().get(name);
+  if (!found) throw new Error(`unknown module: ${name}`);
+  return found.dir;
 }
 
 function moduleMeta(name) {
-  const file = path.join(MODULES_DIR, name, 'MODULE.md');
-  const text = lstatOrNull(file) ? fs.readFileSync(file, 'utf8') : '';
-  const fm = /^---\n([\s\S]*?)\n---/.exec(text);
-  const field = (k) => (fm ? new RegExp(`^${k}:\\s*(.+)$`, 'm').exec(fm[1])?.[1].trim() ?? '' : '');
+  const meta = readJson(path.join(moduleDir(name), 'module.json'), {});
   return {
     name,
-    description: field('description'),
-    requires: field('requires').split(',').map((s) => s.trim()).filter(Boolean),
+    description: typeof meta.description === 'string' ? meta.description : '',
+    requires: Array.isArray(meta.requires) ? meta.requires.filter((r) => typeof r === 'string') : [],
   };
 }
 
@@ -198,7 +246,7 @@ function pluginManifest(modules) {
 
 // 配備しない物。module の残りはすべて plugin の中身なので、種類を数え上げない —
 // skills/ と agents/ と hooks/ に限らず、plugin が解する物はそのまま運べる。
-const NOT_DELIVERED = new Set(['MODULE.md', 'AGENTS.md', 'README.md', 'docs']);
+const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs']);
 
 // 配達先の導出:
 // - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
@@ -222,7 +270,7 @@ function deliveryEntries(ctx, modules) {
   const codex = lstatOrNull(ctx.codexDir)?.isDirectory();
 
   for (const m of modules) {
-    const root = path.join(MODULES_DIR, m);
+    const root = moduleDir(m);
     for (const rel of walk(root)) {
       if (NOT_DELIVERED.has(rel.split(path.sep)[0])) continue;
       add({ module: m, src: path.join(root, rel), dst: path.join(pluginRoot, rel), unit: pluginRoot });
@@ -404,7 +452,7 @@ const hasBlock = (text) => /^[ \t]*<!-- agents-harness:begin/m.test(text);
 function rulesBody(modules) {
   const parts = [];
   for (const m of modules) {
-    const src = path.join(MODULES_DIR, m, 'AGENTS.md');
+    const src = path.join(moduleDir(m), 'AGENTS.md');
     if (lstatOrNull(src)) parts.push(fs.readFileSync(src, 'utf8').trim());
   }
   return parts.length ? parts.join('\n\n') : null;
@@ -821,7 +869,7 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   // ここで落ちるのは「憶えていたが、もう正本に無い」物だけである。
   const known = new Set(moduleNames());
   const modules = wanted.filter((n) => known.has(n));
-  for (const n of wanted.filter((n) => !known.has(n))) log.del(`module ${n} (gone from the corpus)`);
+  for (const n of wanted.filter((n) => !known.has(n))) log.del(`module ${n} (no longer available)`);
   const entries = deliveryEntries(ctx, modules);
 
   // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込みと、配達先を塞ぐ旧 symlink の掃除
@@ -998,11 +1046,12 @@ function status(opts) {
   const modules = m.modules ?? ['harness'];
   console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan(modules.join(' '))}`);
   console.log(ui.dim(`  version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installed=${m.installedAt}`));
-  console.log(ui.dim(`  source=${m.source}\n`));
+  console.log(ui.dim(`  source=${m.source}`));
+  console.log(ui.dim(`  home=${homePath(DOTAGENTS_HOME())}${process.env.DOTAGENTS_HOME ? ' (DOTAGENTS_HOME)' : ''}\n`));
 
   const known = new Set(moduleNames());
   for (const n of modules.filter((n) => !known.has(n))) {
-    report(false, `module ${n} — gone from the corpus, run update to prune`);
+    report(false, `module ${n} — no longer available, run update to prune`);
   }
 
   // 正本との照合。消えた module の分は「配達されなくなった物」として下で報告される。
@@ -1040,27 +1089,33 @@ function status(opts) {
   if (drift > 0) process.exitCode = 1;
 }
 
-// 正本が何を提供しているか。導入は代行しないので、依存は在るか無いかだけを添える。
+// 何が install できるか。導入は代行しないので、依存は在るか無いかだけを添える。
 function list() {
-  const names = moduleNames();
-  if (!names.length) {
-    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} this corpus has no modules/`);
+  const index = moduleIndex();
+  if (!index.size) {
+    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} nothing in ${homePath(MODULES_DIR)}`);
     process.exitCode = 1;
     return;
   }
-  console.log(`\n  ${ui.bold('modules')} ${ui.dim(`— ${homePath(MODULES_DIR)}`)}\n`);
+  const names = [...index.keys()].sort();
   const w = Math.max(...names.map((n) => textWidth(n)));
-  for (const n of names) {
-    const meta = moduleMeta(n);
-    const missing = missingRequirements(n);
-    console.log(`  ${ui.cyan(pad(n, w))}  ${ui.dim(meta.description)}`);
-    if (meta.requires.length) {
-      const mark = missing.length ? ui.yellow(`missing: ${missing.join(' ')}`) : ui.green('found');
-      console.log(`  ${pad('', w)}  ${ui.dim(`requires ${meta.requires.join(' ')}`)} ${mark}`);
+  for (const src of moduleSources()) {
+    const here = names.filter((n) => index.get(n).personal === src.personal);
+    if (!here.length) continue;
+    console.log(`\n  ${ui.bold(src.personal ? 'personal' : 'corpus')} ${ui.dim(`— ${homePath(src.root)}`)}\n`);
+    for (const n of here) {
+      const meta = moduleMeta(n);
+      const missing = missingRequirements(n);
+      console.log(`  ${ui.cyan(pad(n, w))}  ${ui.dim(meta.description)}`);
+      if (meta.requires.length) {
+        const mark = missing.length ? ui.yellow(`missing: ${missing.join(' ')}`) : ui.green('found');
+        console.log(`  ${pad('', w)}  ${ui.dim(`requires ${meta.requires.join(' ')}`)} ${mark}`);
+      }
     }
   }
   console.log(`\n${ui.dim('  agents-setup install <module>       into this project')}`);
   console.log(`${ui.dim('  agents-setup install <module> -g    for every project on this machine')}`);
+  console.log(ui.dim(`  modules of your own go in ${homePath(PERSONAL_MODULES_DIR())} — they stay on this machine`));
 }
 
 // ---------------------------------------------------------------- 正本(取得と追従)
@@ -1095,17 +1150,7 @@ function question(title) {
 }
 
 async function clone(opts) {
-  let dir = opts.cloneDir;
-  if (!dir) {
-    if (!isInteractive()) {
-      throw new Error('no directory given for `clone`. The corpus lands where you say, never in a default:\n' +
-        '         dotagents clone <dir>\n' +
-        '       (run it in a terminal to type one interactively)');
-    }
-    dir = await question('Clone the corpus into which directory?');
-    if (!dir) throw new Error('cancelled.');
-  }
-  dir = path.resolve(dir);
+  const dir = path.resolve(opts.cloneDir ?? CORPUS_DIR());
   const st = lstatOrNull(dir);
   if (st && (!st.isDirectory() || fs.readdirSync(dir).length)) {
     throw new Error(`not an empty directory: ${dir}`);
@@ -1162,6 +1207,7 @@ function pull() {
 // 使い捨てコピーを source として manifest に記録する経路を作らない。
 // 正本の在処は ~/.dotagents/ の記録から引く(旧レイアウトの ~/.agents/.dotagents.json も読む)。
 function knownCorpusSource() {
+  if (lstatOrNull(path.join(CORPUS_DIR(), '.git'))) return CORPUS_DIR();
   const user = readJson(path.join(STATE_DIR(), 'user.json'), null);
   if (user?.source) return user.source;
   const projectsDir = path.join(STATE_DIR(), 'projects');
@@ -1274,17 +1320,18 @@ const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— this project by default;
 
 const CMD_HELP = {
   clone: {
-    usage: '<dir>',
+    usage: '[dir]',
     line: 'get the corpus as your own editable git repository (first time)',
     body: [
-      'Clones the rules corpus into <dir> as a git repository you own: edit rules there,',
-      'commit them, and deploy from it with install/update. The directory is explicit or',
-      'asked interactively — never defaulted.',
+      'Clones the rules corpus into $DOTAGENTS_HOME/corpus as a git repository you own:',
+      'edit rules there, commit them, and deploy from it with install/update. Name a',
+      'directory to put it somewhere else.',
     ],
     options: [['--from <url|path>', 'clone from an explicit source instead of the published repository']],
     notes: ['A clone is for editing and following. `npx @hiroiku/dotagents clone` is the one command that works outside a corpus.'],
     examples: [
-      ['npx @hiroiku/dotagents clone ~/dotagents', 'get the corpus next to your dotfiles'],
+      ['npx @hiroiku/dotagents clone', 'into the home this tool keeps'],
+      ['dotagents clone ~/work/rules', 'somewhere of your choosing'],
       ['dotagents clone x --from /path/to/repo', 'clone a local fork'],
     ],
   },
@@ -1406,6 +1453,8 @@ function printHelp(cmd) {
       ['--help, -h', 'show this help, or the help for a command'],
       ['--version, -v', 'print the version'],
     ]).join('\n'));
+    console.log(`\n${ui.bold('Home')} ${ui.dim('— corpus, your own modules, and the record of what was placed')}`);
+    console.log(`  ${ui.cyan(pad(homePath(DOTAGENTS_HOME()), 14))}  ${ui.dim(process.env.DOTAGENTS_HOME ? 'from DOTAGENTS_HOME' : 'set DOTAGENTS_HOME to move it')}`);
     console.log(`\n${ui.dim('Deployments are plain copies — edit rules in the corpus, deliver with update.')}`);
     console.log(`\n${ui.dim(`Run \`agents-setup <command> --help\` for what a single command does.`)}`);
     return;
@@ -1437,6 +1486,7 @@ async function main() {
   if (!COMMANDS.has(cmd)) {
     throw new Error(`unknown command: ${cmd}\n       Run \`agents-setup --help\` to see what is available.`);
   }
+  migrateStateDir();
   // clone はどこからでも実行できる。それ以外は編集可能な正本からだけ —
   // 正本の外(npx キャッシュ等)では既知の正本へ委譲するか、clone への案内で止まる。
   if (cmd !== 'clone' && !isCorpus()) return delegateToCorpus(process.argv.slice(2));

@@ -39,13 +39,14 @@ function makeUpstream() {
   return { dir, git, commit };
 }
 
-test('clone: 取得先は明示か対話のみ、--from の上流から編集可能な git リポジトリを作る', () => {
+test('clone: 既定は本拠地の corpus/、名指しもでき、--from の上流から編集可能な git リポジトリを作る', () => {
   const { dir: upstream } = makeUpstream();
   const dest = path.join(tmp('dotagents-clone-'), 'corpus');
 
-  const noDir = run(CLI, ['clone', '--from', upstream]);
-  assert.equal(noDir.code, 1, '非対話で取得先の省略は止まる');
-  assert.match(noDir.out, /no directory given/);
+  const home = tmp('dotagents-home-');
+  const dflt = run(CLI, ['clone', '--from', upstream], { env: { DOTAGENTS_HOME: home } });
+  assert.equal(dflt.code, 0, dflt.out);
+  assert.ok(fs.existsSync(path.join(home, 'corpus', '.git')), '本拠地の corpus/ に入る');
 
   const ok = run(CLI, ['clone', dest, '--from', upstream]);
   assert.equal(ok.code, 0, ok.out);

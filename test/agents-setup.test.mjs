@@ -13,7 +13,7 @@ const CLI = path.join(REPO, 'bin', 'agents-setup');
 function run(home, args, opts = {}) {
   try {
     const out = execFileSync(process.execPath, [opts.cli ?? CLI, ...args], {
-      env: { ...process.env, HOME: home },
+      env: { ...process.env, HOME: home, ...opts.env },
       cwd: opts.cwd,
       encoding: 'utf8',
     });
@@ -45,15 +45,19 @@ function makeCorpus() {
   fs.cpSync(path.join(REPO, 'modules', 'harness'), path.join(dir, 'modules', 'harness'), { recursive: true });
   const demo = path.join(dir, 'modules', 'demo');
   fs.mkdirSync(path.join(demo, 'skills', 'demo-skill'), { recursive: true });
-  fs.writeFileSync(path.join(demo, 'MODULE.md'),
-    '---\nname: demo\ndescription: 試験用の module\nrequires: definitely-not-a-real-command\n---\n');
+  fs.writeFileSync(path.join(demo, 'module.json'), JSON.stringify({
+    description: '試験用の module',
+    requires: ['definitely-not-a-real-command'],
+  }, null, 2) + '\n');
   fs.writeFileSync(path.join(demo, 'skills', 'demo-skill', 'SKILL.md'), '---\ndescription: demo\n---\n\n# demo\n');
   return { dir, cli: path.join(dir, 'bin', 'agents-setup') };
 }
 
 const read = (p) => fs.readFileSync(p, 'utf8');
 const sha = (p) => 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
-const stateDir = (home) => path.join(home, '.dotagents');
+const agentsHome = (home) => path.join(home, '.dotagents');
+const stateDir = (home) => path.join(agentsHome(home), 'state');
+const personalModules = (home) => path.join(agentsHome(home), 'modules');
 const userManifest = (home) => JSON.parse(read(path.join(stateDir(home), 'user.json')));
 
 function projectManifest(home, proj) {
@@ -100,10 +104,10 @@ test('fresh install(-g): Claude へは plugin 1 つ、Codex へは素のコピ�
   assert.ok(!fs.existsSync(path.join(home, '.claude/settings.json')), 'settings.json を触らない');
   assert.ok(!fs.existsSync(path.join(home, PLUGIN, 'README.md')), '解説(README)は配備しない');
   assert.ok(!fs.existsSync(path.join(home, PLUGIN, 'docs')), '解説の翻訳も配備しない');
-  assert.ok(!fs.existsSync(path.join(home, PLUGIN, 'MODULE.md')), 'module の目録も配備しない');
+  assert.ok(!fs.existsSync(path.join(home, PLUGIN, 'module.json')), 'module の目録も配備しない');
 
   const m = userManifest(home);
-  assert.equal(m.kind, 'user', 'manifest は ~/.dotagents/user.json');
+  assert.equal(m.kind, 'user', 'manifest は ~/.dotagents/state/user.json');
   assert.deepEqual(m.modules, ['harness'], '選んだ module を憶える');
   assert.ok(!fs.existsSync(path.join(home, '.claude/.dotagents.json')), '配備先に manifest を残さない');
 
@@ -174,7 +178,7 @@ test('外科的 uninstall: 自前スキルとユーザーの設定に触れず�
   assert.equal(read(path.join(home, '.zshenv')), 'export MY_VAR=1\n', 'zshenv は原状のまま');
   assert.deepEqual(JSON.parse(read(path.join(home, '.claude/settings.json'))), userSettings, 'settings は原状のまま');
   assert.ok(fs.existsSync(path.join(home, '.codex')), '既存の .codex は空になっても残る');
-  assert.ok(!fs.existsSync(stateDir(home)), '記録が尽きたら ~/.dotagents も残さない');
+  assert.ok(!fs.existsSync(stateDir(home)), '記録が尽きたら state も残さない');
 });
 
 test('外科的 uninstall: 改変された配布ファイルは残す', () => {
@@ -221,7 +225,7 @@ test('uninstall は減算: 名前を挙げた module だけが消え、残りは
   assert.match(r.out, /not installed here: demo/);
 });
 
-test('正本から消えた module: update が記録から落として刈り、残りは配られたまま', () => {
+test('供給元から消えた module: update が記録から落として刈り、残りは配られたまま', () => {
   const home = freshHome();
   const { dir, cli } = makeCorpus();
   run(home, ['install', 'harness', 'demo', '-g'], { cli });
@@ -230,7 +234,7 @@ test('正本から消えた module: update が記録から落として刈り、�
 
   const st = run(home, ['status', '-g'], { cli, allowFail: true });
   assert.equal(st.code, 1, '消えた module は乖離');
-  assert.match(st.out, /module demo — gone from the corpus/);
+  assert.match(st.out, /module demo — no longer available/);
   assert.match(st.out, /skills\/demo-skill\/SKILL\.md — no longer delivered/, '消えた module のファイルだけを名指しする');
   assert.doesNotMatch(st.out, /skills\/prompting\/SKILL\.md — no longer delivered/, '無事な module のファイルを巻き込まない');
 
@@ -254,6 +258,60 @@ test('list: 正本が提供する module と、要る外部コマンドの有無
   const r = run(home, ['install', 'demo', '-g'], { cli });
   assert.equal(r.code, 0, '依存の不在は配備を止めない');
   assert.match(r.out, /expects definitely-not-a-real-command/, '不在は伝える');
+});
+
+// ---------------------------------------------------------------- 本拠地
+
+test('私的な module: ~/.dotagents/modules/ の物も同じように配られ、正本と混ぜられる', () => {
+  const home = freshHome();
+  const mine = path.join(personalModules(home), 'mine');
+  fs.mkdirSync(path.join(mine, 'skills', 'mine-skill'), { recursive: true });
+  fs.writeFileSync(path.join(mine, 'module.json'), JSON.stringify({ description: '私的な module' }) + '\n');
+  fs.writeFileSync(path.join(mine, 'skills', 'mine-skill', 'SKILL.md'), '---\ndescription: mine\n---\n\n# mine\n');
+
+  const listed = run(home, ['list']);
+  assert.match(listed.out, /personal/, '出典を分けて示す');
+  assert.match(listed.out, /^  mine/m);
+
+  run(home, ['install', 'harness', 'mine', '-g']);
+  assert.ok(fs.existsSync(path.join(home, PLUGIN, 'skills/mine-skill/SKILL.md')), '私的 module も配られる');
+  assert.ok(fs.existsSync(path.join(home, PLUGIN, 'skills/prompting/SKILL.md')), '正本の module と混ざる');
+  assert.match(run(home, ['status', '-g']).out, /no drift/);
+});
+
+test('名前の衝突: 同じ名前が正本と私的の両方にあれば、黙って選ばずに止まる', () => {
+  const home = freshHome();
+  const dup = path.join(personalModules(home), 'harness');
+  fs.mkdirSync(dup, { recursive: true });
+  fs.writeFileSync(path.join(dup, 'module.json'), JSON.stringify({ description: 'ぶつかる' }) + '\n');
+
+  const r = run(home, ['list'], { allowFail: true });
+  assert.equal(r.code, 1);
+  assert.match(r.out, /two modules are named harness/);
+  assert.ok(!fs.existsSync(stateDir(home)), '止まった以上、何も書いていない');
+});
+
+test('DOTAGENTS_HOME: 本拠地ごと移せる', () => {
+  const home = freshHome();
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-elsewhere-'));
+  run(home, ['install', 'harness', '-g'], { env: { DOTAGENTS_HOME: elsewhere } });
+
+  assert.ok(fs.existsSync(path.join(elsewhere, 'state', 'user.json')), '記録は指定した本拠地に置かれる');
+  assert.ok(!fs.existsSync(agentsHome(home)), '既定の場所には何も作らない');
+  assert.match(run(home, ['status', '-g'], { env: { DOTAGENTS_HOME: elsewhere } }).out, /no drift/);
+});
+
+test('記録の移行: 本拠地の直下にあった manifest は state/ へ引き取られる', () => {
+  const home = freshHome();
+  run(home, ['install', 'harness', '-g']);
+  // 旧世代は本拠地の直下に置いていた
+  fs.renameSync(path.join(stateDir(home), 'user.json'), path.join(agentsHome(home), 'user.json'));
+  fs.rmSync(stateDir(home), { recursive: true, force: true });
+
+  const { out } = run(home, ['status', '-g']);
+  assert.match(out, /no drift/, '移行して読めるようになる');
+  assert.ok(fs.existsSync(path.join(stateDir(home), 'user.json')), 'state/ へ移る');
+  assert.ok(!fs.existsSync(path.join(agentsHome(home), 'user.json')), '古い位置には残らない');
 });
 
 // ---------------------------------------------------------------- 旧レイアウトの移行
@@ -428,7 +486,7 @@ test('project install(既定): プロジェクトの .claude/ に入り、マシ
   assert.ok(!fs.existsSync(path.join(proj, 'AGENTS.md')), 'root AGENTS.md が無いプロジェクトには作らない');
 
   const status = execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: proj, encoding: 'utf8' });
-  assert.ok(!status.includes('dotagents.json'), 'manifest はプロジェクトに現れない(~/.dotagents に置く)');
+  assert.ok(!status.includes('dotagents.json'), 'manifest はプロジェクトに現れない(本拠地に置く)');
   assert.ok(status.split('\n').filter(Boolean).every((l) => l.includes('.claude/')), '増えるのは .claude/ 配下だけ');
   assert.equal(projectManifest(home, proj).kind, 'project');
   assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'user レベルには何も敷かない');
