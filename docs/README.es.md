@@ -1,112 +1,90 @@
 # dotagents
 
-**Un gestor de paquetes para las reglas que siguen tus agentes de IA.** Módulos de prompts, skills y agentes de revisión para Claude Code y Codex — versionados como un único corpus, instalados en los proyectos que tú elijas.
+**Un gestor de paquetes para las reglas que siguen tus agentes de IA.** Skills, agentes de revisión y hooks — empaquetados como módulos, instalados en los proyectos que tú elijas.
 
 [English](../README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | Español | [Français](README.fr.md)
 
 [![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-- **Un corpus, muchos despliegues.** Cada regla vive en un único repositorio git, dividido en módulos que instalas por proyecto o por máquina. El instalador escribe directamente en los directorios que leen Claude Code y Codex — archivos simples, sin symlinks, sin árbol intermedio.
-- **Un libro de reglas, no una biblioteca.** Editas las reglas, las confirmas (commit) y sigues el upstream solo cuando tú lo decides — nada cambia a tus espaldas.
-- **Escrito para modelos que juzgan.** El corpus registra solo lo que un modelo capaz no puede derivar — tus convenciones, tus anclas de requisitos, tus fronteras de roles. Todo lo demás se deja al juicio del modelo. El razonamiento vive en [El arnés incluido](../modules/harness/docs/README.es.md).
+- **El módulo es la unidad.** Un directorio declara lo que necesita, lleva consigo lo que entrega y explica por qué existe. Instálalo en un proyecto o en una máquina entera; retíralo con la misma limpieza.
+- **Los agentes leen el resultado de forma nativa.** Sin runtime, sin demonio, nada conectado a tu shell — el instalador escribe archivos simples donde cada agente ya mira, y se aparta del camino.
+- **Un conjunto de reglas, muchos agentes.** El mismo módulo llega a Claude Code y a Codex, a cada uno en la forma que ese agente entiende.
 
-## Cómo funciona
-
-Un corpus alimenta cada entorno. Los despliegues son copias simples — las sesiones nunca dependen de que el corpus sea accesible, y nada se despliega a tus espaldas:
-
-```mermaid
-flowchart LR
-    UP["upstream<br>github.com/hiroiku/dotagents"]
-    C["tu corpus<br>~/dotagents — un repo git que editas"]
-    A["despliegues<br>~/.claude + ~/.codex · .claude/ por proyecto"]
-    S["sesiones<br>Claude Code · Codex"]
-    UP -->|"clone · una vez"| C
-    UP -->|"pull · cuando tú eliges"| C
-    C -->|"install · update — copias simples"| A
-    A -->|"lectura nativa"| S
-```
-
-## Inicio rápido
-
-**1 · Consigue tu corpus** (requiere git y Node.js ≥ 18)
+## Instalar un módulo
 
 ```sh
-npx @hiroiku/dotagents clone ~/dotagents
-```
+npx @hiroiku/dotagents clone      # una vez — en ~/.dotagents/corpus, un repo git que posees
+cd ~/.dotagents/corpus
 
-Un simple `git clone`, y es tuyo: edita las reglas, confírmalas, personalízalo.
-
-**2 · Instala lo que quieras, donde lo quieras**
-
-```sh
-cd ~/dotagents
-bin/agents-setup list                     # lo que ofrece este corpus
+bin/agents-setup list                     # lo que puedes instalar
 bin/agents-setup install harness          # en el proyecto actual
 bin/agents-setup install harness -g       # para todos los proyectos de esta máquina
 bin/agents-setup install harness -C ~/x   # en un proyecto concreto
 ```
 
-El destino por defecto es este proyecto — el menor radio de impacto. El alcance más amplio siempre requiere un flag. Lo que entra nunca tiene valor por defecto: nombra un módulo o elígelo de forma interactiva; un shell no interactivo se detiene en lugar de elegir por ti.
+El destino por defecto es este proyecto — el menor radio de impacto — y el alcance más amplio siempre requiere un flag. Lo que entra nunca tiene valor por defecto: nombra un módulo o elígelo de forma interactiva. Un shell no interactivo se detiene en lugar de elegir por ti.
 
-**3 · Opera**
+## Qué es un módulo
+
+Un directorio con un `module.json`. Todo lo demás es opcional, y cada tipo tiene un único destino:
+
+```
+modules/<name>/
+├── module.json    qué es, y qué espera en el PATH
+├── README.md      por qué existe — para personas, nunca se despliega
+├── AGENTS.md      reglas inyectadas en cada sesión
+├── skills/        reglas que se leen solo cuando llega su momento
+├── agents/        roles de subagente, con su propio contexto y herramientas
+└── hooks/         manejadores de eventos que se ejecutan mientras el agente trabaja
+```
+
+| Tipo | Claude Code | Codex |
+|---|---|---|
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **un único directorio de plugin**, cargado sin marketplace y sin paso de instalación, que pone lo que contiene en el espacio de nombres `/dotagents:*`. Así es como llegan los hooks sin tocar nunca `settings.json` | solo skills, como `.codex/skills/dotagents-*` — Codex no tiene plugins, así que el espacio de nombres se pliega dentro del nombre del directorio |
+| `AGENTS.md` | un bloque gestionado en `.claude/CLAUDE.md` | un bloque gestionado en `AGENTS.md` |
+
+Un módulo puede declarar qué espera en el `PATH`. Los requisitos se **detectan, nunca se instalan**: `list` e `install` informan de lo que falta y no bloquean nada, así que añadir la herramienta más tarde no requiere reinstalar.
+
+[modules/](../modules/) es la definición canónica de la distribución — el instalador no mantiene ninguna lista de los archivos, así que nada se pudre por quedar desincronizado. Los dos módulos que hay aquí son los que ofrece este corpus, no un conjunto que debas tomar entero: [harness](../modules/harness/docs/README.es.md) lleva agentes de revisión y las convenciones que un modelo no puede adivinar; [architecture](../modules/architecture/docs/README.es.md), una regla de dependencias que es acertada para unos proyectos y no para otros.
+
+Tus propios módulos van en `~/.dotagents/modules/`. Se instalan con los mismos comandos y se quedan en tu máquina — nunca en un repositorio, nunca en un paquete publicado. `list` muestra ambas fuentes; un nombre reclamado dos veces es un error, no una sobrescritura silenciosa.
+
+## Dónde vive
+
+```
+~/.dotagents/         todo lo que guarda esta herramienta, en un solo lugar
+├── corpus/           el clon que editas y del que haces pull
+├── modules/          tus propios módulos
+└── state/            el registro de qué se colocó y dónde
+```
+
+`DOTAGENTS_HOME` mueve el conjunto entero; no hay que avisar a nada más. Una única raíz, y todas las rutas derivan de ella — `status` y `--help` imprimen la que está en vigor, así que una máquina nunca esconde de dónde vinieron sus reglas.
+
+## Comandos
 
 ```sh
-bin/agents-setup pull                 # seguir el upstream: registro de cambios → rebase → pruebas
-bin/agents-setup update               # resincronizar este proyecto (usa los módulos que recuerda)
-bin/agents-setup status               # verificar archivos y bloques de reglas — exit 1 si hay deriva
-bin/agents-setup uninstall <module>   # quitar un módulo, conservar el resto
+bin/agents-setup pull                 # seguir el upstream: muestra lo que viene, hace rebase de tus commits, ejecuta las pruebas
+bin/agents-setup update               # volver a entregar aquí — sin argumentos, recuerda qué módulos elegiste
+bin/agents-setup uninstall <module>   # quitar un módulo, conservar el resto; sin nombrar ninguno, elimina todo
+bin/agents-setup status               # verificar cada archivo entregado — exit 1 si hay deriva
 bin/agents-setup --help               # todos los comandos, opciones, ejemplos
 ```
 
-## Dos objetos, dos vocabularios
+`install` es aditivo y `uninstall`, sustractivo, así que el conjunto de módulos de un despliegue se construye y se desmonta módulo a módulo. `pull` es el único comando que cambia los módulos mismos, y nunca toca un despliegue: lo que traes con `pull` son los textos que gobiernan tus agentes, así que muestra los títulos de los commits entrantes antes de integrarlos, y nada se actualiza automáticamente.
 
-Los comandos actúan sobre una de dos cosas, y cada uno toma prestado el vocabulario que ya conoces:
+## Qué toca el instalador y qué no
 
-| Objeto | Vocabulario | Comandos |
-|---|---|---|
-| **El corpus** — el repositorio git de reglas que posees | git | `clone` · `pull` · `list` |
-| **Los despliegues** — lo que una herramienta lee de verdad | gestor de paquetes | `install` · `update` · `uninstall` · `status` |
-
-Tres reglas los conectan:
-
-- **No se despliega desde algo desechable.** Fuera de un corpus (una caché de npx, un tarball descomprimido) los comandos de despliegue delegan en el corpus que tu máquina ya conoce — o se detienen y señalan `clone`.
-- **Seguir es deliberado.** Lo que haces pull son los textos que gobiernan tus agentes, así que `pull` muestra primero los títulos de los commits entrantes — escritos en lenguaje de dominio, se leen como un registro de cambios — y luego hace rebase y ejecuta las pruebas. Nada se actualiza automáticamente.
-- **Las elecciones se recuerdan, no se vuelven a teclear.** El manifest registra qué módulos contiene un despliegue, así que `update` no necesita argumentos. `install` es aditivo; `uninstall`, sustractivo.
-
-## Dónde aterriza cada cosa
-
-| Pieza | Destino | Entrega |
-|---|---|---|
-| Skills · agentes de revisión · hooks | `.claude/skills/dotagents/` | **un único directorio de plugin**. Claude Code carga un plugin que encuentre ahí sin marketplace y sin paso de instalación, poniendo lo que contiene en el espacio de nombres `/dotagents:*` — que es como llegan los hooks sin tocar nunca `settings.json` |
-| Skills (Codex) | `.codex/skills/dotagents-*` | copias simples. Codex no tiene plugins, así que el espacio de nombres se pliega dentro del nombre del directorio |
-| Regla ubicua (`AGENTS.md`) | `.claude/CLAUDE.md` · `~/.codex/AGENTS.md` · el `AGENTS.md` en la raíz de un proyecto | un bloque gestionado entre marcadores — lo que tú escribiste alrededor nunca se toca, y `uninstall` restaura el archivo |
-| Registro local de la máquina (manifest) | `~/.dotagents/` | nunca aterriza en un proyecto — el libro mayor de hashes de lo que el instalador colocó, y de qué módulos elegiste, vive con la máquina |
-
-Todo es idempotente y de **posesión por hash**: el instalador solo toca lo que él colocó y aún reconoce. Tus propios skills nunca se tocan, los archivos que editaste en su lugar se conservan y se informan (`--force` para sobrescribir), y `uninstall` elimina exactamente lo que el manifest registra — nada más. Las estructuras dejadas por versiones anteriores (un árbol `.agents`, symlinks, una línea en zshenv, fragmentos de settings o copias simples fuera del espacio de nombres) se detectan y se migran en `install` / `update`.
+Todo es idempotente y de **posesión por hash**: el instalador solo toca lo que él colocó y aún reconoce. Tus propios skills nunca se tocan, los archivos que editaste in situ se conservan y se informan (`--force` para sobrescribir), y `uninstall` elimina exactamente lo que el registro dice que colocó — nada más. Ese registro vive en `~/.dotagents/state/`, nunca en un proyecto.
 
 Los plugins de alcance de proyecto solo se cargan cuando Claude Code arranca en la raíz del repositorio, y solo después de que aceptes el diálogo de confianza del workspace. Los cambios en agentes y hooks surten efecto en la sesión siguiente o tras `/reload-plugins`; las ediciones de un `SKILL.md` se recogen de inmediato.
 
 ## Estructura
 
 ```
-bin/agents-setup      CLI del instalador (clone / pull / list / install / update / uninstall / status)
-test/                 pruebas de contrato para el instalador (npm test)
-modules/              la única definición de lo que se puede distribuir
-├── harness/          el módulo incluido — sin dependencias externas
-│   ├── MODULE.md     nombre, descripción, qué espera en PATH
-│   ├── AGENTS.md     la única regla ubicua — entregada como un bloque gestionado
-│   ├── skills/       reglas momentáneas (leídas solo cuando llega su momento)
-│   ├── agents/       roles de revisión (adversarial · seguridad · accesibilidad)
-│   ├── README.md     el arnés incluido — qué se entrega, y por qué dice tan poco
-│   └── docs/         traducciones de esa guía (documentación; no se despliega)
-└── beads/            un módulo opcional — requiere bd en el PATH
+bin/agents-setup      la CLI (clone / pull / list / install / update / uninstall / status)
+test/                 pruebas de contrato del instalador (npm test)
+modules/              los módulos que ofrece este corpus
+├── harness/          agentes de revisión, convenciones de git · testing · prompting
+└── architecture/     una regla de dependencias que impone la compilación
 ```
-
-[modules/](../modules/) es la definición canónica de la distribución: un directorio con un `MODULE.md` es un módulo, sus tipos de primer nivel deciden dónde aterrizan las cosas, y el instalador no mantiene ninguna lista de los archivos — las listas replicadas se pudren en silencio, así que [package.json](../package.json) `files` solo nombra `bin` y `modules`. Escribe tu propio módulo junto al incluido y se instala igual.
-
-Un módulo puede declarar qué espera en el `PATH`. Los requisitos se **detectan, nunca se instalan**: `list` e `install` informan de lo que falta y no bloquean nada, así que añadir la herramienta más tarde no requiere reinstalar.
-
-## Actualizar los prompts
-
-El corpus lleva consigo su propia disciplina de edición: el skill [prompting](../modules/harness/skills/prompting/SKILL.md) nombra las guías de ingeniería de contexto que hay que leer antes de tocar cualquier prompt o definición de agente. Edita solo en este repositorio y entrega con `agents-setup update` — editar un árbol instalado directamente hace que `update` proteja el archivo y avise, lo cual es la detección de deriva funcionando.
