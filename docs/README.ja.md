@@ -7,7 +7,7 @@
 [![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-- **正本は 1 つ、配備先は複数。** プロンプト・スキル・エージェントの役割は、1 つの git リポジトリに同居する。installer がそれを `~/.agents` や `<project>/.agents` にコピーし、Claude Code と Codex が読む symlink を配線する。
+- **正本は 1 つ、配備先は複数。** プロンプト・スキル・エージェントの役割は、1 つの git リポジトリに同居する。installer がそれを Claude Code と Codex が読むディレクトリ(`.claude/`、`.codex/`)へそのままコピーする — 素のファイルであり、symlink も中間ツリーも無い。
 - **ライブラリではなく、規則集。** 規則は自分で編集してコミットし、上流に追従するのも選んだときだけ — 背後で勝手に変わることはない。
 - **判断するモデルのために書かれている。** 正本に記録するのは、有能なモデルが導出できない物だけ — 自分の慣習、要件のアンカー、役割の境界。それ以外はすべてモデルの判断に委ねる。理由は [同梱ハーネス](../payload/docs/README.ja.md) にある。
 
@@ -19,12 +19,12 @@
 flowchart LR
     UP["上流<br>github.com/hiroiku/dotagents"]
     C["正本<br>~/dotagents — 自分が編集する git リポジトリ"]
-    A["配備先<br>~/.agents · 各プロジェクトの .agents"]
+    A["配備先<br>~/.claude + ~/.codex · 各プロジェクトの .claude/"]
     S["セッション<br>Claude Code · Codex"]
     UP -->|"clone · 初回のみ"| C
     UP -->|"pull · 選んだときだけ"| C
-    C -->|"install · update"| A
-    A -->|"symlink"| S
+    C -->|"install · update — 単なるコピー"| A
+    A -->|"そのまま読む"| S
 ```
 
 ## クイックスタート
@@ -41,8 +41,8 @@ npx @hiroiku/dotagents clone ~/dotagents
 
 ```sh
 cd ~/dotagents
-bin/agents-setup install project /path/to/project   # プロジェクト単体   → <dir>/.agents
-bin/agents-setup install user                       # このマシン        → ~/.agents
+bin/agents-setup install project /path/to/project   # プロジェクト単体   → <dir>/.claude + <dir>/.codex
+bin/agents-setup install user                       # このマシン        → ~/.claude + ~/.codex
 ```
 
 対象を省略すると対話で選ぶ。非対話シェルでは、対象を省略すると何も書き込まずに停止する — 既定値が規則の行き先を決めることは無い。
@@ -52,7 +52,7 @@ bin/agents-setup install user                       # このマシン        →
 ```sh
 bin/agents-setup pull                 # 上流に追従: changelog → rebase → テスト
 bin/agents-setup update  project ...  # 配備を再同期する
-bin/agents-setup status  project ...  # ファイルとリンクを検査 — 乖離があれば exit 1
+bin/agents-setup status  project ...  # ファイルと規則ブロックを検査 — 乖離があれば exit 1
 bin/agents-setup --help               # 全コマンド・対象・オプション・例
 ```
 
@@ -62,7 +62,7 @@ bin/agents-setup --help               # 全コマンド・対象・オプショ�
 | ------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------ |
 | **clone(取得)**           | 初回のみ                     | 正本を、自分が所有する git リポジトリとして実体化する                                                  |
 | **pull(追従)**            | 選んだときだけ               | 上流を取得し、入ってくるコミットタイトルを見せ、自分のコミットを rebase で乗せ、正本のテストを走らせる |
-| **install・update(配備)** | マシンごと・プロジェクトごと | 正本を `.agents/` にコピーし、リンクを配線する                                                         |
+| **install・update(配備)** | マシンごと・プロジェクトごと | payload を、ツールが読むディレクトリへコピーする                                                       |
 
 3 つの規則がこれらをつなぐ:
 
@@ -72,28 +72,29 @@ bin/agents-setup --help               # 全コマンド・対象・オプショ�
 
 ## 何がどこに届くか
 
-| 物                           | 届く先              | 届け方                                                                                             |
-| ---------------------------- | ------------------- | -------------------------------------------------------------------------------------------------- |
-| 遍在則(`AGENTS.md`)          | `.agents/AGENTS.md` | symlink `.claude/CLAUDE.md → .agents/AGENTS.md`。Codex にも `.codex/` の下に同じ形で届く           |
-| スキル                       | `.agents/skills/`   | スキル 1 件ごとに `.claude/skills/` と `.codex/skills/` へリンクし、自分で書いたスキルと同居させる |
-| レビューエージェント         | `.agents/agents/`   | エージェント 1 件ごとに `.claude/agents/` へリンクする                                             |
-| マシン固有の生成物(manifest) | `.agents/`          | payload に同梱される `.gitignore` が版管理から外す                                                 |
+| 物                         | 届く先                                                                      | 届け方                                                                                                      |
+| -------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 遍在則(`AGENTS.md`)        | `.claude/CLAUDE.md` · `~/.codex/AGENTS.md` · プロジェクト直下の `AGENTS.md` | マーカーに挟まれた管理ブロック — その周囲に自分が書いた物には決して触れず、`uninstall` はファイルを復元する |
+| スキル                     | `.claude/skills/` と `.codex/skills/`                                       | 単なるコピー。スキル 1 件ごとに 1 ディレクトリで、自分で書いたスキルと同居する                              |
+| レビューエージェント       | `.claude/agents/`                                                           | 単なるコピー。エージェント 1 件ごとに 1 ファイル                                                            |
+| マシン固有の記録(manifest) | `~/.dotagents/`                                                             | プロジェクトには決して届かない — installer が置いた物のハッシュ台帳はマシンと共にある                       |
 
-すべて冪等で**ハッシュ所有**である: installer が触れるのは、自分が置いて今も認識できる物だけ。自分で書いたスキルには一切触れず、配備先で改変したファイルは残して報告し(`--force` で上書き)、`uninstall` が除去するのは manifest に記録された物だけ — それ以外には触れない。
+すべて冪等で**ハッシュ所有**である: installer が触れるのは、自分が置いて今も認識できる物だけ。自分で書いたスキルには一切触れず、配備先で改変したファイルは残して報告し(`--force` で上書き)、`uninstall` が除去するのは manifest に記録された物だけ — それ以外には触れない。旧バージョンが残した従来の `.agents` 配置(symlink、zshenv の行、settings の断片)は、`install` / `update` の際に検出され、自動的に移行される。
 
 ## 構成
 
 ```
 bin/agents-setup      installer CLI(clone / pull / install / update / uninstall / status)
 test/                 installer の契約テスト(npm test)
-payload/              配布物の唯一の定義。この木がそのまま .agents/ になる
-├── README.md         同梱ハーネス — 何を積んでいるか、なぜこれだけしか書いていないか
-├── AGENTS.md         唯一の遍在則(全セッションが常時読む)
+payload/              配布物の唯一の定義
+├── AGENTS.md         唯一の遍在則 — 管理ブロックとして届く
 ├── skills/           瞬間則(その瞬間が来たときだけ読む)
-└── agents/           レビューの役割(敵対的 · セキュリティ · アクセシビリティ)
+├── agents/           レビューの役割(敵対的 · セキュリティ · アクセシビリティ)
+├── README.md         同梱ハーネス — 何を積んでいるか、なぜこれだけしか書いていないか
+└── docs/             そのガイドの翻訳(ドキュメントであり、配備されない)
 ```
 
-[payload/](../payload/) が配布物の正本の定義であり、installer 側に配布物の列挙は存在しない — 列挙の複製は黙って古くなるため、[package.json](../package.json) の `files` が挙げるのは `bin` と `payload` の 2 項のみ。payload が何を積んでいるかは [同梱ハーネス](../payload/docs/README.ja.md) が説明し、その説明はすべての配備と共に運ばれる。
+[payload/](../payload/) が配布物の正本の定義である: その最上位の種別が物の届く先を決め、installer 側にファイルの列挙は存在しない — 列挙の複製は黙って古くなるため、[package.json](../package.json) の `files` が挙げるのは `bin` と `payload` の 2 項のみ。payload が何を積んでいるかは [同梱ハーネス](../payload/docs/README.ja.md) が説明する。
 
 ## プロンプトの更新
 

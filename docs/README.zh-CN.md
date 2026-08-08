@@ -7,7 +7,7 @@
 [![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-- **一份文库,多处部署。** 提示词、技能与代理角色存放在同一个 git 仓库中。安装程序会将它们复制到 `~/.agents` 或 `<project>/.agents`,并接通 Claude Code 与 Codex 所读取的符号链接。
+- **一份文库,多处部署。** 提示词、技能与代理角色存放在同一个 git 仓库中。安装程序会将它们直接复制进 Claude Code 与 Codex 所读取的目录(`.claude/`、`.codex/`)——纯粹的文件,没有符号链接,也没有中间目录树。
 - **是一部规则手册,不是一个库。** 你编辑规则、提交规则,只在自己选择时才跟随上游——不存在任何背着你发生的改动。
 - **为会做判断的模型而写。** 文库只记录一个有能力的模型无法自行派生的内容——你的约定、你的需求锚点、你的角色边界。其余一切都交给模型自己的判断。相关推理见[随附的框架](../payload/docs/README.zh-CN.md)。
 
@@ -19,12 +19,12 @@
 flowchart LR
     UP["上游<br>github.com/hiroiku/dotagents"]
     C["你的文库<br>~/dotagents — 一个你编辑的 git 仓库"]
-    A["部署<br>~/.agents · 各项目的 .agents"]
+    A["部署<br>~/.claude + ~/.codex · 各项目的 .claude/"]
     S["会话<br>Claude Code · Codex"]
     UP -->|"clone · 一次性"| C
     UP -->|"pull · 由你决定"| C
-    C -->|"install · update"| A
-    A -->|"符号链接"| S
+    C -->|"install · update — 纯粹的复制"| A
+    A -->|"原生读取"| S
 ```
 
 ## 快速开始
@@ -41,8 +41,8 @@ npx @hiroiku/dotagents clone ~/dotagents
 
 ```sh
 cd ~/dotagents
-bin/agents-setup install project /path/to/project   # 单个项目   → <dir>/.agents
-bin/agents-setup install user                       # 本机       → ~/.agents
+bin/agents-setup install project /path/to/project   # 单个项目   → <dir>/.claude + <dir>/.codex
+bin/agents-setup install user                       # 本机       → ~/.claude + ~/.codex
 ```
 
 省略目标以进入交互式选择。在非交互式 shell 中,省略目标会直接停止且不写入任何内容——不存在由默认值决定规则落地位置这回事。
@@ -52,7 +52,7 @@ bin/agents-setup install user                       # 本机       → ~/.agents
 ```sh
 bin/agents-setup pull                 # 跟随上游:变更日志 → 变基 → 测试
 bin/agents-setup update  project ...  # 重新同步一次部署
-bin/agents-setup status  project ...  # 校验文件与链接——存在漂移时以退出码 1 报告
+bin/agents-setup status  project ...  # 校验文件与规则块——存在漂移时以退出码 1 报告
 bin/agents-setup --help               # 全部命令、目标、选项、示例
 ```
 
@@ -62,7 +62,7 @@ bin/agents-setup --help               # 全部命令、目标、选项、示例
 |---|---|---|
 | **clone** | 一次性 | 把文库具象化为一个你拥有的 git 仓库 |
 | **pull** | 由你决定 | 拉取上游、展示传入的提交标题、把你的提交变基到其上、运行文库测试 |
-| **install · update** | 每台机器、每个项目 | 把文库复制进 `.agents/`,并接通链接 |
+| **install · update** | 每台机器、每个项目 | 把 payload 复制进各工具所读取的目录 |
 
 三条规则将它们连接在一起:
 
@@ -74,26 +74,27 @@ bin/agents-setup --help               # 全部命令、目标、选项、示例
 
 | 内容 | 落地位置 | 交付方式 |
 |---|---|---|
-| 普遍规则(`AGENTS.md`) | `.agents/AGENTS.md` | 符号链接 `.claude/CLAUDE.md → .agents/AGENTS.md`;Codex 在 `.codex/` 下获得相同结构 |
-| 技能 | `.agents/skills/` | 每个技能各建一条链接,接入 `.claude/skills/` 与 `.codex/skills/`,以便与你自己撰写的技能共存 |
-| 审查代理 | `.agents/agents/` | 每个代理各建一条链接,接入 `.claude/agents/` |
-| 机器本地产物(manifest) | `.agents/` | 由随 payload 一同分发的 `.gitignore` 排除在版本控制之外 |
+| 普遍规则(`AGENTS.md`) | `.claude/CLAUDE.md` · `~/.codex/AGENTS.md` · 项目根目录的 `AGENTS.md` | 位于标记之间的受管块——你写在其周围的任何内容绝不会被触碰,`uninstall` 会将文件复原 |
+| 技能 | `.claude/skills/` 与 `.codex/skills/` | 纯粹的复制,每个技能一个目录,与你自己撰写的技能共存 |
+| 审查代理 | `.claude/agents/` | 纯粹的复制,每个代理一个文件 |
+| 机器本地记录(manifest) | `~/.dotagents/` | 从不落入项目——记录安装程序放置了什么的哈希台账随机器保存 |
 
-一切都是幂等且**由哈希所有**的:安装程序只会触及自己放置且仍然识别的内容。你自己的技能永远不会被触碰,你就地编辑过的文件会被保留并报告(可用 `--force` 覆盖),而 `uninstall` 只会移除 manifest 所记录的内容——不多不少。
+一切都是幂等且**由哈希所有**的:安装程序只会触及自己放置且仍然识别的内容。你自己的技能永远不会被触碰,你就地编辑过的文件会被保留并报告(可用 `--force` 覆盖),而 `uninstall` 只会移除 manifest 所记录的内容——不多不少。旧版本遗留的 `.agents` 布局(符号链接、zshenv 行、settings 片段)会在 `install` / `update` 时被检测到并自动迁移。
 
 ## 目录结构
 
 ```
 bin/agents-setup      安装程序 CLI(clone / pull / install / update / uninstall / status)
 test/                 面向安装程序的契约测试(npm test)
-payload/              分发内容的唯一定义;这棵树会成为 .agents/
-├── README.md         随附的框架——分发了什么,以及它为何言之甚少
-├── AGENTS.md         唯一的普遍规则(每次会话始终都会读取)
+payload/              分发内容的唯一定义
+├── AGENTS.md         唯一的普遍规则——以受管块的形式交付
 ├── skills/           瞬时规则(只在其时机到来时才被读取)
-└── agents/           审查角色(对抗式 · 安全 · 无障碍)
+├── agents/           审查角色(对抗式 · 安全 · 无障碍)
+├── README.md         随附的框架——分发了什么,以及它为何言之甚少
+└── docs/             该指南的各语言翻译(属于文档;不参与部署)
 ```
 
-[payload/](../payload/) 是分发内容的权威定义;安装程序自身并不持有其内容的清单——重复维护的清单会无声腐坏,因此 [package.json](../package.json) 的 `files` 字段只列出了 `bin` 与 `payload`。payload 所分发的内容记述于[随附的框架](../payload/docs/README.zh-CN.md),而这份记述会随每一次部署一同抵达。
+[payload/](../payload/) 是分发内容的权威定义:其顶层的各个种类决定了内容落地的位置,而安装程序自身并不持有文件清单——重复维护的清单会无声腐坏,因此 [package.json](../package.json) 的 `files` 字段只列出了 `bin` 与 `payload`。payload 所分发的内容记述于[随附的框架](../payload/docs/README.zh-CN.md)。
 
 ## 更新提示词
 

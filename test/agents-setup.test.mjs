@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -35,26 +36,43 @@ function freshProject(prefix = 'dotagents-proj-') {
 }
 
 const read = (p) => fs.readFileSync(p, 'utf8');
-const agentsDir = (home) => path.join(home, '.agents');
-const manifest = (root) => JSON.parse(read(path.join(root, '.dotagents.json')));
+const sha = (p) => 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+const stateDir = (home) => path.join(home, '.dotagents');
+const userManifest = (home) => JSON.parse(read(path.join(stateDir(home), 'user.json')));
 
-test('fresh install: 配布物とリンクだけが入り、シェル層の配線は張られず、status が乖離なしになる', () => {
+function projectManifest(home, proj) {
+  const dir = path.join(stateDir(home), 'projects');
+  const real = fs.realpathSync(proj);
+  for (const f of fs.readdirSync(dir)) {
+    const m = JSON.parse(read(path.join(dir, f)));
+    if (m.base === real) return m;
+  }
+  return null;
+}
+
+const RULES = read(path.join(REPO, 'payload', 'AGENTS.md')).trim();
+
+test('fresh install(user): 実ファイルのコピーと規則ブロックだけが入り、.agents も symlink も作らない', () => {
   const home = freshHome();
   run(home, ['install', 'user']);
 
-  for (const rel of ['AGENTS.md', 'skills/dotagents-prompting/SKILL.md', '.gitignore']) {
-    assert.ok(fs.existsSync(path.join(agentsDir(home), rel)), `${rel} が配布されている`);
-  }
-  assert.equal(fs.readlinkSync(path.join(home, '.claude/CLAUDE.md')), path.join(agentsDir(home), 'AGENTS.md'));
-  assert.ok(!fs.lstatSync(path.join(home, '.claude/skills')).isSymbolicLink(), 'skills はディレクトリごとリンクしない');
-  assert.ok(fs.lstatSync(path.join(home, '.claude/skills/dotagents-prompting')).isSymbolicLink(), 'スキル単位でリンクする');
-  assert.ok(fs.lstatSync(path.join(home, '.codex/AGENTS.md')).isSymbolicLink(), 'Codex にも AGENTS.md を張る');
-  assert.ok(fs.lstatSync(path.join(home, '.codex/skills/dotagents-prompting')).isSymbolicLink(), 'Codex にもスキルを張る');
+  const skill = path.join(home, '.claude/skills/dotagents-prompting/SKILL.md');
+  assert.ok(fs.existsSync(skill), 'スキルが .claude に実ファイルで入る');
+  assert.ok(!fs.lstatSync(path.join(home, '.claude/skills/dotagents-prompting')).isSymbolicLink(), 'symlink ではない');
+  assert.equal(read(skill), read(path.join(REPO, 'payload/skills/dotagents-prompting/SKILL.md')), '内容は payload と同一');
+  assert.ok(fs.existsSync(path.join(home, '.codex/skills/dotagents-prompting/SKILL.md')), 'Codex にも実ファイルで入る');
+  assert.ok(fs.existsSync(path.join(home, '.claude/agents/dotagents-review.md')), 'エージェント定義が入る');
+  assert.ok(!fs.existsSync(path.join(home, '.codex/agents')), 'Codex にエージェント定義の置き場は無い');
 
-  // payload にフックが無い以上、環境断片はどこにも書かれない
-  assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv は作らない');
-  assert.ok(!fs.existsSync(path.join(home, '.claude/settings.json')), 'settings 断片を書かない');
-  assert.ok(!fs.existsSync(path.join(home, '.codex/hooks.json')), 'codex hooks 断片を書かない');
+  const claudeMd = read(path.join(home, '.claude/CLAUDE.md'));
+  assert.match(claudeMd, /agents-harness:begin/, 'CLAUDE.md に規則ブロックが入る');
+  assert.ok(claudeMd.includes(RULES), 'ブロックの中身は payload/AGENTS.md 全文');
+  assert.ok(read(path.join(home, '.codex/AGENTS.md')).includes(RULES), '.codex/AGENTS.md にも規則ブロックが入る');
+
+  assert.ok(!fs.existsSync(path.join(home, '.agents')), '.agents は作らない');
+  assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv に触れない');
+  assert.equal(userManifest(home).kind, 'user', 'manifest は ~/.dotagents/user.json');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/.dotagents.json')), '配備先に manifest を残さない');
 
   const { out } = run(home, ['status', 'user']);
   assert.match(out, /no drift/);
@@ -63,19 +81,20 @@ test('fresh install: 配布物とリンクだけが入り、シェル層の配�
 test('冪等: 2 回目の install は何も変更しない', () => {
   const home = freshHome();
   run(home, ['install', 'user']);
-  const before = read(path.join(agentsDir(home), '.dotagents.json'));
+  const before = read(path.join(stateDir(home), 'user.json'));
+  const claudeMdBefore = read(path.join(home, '.claude/CLAUDE.md'));
   run(home, ['install', 'user']);
-  const after = JSON.parse(read(path.join(agentsDir(home), '.dotagents.json')));
+  const after = userManifest(home);
   const beforeObj = JSON.parse(before);
   delete after.installedAt; delete beforeObj.installedAt;
   assert.deepEqual(after, beforeObj);
-  assert.ok(!fs.existsSync(path.join(home, '.claude/settings.json')), '2 回目も settings を書かない');
+  assert.equal(read(path.join(home, '.claude/CLAUDE.md')), claudeMdBefore, '規則ブロックも書き直さない');
 });
 
 test('改変保護: ユーザーが編集したファイルは update が触れず警告し、--force でのみ上書きする', () => {
   const home = freshHome();
   run(home, ['install', 'user']);
-  const target = path.join(agentsDir(home), 'AGENTS.md');
+  const target = path.join(home, '.claude/skills/dotagents-prompting/SKILL.md');
   fs.appendFileSync(target, '\n# user edit\n');
   const edited = read(target);
 
@@ -87,162 +106,140 @@ test('改変保護: ユーザーが編集したファイルは update が触れ�
   assert.ok(!read(target).includes('# user edit'), '--force で payload の内容に戻る');
 });
 
-test('リンク所有権: インストール前から存在した同内容リンクは uninstall が残す', () => {
+test('規則ブロックの共存: 既存の CLAUDE.md には追記し、uninstall で原状復帰する', () => {
   const home = freshHome();
-  fs.mkdirSync(path.join(agentsDir(home), 'skills'), { recursive: true });
-  fs.symlinkSync(path.join(agentsDir(home), 'skills'), path.join(home, '.claude/skills'));
+  const own = '# my own global rules\n\n- be nice\n';
+  fs.writeFileSync(path.join(home, '.claude/CLAUDE.md'), own);
+
   run(home, ['install', 'user']);
+  const t = read(path.join(home, '.claude/CLAUDE.md'));
+  assert.ok(t.startsWith('# my own global rules'), 'ユーザーの記述が先頭に残る');
+  assert.ok(t.includes(RULES), '規則ブロックが追記される');
+
+  run(home, ['update', 'user']);
+  assert.equal((read(path.join(home, '.claude/CLAUDE.md')).match(/agents-harness:begin/g) || []).length, 1, '冪等');
+
   run(home, ['uninstall', 'user']);
-  assert.ok(fs.lstatSync(path.join(home, '.claude/skills')).isSymbolicLink(), '既存リンクは残る');
-  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), '自作リンクは消える');
+  assert.equal(read(path.join(home, '.claude/CLAUDE.md')), own, 'ユーザーのファイルは原状復帰');
+  assert.ok(!fs.existsSync(path.join(home, '.codex/AGENTS.md')), '自分が作った規則ファイルはファイルごと消える');
 });
 
 test('外科的 uninstall: 自前スキルとユーザーの設定に触れず、配布物だけが消える', () => {
   const home = freshHome();
-  fs.mkdirSync(path.join(agentsDir(home), 'skills/my-own-skill'), { recursive: true });
-  fs.writeFileSync(path.join(agentsDir(home), 'skills/my-own-skill/SKILL.md'), '# mine\n');
+  fs.mkdirSync(path.join(home, '.claude/skills/my-own-skill'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude/skills/my-own-skill/SKILL.md'), '# mine\n');
   fs.writeFileSync(path.join(home, '.zshenv'), 'export MY_VAR=1\n');
   const userSettings = { model: 'opus', permissions: { allow: ['Bash'] } };
   fs.writeFileSync(path.join(home, '.claude/settings.json'), JSON.stringify(userSettings, null, 2) + '\n');
-  const userCodexHooks = { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'bash /Users/x/herdr.sh session' }] }] } };
-  fs.writeFileSync(path.join(home, '.codex/hooks.json'), JSON.stringify(userCodexHooks, null, 2) + '\n');
 
   run(home, ['install', 'user']);
   run(home, ['uninstall', 'user']);
 
-  assert.ok(fs.existsSync(path.join(agentsDir(home), 'skills/my-own-skill/SKILL.md')), '自前スキルは残る');
-  assert.ok(!fs.existsSync(path.join(agentsDir(home), 'AGENTS.md')), '配布物は消える');
+  assert.ok(fs.existsSync(path.join(home, '.claude/skills/my-own-skill/SKILL.md')), '自前スキルは残る');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/skills/dotagents-prompting')), '配布スキルは消える');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/agents/dotagents-review.md')), 'エージェント定義も消える');
   assert.equal(read(path.join(home, '.zshenv')), 'export MY_VAR=1\n', 'zshenv は原状のまま');
   assert.deepEqual(JSON.parse(read(path.join(home, '.claude/settings.json'))), userSettings, 'settings は原状のまま');
-  assert.deepEqual(JSON.parse(read(path.join(home, '.codex/hooks.json'))), userCodexHooks, 'codex hooks は原状のまま');
+  assert.ok(!fs.existsSync(stateDir(home)), '記録が尽きたら ~/.dotagents も残さない');
 });
 
-test('旧世代の刈り込み: 過去に自分が張ったシェル層の配線は、フックの消えた payload での update が除去する', () => {
+test('旧レイアウトの移行: .agents・symlink・zshenv 行・settings 断片を update が刈り込み、新レイアウトを敷く', () => {
   const home = freshHome();
-  run(home, ['install', 'user']);
-  const root = agentsDir(home);
+  const root = path.join(home, '.agents');
 
-  // 旧世代の install が張った配線を再現する(所有記録付き)
+  // 旧世代の install が置いた物を再現する(所有記録付き)
+  fs.mkdirSync(path.join(root, 'skills/dotagents-prompting'), { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'payload/AGENTS.md'), path.join(root, 'AGENTS.md'));
+  fs.copyFileSync(path.join(REPO, 'payload/skills/dotagents-prompting/SKILL.md'),
+    path.join(root, 'skills/dotagents-prompting/SKILL.md'));
+  const links = [
+    { link: path.join(home, '.claude/CLAUDE.md'), target: path.join(root, 'AGENTS.md'), created: true },
+    { link: path.join(home, '.claude/skills/dotagents-prompting'), target: path.join(root, 'skills/dotagents-prompting'), created: true },
+    { link: path.join(home, '.codex/AGENTS.md'), target: path.join(root, 'AGENTS.md'), created: true },
+  ];
+  fs.mkdirSync(path.join(home, '.claude/skills'), { recursive: true });
+  for (const l of links) fs.symlinkSync(l.target, l.link);
   const marker = '# agents-harness';
   fs.writeFileSync(path.join(home, '.zshenv'),
     `export MY_VAR=1\n[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" ${marker}\n`);
-  const sPath = path.join(home, '.claude/settings.json');
-  fs.writeFileSync(sPath, JSON.stringify({
+  fs.writeFileSync(path.join(home, '.claude/settings.json'), JSON.stringify({
     env: { BASH_ENV: path.join(root, 'hooks/shellenv.sh') },
     hooks: { SessionStart: [{ hooks: [{ type: 'command', command: path.join(root, 'hooks/beads-session.sh') }] }] },
     permissions: { ask: ['Bash(git push:*)', 'Bash(gh pr merge:*)'] },
   }, null, 2) + '\n');
-  const cxPath = path.join(home, '.codex/hooks.json');
-  fs.writeFileSync(cxPath, JSON.stringify({
+  fs.writeFileSync(path.join(home, '.codex/hooks.json'), JSON.stringify({
     hooks: { SessionStart: [
       { hooks: [{ type: 'command', command: 'bash /Users/x/herdr.sh session' }] },
       { hooks: [{ type: 'command', command: path.join(root, 'hooks/beads-session.sh'), timeout: 10 }] },
     ] },
   }, null, 2) + '\n');
-  const mPath = path.join(root, '.dotagents.json');
-  const m = JSON.parse(read(mPath));
-  m.fragments = { bashEnv: true, sessionStart: true, ask: ['Bash(git push:*)'], codexSessionStart: true, refBlock: false };
-  fs.writeFileSync(mPath, JSON.stringify(m, null, 2) + '\n');
+  fs.writeFileSync(path.join(root, '.dotagents.json'), JSON.stringify({
+    schema: 1, kind: 'user', scope: 'full', version: '1.0.0', source: REPO,
+    files: {
+      'AGENTS.md': sha(path.join(root, 'AGENTS.md')),
+      'skills/dotagents-prompting/SKILL.md': sha(path.join(root, 'skills/dotagents-prompting/SKILL.md')),
+    },
+    links,
+    fragments: { bashEnv: true, sessionStart: true, ask: ['Bash(git push:*)'], codexSessionStart: true, refBlock: false },
+  }, null, 2) + '\n');
 
   run(home, ['update', 'user']);
 
+  assert.ok(!fs.existsSync(root), '.agents はディレクトリごと消える');
+  assert.ok(!fs.lstatSync(path.join(home, '.claude/CLAUDE.md')).isSymbolicLink(), 'CLAUDE.md は実ファイルになる');
+  assert.ok(read(path.join(home, '.claude/CLAUDE.md')).includes(RULES), '規則ブロックが入る');
+  assert.ok(!fs.lstatSync(path.join(home, '.claude/skills/dotagents-prompting')).isSymbolicLink(), 'スキルは実体になる');
   assert.equal(read(path.join(home, '.zshenv')), 'export MY_VAR=1\n', '管理行は除去され、ユーザーの行は残る');
-  const s = JSON.parse(read(sPath));
+  const s = JSON.parse(read(path.join(home, '.claude/settings.json')));
   assert.equal(s.env?.BASH_ENV, undefined, '所有していた BASH_ENV は除去される');
   assert.equal(s.hooks, undefined, '所有していた SessionStart は除去される');
-  assert.deepEqual(s.permissions.ask, ['Bash(gh pr merge:*)'], '所有していた ask だけが刈り込まれ、ユーザーのルールは残る');
-  const cx = JSON.parse(read(cxPath));
+  assert.deepEqual(s.permissions.ask, ['Bash(gh pr merge:*)'], '所有していた ask だけが刈り込まれる');
+  const cx = JSON.parse(read(path.join(home, '.codex/hooks.json')));
   assert.equal(cx.hooks.SessionStart.length, 1, 'codex は自分の断片だけ除去する');
   assert.match(cx.hooks.SessionStart[0].hooks[0].command, /herdr/, 'ユーザーの hook は残る');
 
   const { out } = run(home, ['status', 'user']);
-  assert.match(out, /no drift/, '刈り込み後は乖離なし');
+  assert.match(out, /no drift/, '移行後は乖離なし');
 });
 
-test('shell スコープ: payload にシェル層が無ければ何も配らず、外科的に戻る', () => {
+test('project install: プロジェクトの .claude/ に実ファイルで入り、マシン固有の物を何も残さない', () => {
   const home = freshHome();
-  run(home, ['install', 'shell']);
-
-  assert.equal(manifest(agentsDir(home)).scope, 'shell');
-  assert.deepEqual(manifest(agentsDir(home)).files, {}, '配る物が無い');
-  assert.ok(!fs.existsSync(path.join(home, '.agents/AGENTS.md')), 'プロンプトは入らない');
-  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'リンクを張らない');
-  assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv 行も作らない');
-
-  const { out } = run(home, ['status', 'user']);
-  assert.match(out, /scope=shell/);
-  assert.match(out, /no drift/);
-
-  run(home, ['uninstall', 'user']);
-  assert.ok(!fs.existsSync(path.join(home, '.agents')));
-});
-
-test('shell スコープ: update はスコープを維持し、install(user)で全量へ拡大する', () => {
-  const home = freshHome();
-  run(home, ['install', 'shell']);
-  run(home, ['update', 'user']);
-  assert.equal(manifest(agentsDir(home)).scope, 'shell', 'update は縮小スコープを保つ');
-  assert.ok(!fs.existsSync(path.join(home, '.agents/AGENTS.md')), 'プロンプトは入ってこない');
-  run(home, ['install', 'user']);
-  assert.equal(manifest(agentsDir(home)).scope, 'full', 'install で全量へ拡大');
-  assert.ok(fs.existsSync(path.join(home, '.agents/AGENTS.md')));
-});
-
-test('project(git repo): 配布物の .agents/.gitignore がマシン固有の生成物を版管理から外す', () => {
-  const home = freshHome();
-  const proj = freshProject('dotagents-gitproj-');
+  const proj = freshProject();
   execFileSync('git', ['init', '-q'], { cwd: proj });
   run(home, ['install', 'project', proj]);
 
-  assert.ok(fs.existsSync(path.join(proj, '.agents/.gitignore')), '.gitignore が配布される');
+  assert.ok(fs.existsSync(path.join(proj, '.claude/skills/dotagents-prompting/SKILL.md')), 'スキルが実ファイルで入る');
+  assert.ok(!fs.lstatSync(path.join(proj, '.claude/skills/dotagents-prompting')).isSymbolicLink(), 'symlink ではない');
+  assert.ok(read(path.join(proj, '.claude/CLAUDE.md')).includes(RULES), 'CLAUDE.md が作られブロックが入る');
+  assert.ok(!fs.existsSync(path.join(proj, '.agents')), '.agents は作らない');
+  assert.ok(!fs.existsSync(path.join(proj, '.codex')), '.codex が無いプロジェクトには作らない');
+  assert.ok(!fs.existsSync(path.join(proj, 'AGENTS.md')), 'root AGENTS.md が無いプロジェクトには作らない');
+
   const status = execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: proj, encoding: 'utf8' });
-  assert.ok(!status.includes('.dotagents.json'), 'manifest は untracked に現れない');
-  assert.ok(status.includes('.agents/AGENTS.md'), '配布物自体は版管理の対象に見える');
+  assert.ok(!status.includes('dotagents.json'), 'manifest はプロジェクトに現れない(~/.dotagents に置く)');
+  assert.ok(status.split('\n').filter(Boolean).every((l) => l.includes('.claude/')), '増えるのは .claude/ 配下だけ');
+  assert.equal(projectManifest(home, proj).kind, 'project');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'user レベルには何も敷かない');
 
   run(home, ['uninstall', 'project', proj]);
-  assert.ok(!fs.existsSync(path.join(proj, '.agents')), '.gitignore ごと外科的に消える');
+  assert.ok(!fs.existsSync(path.join(proj, '.claude/CLAUDE.md')), '自分が作った規則ファイルは消える');
+  assert.ok(!fs.existsSync(path.join(proj, '.claude/skills/dotagents-prompting')), 'スキルも消える');
 });
 
-test('参照ブロック: 既存の root AGENTS.md にだけマーカー付きで足し、uninstall で原状復帰する', () => {
+test('root AGENTS.md ブロック: 既存のファイルにだけ足し、uninstall で原状復帰する', () => {
   const home = freshHome();
   const proj = freshProject('dotagents-refproj-');
   fs.writeFileSync(path.join(proj, 'AGENTS.md'), '# my project rules\n');
   run(home, ['install', 'project', proj]);
   const t = read(path.join(proj, 'AGENTS.md'));
   assert.match(t, /agents-harness:begin/);
-  assert.match(t, /\.agents\/AGENTS\.md/);
+  assert.ok(t.includes(RULES), '参照ではなく規則の全文が入る');
 
   run(home, ['update', 'project', proj]);
   assert.equal((read(path.join(proj, 'AGENTS.md')).match(/agents-harness:begin/g) || []).length, 1, '冪等');
 
   run(home, ['uninstall', 'project', proj]);
   assert.equal(read(path.join(proj, 'AGENTS.md')), '# my project rules\n', '原状復帰');
-
-  const proj2 = freshProject('dotagents-refproj-');
-  run(home, ['install', 'project', proj2]);
-  assert.ok(!fs.existsSync(path.join(proj2, 'AGENTS.md')), '無いプロジェクトには作らない');
-  run(home, ['uninstall', 'project', proj2]);
-});
-
-test('project モード: 相対リンクで張り、user レベルには何も敷かない', () => {
-  const home = freshHome();
-  const proj = freshProject();
-  run(home, ['install', 'project', proj]);
-  assert.equal(fs.readlinkSync(path.join(proj, '.claude/CLAUDE.md')), '../.agents/AGENTS.md');
-  assert.equal(fs.readlinkSync(path.join(proj, '.claude/skills/dotagents-prompting')), '../../.agents/skills/dotagents-prompting');
-  assert.ok(!fs.existsSync(path.join(proj, '.claude/settings.local.json')), '書く断片が無ければ settings も作らない');
-  assert.ok(!fs.existsSync(path.join(home, '.agents')), 'payload にシェル層が無ければ user レベルに補完しない');
-  assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv にも触れない');
-  run(home, ['uninstall', 'project', proj]);
-  assert.ok(!fs.existsSync(path.join(proj, '.agents')), '.agents ごと消える');
-});
-
-test('uninstall --keep-shell: 残すシェル層が payload に無ければ、全てが外科的に外れる', () => {
-  const home = freshHome();
-  run(home, ['install', 'user']);
-  run(home, ['uninstall', 'user', '--keep-shell']);
-  assert.ok(!fs.existsSync(path.join(home, '.agents')), '敷き直すシェル層が無いので全て消える');
-  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'リンクも消える');
 });
 
 // ---------------------------------------------------------------- 対象の確定
@@ -256,19 +253,18 @@ test('対象は既定値で決まらない: 非対話でフラグを欠くと、
     assert.match(r.out, new RegExp(`agents-setup ${cmd} user`), `${cmd} は正しい形を示す`);
     assert.match(r.out, new RegExp(`agents-setup ${cmd} project`));
   }
-  assert.ok(!fs.existsSync(agentsDir(home)), '止まった以上、何も書いていない');
-  assert.ok(!fs.existsSync(path.join(home, '.zshenv')));
+  assert.ok(!fs.existsSync(stateDir(home)), '止まった以上、何も書いていない');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')));
 });
 
 test('対象は 1 つしか書けない: 複数の対象・余剰引数・不明な引数は何も書かずに止まる', () => {
   const home = freshHome();
   const cases = [
     [['install', 'user', 'project'], /pick exactly one target/],
-    [['install', 'shell', 'project'], /pick exactly one target/],
     [['install', 'user', '/tmp/x'], /only `project` takes a directory/],
-    [['install', 'shell', '/tmp/x'], /only `project` takes a directory/],
     [['install', 'project', '/tmp/x', 'extra'], /too many arguments/],
-    [['install', 'nowhere'], /unknown target/],
+    [['install', 'nowhere'], /unknown target: nowhere \(expected user or project\)/],
+    [['install', 'shell'], /`shell` target is retired/],
     [['install', '--bogus'], /unknown argument/],
   ];
   for (const [args, pattern] of cases) {
@@ -276,7 +272,7 @@ test('対象は 1 つしか書けない: 複数の対象・余剰引数・不明
     assert.equal(r.code, 1, `${args.join(' ')} は止まる`);
     assert.match(r.out, pattern, `${args.join(' ')} は理由を示す`);
   }
-  assert.ok(!fs.existsSync(agentsDir(home)), '止まった以上、何も書いていない');
+  assert.ok(!fs.existsSync(stateDir(home)), '止まった以上、何も書いていない');
 });
 
 test('廃止フラグ: 旧インタフェースはエイリアスとして生かさず、正しい形へ案内する', () => {
@@ -285,9 +281,9 @@ test('廃止フラグ: 旧インタフェースはエイリアスとして生か
     const r = run(home, ['install', flag], { allowFail: true });
     assert.equal(r.code, 1, `${flag} は動作しない`);
     assert.match(r.out, /is retired/);
-    assert.match(r.out, /user \| project \[<dir>\] \| shell/, '位置引数の形を示す');
+    assert.match(r.out, /user \| project \[<dir>\]/, '位置引数の形を示す');
   }
-  assert.ok(!fs.existsSync(agentsDir(home)), '止まった以上、何も書いていない');
+  assert.ok(!fs.existsSync(stateDir(home)), '止まった以上、何も書いていない');
 });
 
 test('project のディレクトリは省略できる(カレントディレクトリ)。後続のフラグは値にならない', () => {
@@ -296,8 +292,8 @@ test('project のディレクトリは省略できる(カレントディレク�
   execFileSync(process.execPath, [CLI, 'install', 'project', '--force'], {
     env: { ...process.env, HOME: home }, cwd: proj, encoding: 'utf8',
   });
-  assert.ok(fs.existsSync(path.join(proj, '.agents/AGENTS.md')), 'cwd がプロジェクトになる');
-  assert.equal(manifest(path.join(proj, '.agents')).kind, 'project');
+  assert.ok(fs.existsSync(path.join(proj, '.claude/CLAUDE.md')), 'cwd がプロジェクトになる');
+  assert.equal(projectManifest(home, proj).kind, 'project');
 });
 
 test('help: 全体とコマンドごとの両方が --help / -h で引ける', () => {
@@ -307,19 +303,18 @@ test('help: 全体とコマンドごとの両方が --help / -h で引ける', (
   for (const cmd of ['install', 'update', 'uninstall', 'status']) {
     assert.match(overall.out, new RegExp(`^  ${cmd}\\b`, 'm'), `${cmd} が一覧に出る`);
   }
+  assert.ok(!overall.out.includes('--keep-shell'), '廃止した shell 層の語彙は出ない');
 
   for (const args of [['install', '--help'], ['install', '-h']]) {
     const r = run(home, args);
     assert.match(r.out, /agents-setup install <target> \[options\]/, `${args.join(' ')} は install の説明を出す`);
     assert.match(r.out, /--force/, 'そのコマンドのオプションを出す');
-    assert.ok(!r.out.includes('--keep-shell'), '他コマンドのオプションは出さない');
   }
-  assert.match(run(home, ['uninstall', '--help']).out, /--keep-shell/);
   assert.ok(!run(home, ['uninstall', '--help']).out.includes('--force'), 'uninstall に --force は出さない');
 
   assert.equal(run(home, []).out, overall.out, '引数なしは --help と同じ');
   assert.match(run(home, ['--version']).out.trim(), /^\d+\.\d+\.\d+$/);
-  assert.ok(!fs.existsSync(agentsDir(home)), 'ヘルプは何も書かない');
+  assert.ok(!fs.existsSync(stateDir(home)), 'ヘルプは何も書かない');
 });
 
 test('unknown command: 使い方を丸ごと吐かず、理由と入口だけを示して止まる', () => {

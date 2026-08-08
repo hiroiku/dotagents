@@ -2,7 +2,7 @@
 
 [English](../README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Español](README.es.md) | Français
 
-[README](../../docs/README.fr.md) décrit le mécanisme — un unique corpus, déployé par `agents-setup` dans `~/.agents` et dans les `.agents/` par projet. Ce document décrit ce que ce corpus livre dans `payload/` : un harnais complet et fonctionnel, fourni comme l'exemple dont tu pars et que tu personnalises.
+[README](../../docs/README.fr.md) décrit le mécanisme — un unique corpus, déployé par `agents-setup` directement dans les répertoires que lisent tes outils (`.claude/`, `.codex/`), sous forme de fichiers ordinaires. Ce document décrit ce que ce corpus livre dans `payload/` : un harnais complet et fonctionnel, fourni comme l'exemple dont tu pars et que tu personnalises.
 
 ## Écrit pour des modèles qui jugent
 
@@ -16,7 +16,7 @@ Tout le reste — comment chercher, jusqu'où creuser, à quoi ressemble un cons
 
 ## Trois formes de livraison
 
-- **Omniprésente** ([AGENTS.md](../AGENTS.md)) — injectée dans chaque session et taxant l'attention de chacune, elle ne tient donc qu'une seule phrase : _quand une implémentation ou un correctif se termine, délègue la vérification aux agents de revue applicables avant de signaler l'achèvement._
+- **Omniprésente** ([AGENTS.md](../AGENTS.md)) — livrée comme un bloc géré dans le fichier de règles de chaque outil (`CLAUDE.md` / `AGENTS.md`), lue par chaque session et taxant l'attention de chacune, elle ne tient donc qu'une seule phrase : _quand une implémentation ou un correctif se termine, délègue la vérification aux agents de revue applicables avant de signaler l'achèvement._
 - **Momentanées** ([skills/](../skills/)) — lues seulement quand leur moment arrive : [dotagents-git](../skills/dotagents-git/SKILL.md) au moment du commit, [dotagents-prompting](../skills/dotagents-prompting/SKILL.md) lors de la modification des prompts. Ici, le détail ne coûte rien à aucun autre moment.
 - **Rôles** ([agents/](../agents/)) — des subagents dotés d'un contexte propre et d'un jeu d'outils restreint. Ce qu'un rôle ne doit pas faire est imposé par les outils qu'on ne lui donne pas, non par une phrase qu'il devrait retenir.
 

@@ -2,7 +2,7 @@
 
 [English](../README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md) | Deutsch | [Español](README.es.md) | [Français](README.fr.md)
 
-[README](../../docs/README.de.md) beschreibt den Mechanismus — ein Korpus, von `agents-setup` nach `~/.agents` und in projektspezifische `.agents/` bereitgestellt. Dieses Dokument beschreibt, was dieser Korpus in `payload/` ausliefert: einen vollständigen, funktionierenden Harness — mitgeliefert als das Beispiel, von dem du ausgehst und das du personalisierst.
+[README](../../docs/README.de.md) beschreibt den Mechanismus — ein Korpus, von `agents-setup` direkt in die Verzeichnisse bereitgestellt, die deine Werkzeuge lesen (`.claude/`, `.codex/`), als reine Dateien. Dieses Dokument beschreibt, was dieser Korpus in `payload/` ausliefert: einen vollständigen, funktionierenden Harness — mitgeliefert als das Beispiel, von dem du ausgehst und das du personalisierst.
 
 ## Geschrieben für Modelle, die urteilen
 
@@ -16,7 +16,7 @@ Alles andere — wie gesucht wird, wie tief gegangen wird, wie ein Befund aussie
 
 ## Drei Formen der Zustellung
 
-- **Allgegenwärtig** ([AGENTS.md](../AGENTS.md)) — in jede Sitzung injiziert und damit eine Steuer auf die Aufmerksamkeit jeder Sitzung, daher steht darin ein einziger Satz: _wenn eine Implementierung oder ein Fix endet, delegiere die Verifikation an die anwendbaren Review-Agenten, bevor du Fertigstellung meldest._
+- **Allgegenwärtig** ([AGENTS.md](../AGENTS.md)) — als verwalteter Block in der Regeldatei jedes Werkzeugs (`CLAUDE.md` / `AGENTS.md`) zugestellt und von jeder Sitzung gelesen, und damit eine Steuer auf die Aufmerksamkeit jeder Sitzung, daher steht darin ein einziger Satz: _wenn eine Implementierung oder ein Fix endet, delegiere die Verifikation an die anwendbaren Review-Agenten, bevor du Fertigstellung meldest._
 - **Momentan** ([skills/](../skills/)) — nur gelesen, wenn ihr Moment eintritt: [dotagents-git](../skills/dotagents-git/SKILL.md) beim Committen, [dotagents-prompting](../skills/dotagents-prompting/SKILL.md) beim Bearbeiten von Prompts. Detail kostet hier keinen anderen Moment etwas.
 - **Rollen** ([agents/](../agents/)) — Subagenten mit einem eigenen Kontext und einem beschränkten Werkzeugsatz. Was eine Rolle nicht tun darf, wird durch die Werkzeuge durchgesetzt, die sie nicht bekommt — nicht durch einen Satz, den sie sich merken muss.
 

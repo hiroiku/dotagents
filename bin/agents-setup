@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 'use strict';
 
-// dotagents installer — payload/ を .agents/ へ配布し、manifest で所有権を管理する。
+// dotagents installer — payload/ を各ツールのネイティブな置き場へ実ファイルとしてコピーし、
+// manifest で所有権を管理する。
 //
 // 設計原則:
-// - payload/ ディレクトリが配布物の唯一の定義である(installer 内に列挙を持たない)。
-// - manifest(.dotagents.json)は「自分が置いたもの」だけを内容ハッシュ付きで記録する。
+// - 配備は plain copy だけ。symlink も中間ディレクトリ(.agents)も作らない —
+//   ツールが読む場所(.claude/ / .codex/)にあるファイルがそのまま実体である。
+// - payload/ の最上位の種類が配達先を決める: AGENTS.md は各ツールの規則ファイルへの
+//   管理ブロック、skills/ は両ツールの skills/ へ、agents/ は .claude/agents/ へ。
+//   それ以外(解説・docs)は配備しない。
+// - manifest(~/.dotagents/ に集約)は「自分が置いたもの」だけを内容ハッシュ付きで記録する。
 //   update / uninstall はハッシュが一致するファイルにしか触れない — ユーザーの改変と
-//   自前スキルは常に保護される。
-// - 環境断片(~/.zshenv の管理行・settings.json の env / hooks / permissions)も
-//   「自分が追加したものだけを覚えて、それだけを除去する」。
+//   自前スキルは常に保護される。マシン固有の記録なのでプロジェクトには何も残さない。
 // - 対象(ユーザーレベル / プロジェクト)は決して既定値で決まらない。フラグで明示するか、
 //   対話で選ぶかのどちらかである — 指定し忘れが黙って別の場所を書き換える経路を作らない。
-// - シェル層(hooks/bin + ~/.zshenv 行)は強制則の唯一の配達経路であり、zsh の起動ファイルが
-//   ユーザーグローバルにしか無いため、プロジェクトの数によらず 1 つしか存在しない。共有資源
-//   なので install は無ければ補い、uninstall は巻き添えで消さないか確認する。
+// - 旧レイアウト(.agents + symlink + zshenv 行 + settings 断片)は install / update が
+//   同じ所有権規則で検出・刈り込みし、新レイアウトへ移行する。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -25,9 +27,11 @@ const { execFileSync } = require('node:child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const PAYLOAD = path.join(REPO_ROOT, 'payload');
-const MANIFEST_NAME = '.dotagents.json';
+// マシン固有の記録の集約先。~/.claude・~/.codex と同じ古典的 dot ディレクトリ文化に置く。
+const STATE_DIR = () => path.join(os.homedir(), '.dotagents');
+// 旧レイアウト(<base>/.agents)の manifest 名と zshenv 管理行 — 刈り込み(移行)専用。
+const LEGACY_MANIFEST_NAME = '.dotagents.json';
 const MARKER = '# agents-harness';
-const SHELLENV_LINE = `[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" ${MARKER}`;
 
 // ---------------------------------------------------------------- helpers
 
@@ -84,33 +88,42 @@ function removeEmptyDirsUpTo(from, stopAt) {
 
 // ---------------------------------------------------------------- context
 
-// 対象は opts.target(user / project / shell)ただ 1 つ。shell は「ユーザーレベルの最小形」
-// なので場所としては user と同じ木を指す — 違うのは配る範囲(scope)だけである。
+// 対象は opts.target(user / project)ただ 1 つ。base = 配達の基準ディレクトリで、
+// manifest のファイルキーはすべて base 相対。legacyRoot は旧レイアウトの刈り込み専用。
 function makeCtx(opts) {
   if (opts.target === 'project') {
-    const proj = path.resolve(opts.dir ?? '.');
+    let proj = path.resolve(opts.dir ?? '.');
     if (!lstatOrNull(proj)?.isDirectory()) throw new Error(`no such directory: ${proj}`);
+    proj = fs.realpathSync(proj); // manifest のキーを安定させる(symlink 経由の表記揺れを吸収)
     return {
       kind: 'project',
-      root: path.join(proj, '.agents'),
+      base: proj,
       claudeDir: path.join(proj, '.claude'),
       codexDir: path.join(proj, '.codex'),
-      zshenv: null, // シェル配達(zsh/BASH_ENV の実体)はユーザーレベルの担当
-      relativeLinks: true,
+      zshenv: null, // 旧シェル配達はユーザーレベルにしか無かった
+      legacyRoot: path.join(proj, '.agents'),
     };
   }
   const home = os.homedir();
   return {
     kind: 'user',
-    root: path.join(home, '.agents'),
+    base: home,
     claudeDir: path.join(home, '.claude'),
     codexDir: path.join(home, '.codex'),
     zshenv: path.join(home, '.zshenv'),
-    relativeLinks: false,
+    legacyRoot: path.join(home, '.agents'),
   };
 }
 
-function manifestPath(ctx) { return path.join(ctx.root, MANIFEST_NAME); }
+// manifest はマシン固有の状態なので ~/.dotagents/ に集約する。プロジェクトは
+// 実パスで一意にキー化する(basename は人間の識別用、hash が同名の衝突を防ぐ)。
+function manifestPath(ctx) {
+  if (ctx.kind === 'user') return path.join(STATE_DIR(), 'user.json');
+  const hash = crypto.createHash('sha256').update(ctx.base).digest('hex').slice(0, 12);
+  return path.join(STATE_DIR(), 'projects', `${path.basename(ctx.base)}-${hash}.json`);
+}
+
+function legacyManifestPath(ctx) { return path.join(ctx.legacyRoot, LEGACY_MANIFEST_NAME); }
 
 // 断片は絶対パスを含むマシン固有の設定なので、プロジェクトでは版管理対象の
 // settings.json ではなく settings.local.json に書く。
@@ -127,32 +140,6 @@ function ownedSkillNames() {
     .sort();
 }
 
-// shell スコープ = 強制則の層(hooks / bin)だけ。プロンプト(AGENTS.md / skills / agents)と
-// リンク・settings 断片を伴わないので、全セッションのプロンプトに影響せずガードだけが届く。
-// zsh の起動ファイルはユーザーグローバル(~/.zshenv)しか無いため、シェル配達は構造的に
-// ユーザーレベルの担当であり、その最小形がこのスコープである。
-// npm は配布物から .gitignore を剥ぎ取るため、payload では無印の `gitignore` で持ち、
-// 配布時に `.gitignore` へ戻す。写像はこの 1 対だけ(src = payload 内の名前、dst = 配布名)。
-const SRC_RENAMES = { gitignore: '.gitignore' };
-
-function payloadEntries(scope) {
-  let rels = walk(PAYLOAD);
-  if (scope === 'shell') {
-    rels = rels.filter((r) => r.startsWith('hooks/') || r.startsWith('bin/'));
-  }
-  return rels.map((src) => ({ src, dst: SRC_RENAMES[src] ?? src }));
-}
-
-// シェル層の配線(zshenv 行・BASH_ENV・SessionStart)は、対応するフックが payload に
-// 実在するときだけ張る。payload が配布物の唯一の定義なので、フックが消えたら配線も
-// 「自分が張ったものだけ」を同じ所有権規則で除去する。
-function shellDelivery() {
-  return {
-    shellenv: !!lstatOrNull(path.join(PAYLOAD, 'hooks', 'shellenv.sh')),
-    session: !!lstatOrNull(path.join(PAYLOAD, 'hooks', 'beads-session.sh')),
-  };
-}
-
 function ownedAgentNames() {
   const dir = path.join(PAYLOAD, 'agents');
   if (!lstatOrNull(dir)) return [];
@@ -161,211 +148,70 @@ function ownedAgentNames() {
     .sort();
 }
 
-// リンクは「リンクの場所 → payload 内の到達先」を宣言的に列挙する。
-// Codex はディレクトリを辿らないためスキル単位で張る。.codex/ が無い環境には作らない。
-function desiredLinks(ctx) {
-  const links = [
-    { link: path.join(ctx.claudeDir, 'CLAUDE.md'), target: path.join(ctx.root, 'AGENTS.md') },
-  ];
-  // スキルは常にスキル単位でリンクする(ディレクトリごとの 1 本は張らない —
-  // 自前スキルの実体と同じ場所に同居させるため)。例外は、既存の .claude/skills が
-  // .agents/skills への symlink になっている環境(ユーザーの手張り)だけ:
-  // 全スキルが既に見えているので張らず、そのリンクにも触れない。
-  const skillsDir = path.join(ctx.claudeDir, 'skills');
-  const skillsSt = lstatOrNull(skillsDir);
-  const coveredByDirLink = !!(skillsSt && skillsSt.isSymbolicLink()) &&
-    path.resolve(path.dirname(skillsDir), fs.readlinkSync(skillsDir)) === path.join(ctx.root, 'skills');
-  if (!coveredByDirLink) {
-    for (const name of ownedSkillNames()) {
-      links.push({ link: path.join(skillsDir, name), target: path.join(ctx.root, 'skills', name) });
+// 配達先の導出。payload の最上位の種類が行き先を決める:
+// - skills/<name>/  → .claude/skills/<name>/ と(.codex/ がある環境では).codex/skills/<name>/
+//   スキル単位でコピーする — 自前スキルの実体と同じ場所に同居させるため。
+// - agents/<f>.md   → .claude/agents/<f>(Codex にエージェント定義の置き場は無い)
+// - AGENTS.md       → コピーではなく規則ファイルへの管理ブロック(rulesTargets)
+// - それ以外(README / docs)→ 配備しない。解説は正本と npm パッケージで読む。
+function deliveryEntries(ctx) {
+  const entries = [];
+  const add = (src, dst) => entries.push({ src, dst, rel: path.relative(ctx.base, dst) });
+  const codex = lstatOrNull(ctx.codexDir)?.isDirectory();
+  for (const name of ownedSkillNames()) {
+    const dir = path.join(PAYLOAD, 'skills', name);
+    for (const rel of walk(dir)) {
+      add(path.join(dir, rel), path.join(ctx.claudeDir, 'skills', name, rel));
+      if (codex) add(path.join(dir, rel), path.join(ctx.codexDir, 'skills', name, rel));
     }
   }
-  // エージェント定義はファイル単位で張る(自前のエージェント定義と共存させるため)
   for (const file of ownedAgentNames()) {
-    links.push({ link: path.join(ctx.claudeDir, 'agents', file), target: path.join(ctx.root, 'agents', file) });
+    add(path.join(PAYLOAD, 'agents', file), path.join(ctx.claudeDir, 'agents', file));
   }
-  if (lstatOrNull(ctx.codexDir)?.isDirectory()) {
-    links.push({ link: path.join(ctx.codexDir, 'AGENTS.md'), target: path.join(ctx.root, 'AGENTS.md') });
-    for (const name of ownedSkillNames()) {
-      links.push({ link: path.join(ctx.codexDir, 'skills', name), target: path.join(ctx.root, 'skills', name) });
-    }
-  }
-  return links;
+  return entries;
 }
 
-function linkValue(ctx, l) {
-  return ctx.relativeLinks ? path.relative(path.dirname(l.link), l.target) : l.target;
-}
-
-// ---------------------------------------------------------------- symlinks
-
-// 戻り値: 'created'(自分が張った)/ 'exists'(同じ到達先が既にある)/ 'conflict'
-function ensureLink(ctx, l, log) {
-  const want = linkValue(ctx, l);
-  const st = lstatOrNull(l.link);
-  if (st) {
-    if (st.isSymbolicLink()) {
-      const cur = fs.readlinkSync(l.link);
-      if (cur === want || path.resolve(path.dirname(l.link), cur) === l.target) {
-        log.ok(`link ${l.link}`);
-        return 'exists';
-      }
-      log.warn(`link conflict, leaving it alone (symlink points elsewhere): ${l.link} -> ${cur}`);
-      return 'conflict';
-    }
-    log.warn(`link conflict, leaving it alone (a real file is already there): ${l.link}`);
-    if (l.link.endsWith('CLAUDE.md') || l.link.endsWith('AGENTS.md')) {
-      console.log(ui.dim(`    add a reference to .agents/AGENTS.md inside it and the harness still loads`));
-    }
-    return 'conflict';
-  }
-  fs.mkdirSync(path.dirname(l.link), { recursive: true });
-  fs.symlinkSync(want, l.link);
-  log.add(`link ${l.link} -> ${want}`);
-  return 'created';
-}
-
-// 消してよいのは自分が張った(created: true の)リンクだけ。
+// 消してよいのは自分が張った(created: true の)旧リンクだけ。
 // インストール前から存在した同内容のリンクはユーザーの持ち物であり、触れない。
-function removeLink(ctx, l, log) {
+// 新レイアウトはリンクを張らない — これは旧レイアウトの刈り込み専用である。
+function removeLink(l, log) {
   if (l.created !== true) return;
   const st = lstatOrNull(l.link);
   if (!st || !st.isSymbolicLink()) return;
   const cur = fs.readlinkSync(l.link);
-  if (cur === linkValue(ctx, l) || path.resolve(path.dirname(l.link), cur) === l.target) {
+  if (cur === l.target || path.resolve(path.dirname(l.link), cur) === l.target) {
     fs.unlinkSync(l.link);
-    log.del(`link ${l.link}`);
+    log.del(`legacy link ${l.link}`);
   }
 }
 
-// ---------------------------------------------------------------- ~/.zshenv
+// ---------------------------------------------------------------- ~/.zshenv(刈り込み専用)
 
-function zshenvState(ctx) {
-  if (!ctx.zshenv) return 'n/a';
-  const text = fs.existsSync(ctx.zshenv) ? fs.readFileSync(ctx.zshenv, 'utf8') : '';
-  const managed = text.split('\n').filter((l) => l.includes(MARKER));
-  if (managed.length === 1 && managed[0] === SHELLENV_LINE) return 'ok';
-  if (managed.length === 0) return 'missing';
-  return 'stale';
-}
-
-function ensureZshenvLine(ctx, log) {
-  if (!ctx.zshenv) return;
-  if (zshenvState(ctx) === 'ok') { log.ok(`zshenv managed line`); return; }
-  const text = fs.existsSync(ctx.zshenv) ? fs.readFileSync(ctx.zshenv, 'utf8') : '';
-  const kept = text.split('\n').filter((l) => !l.includes(MARKER));
-  while (kept.length && kept[kept.length - 1] === '') kept.pop();
-  kept.push(SHELLENV_LINE, '');
-  fs.writeFileSync(ctx.zshenv, kept.join('\n'));
-  log.add(`zshenv managed line (guarded)`);
-}
-
+// 旧レイアウトのシェル配達が ~/.zshenv に残した管理行(マーカー付き = 常に自分の持ち物)を
+// 除去する。新レイアウトは zshenv に何も書かない。
 function removeZshenvLine(ctx, log) {
   if (!ctx.zshenv || !fs.existsSync(ctx.zshenv)) return;
   const text = fs.readFileSync(ctx.zshenv, 'utf8');
   const kept = text.split('\n').filter((l) => !l.includes(MARKER));
   if (kept.join('\n') !== text) {
     fs.writeFileSync(ctx.zshenv, kept.join('\n'));
-    log.del(`zshenv managed line`);
+    log.del(`legacy zshenv managed line`);
   }
 }
 
-// ---------------------------------------------------------------- settings.json 断片
+function zshenvHasMarker(ctx) {
+  if (!ctx.zshenv || !fs.existsSync(ctx.zshenv)) return false;
+  return fs.readFileSync(ctx.zshenv, 'utf8').includes(MARKER);
+}
 
+// ---------------------------------------------------------------- settings.json 断片(刈り込み専用)
+
+// 旧レイアウトが settings に書いた断片の照合パス。除去(所有照合)にだけ使う。
 function fragmentDefs(ctx) {
   return {
-    // パスは除去(所有照合)にも使うため、payload の実在によらず常に導出する。
-    // 配線するかどうかは shellDelivery() が決める。
-    bashEnv: path.join(ctx.root, 'hooks', 'shellenv.sh'),
-    sessionStart: path.join(ctx.root, 'hooks', 'beads-session.sh'),
-    ask: [],
+    bashEnv: path.join(ctx.legacyRoot, 'hooks', 'shellenv.sh'),
+    sessionStart: path.join(ctx.legacyRoot, 'hooks', 'beads-session.sh'),
   };
-}
-
-function applySettings(ctx, oldFragments, log) {
-  const defs = fragmentDefs(ctx);
-  const has = shellDelivery();
-  const file = settingsPath(ctx);
-  const s = readJson(file, {});
-  const owned = { bashEnv: false, sessionStart: false, ask: [] };
-  let changed = false;
-
-  s.env = s.env || {};
-  if (!has.shellenv) {
-    // payload が配達フックを持たない: 過去に自分が張った配線だけを除去する
-    if (oldFragments?.bashEnv === true && s.env.BASH_ENV === defs.bashEnv) {
-      delete s.env.BASH_ENV;
-      changed = true;
-      log.del(`settings env.BASH_ENV (no shellenv hook in payload)`);
-    }
-  } else if (s.env.BASH_ENV === undefined) {
-    s.env.BASH_ENV = defs.bashEnv;
-    owned.bashEnv = true;
-    changed = true;
-    log.add(`settings env.BASH_ENV`);
-  } else if (s.env.BASH_ENV === defs.bashEnv) {
-    // インストール前から同じ値があった場合はユーザーの持ち物。前回の所有記録だけ引き継ぐ
-    owned.bashEnv = oldFragments?.bashEnv === true;
-    log.ok(`settings env.BASH_ENV`);
-  } else {
-    log.warn(`settings env.BASH_ENV already set to something else, leaving it: ${s.env.BASH_ENV}`);
-  }
-
-  s.hooks = s.hooks || {};
-  s.hooks.SessionStart = s.hooks.SessionStart || [];
-  // 既存 entry は `bash <path>` のような前置き付きでも同一とみなす(重複登録の予防)
-  const hasSession = s.hooks.SessionStart.some((m) =>
-    (m.hooks || []).some((h) => (h.command || '').includes(defs.sessionStart)));
-  if (!has.session) {
-    if (oldFragments?.sessionStart === true && hasSession) {
-      s.hooks.SessionStart = s.hooks.SessionStart
-        .map((m) => ({ ...m, hooks: (m.hooks || []).filter((h) => !(h.command || '').includes(defs.sessionStart)) }))
-        .filter((m) => (m.hooks || []).length > 0);
-      changed = true;
-      log.del(`settings hooks.SessionStart (no session hook in payload)`);
-    }
-  } else if (hasSession) {
-    owned.sessionStart = oldFragments?.sessionStart === true;
-    log.ok(`settings hooks.SessionStart`);
-  } else {
-    s.hooks.SessionStart.push({ hooks: [{ type: 'command', command: defs.sessionStart }] });
-    owned.sessionStart = true;
-    changed = true;
-    log.add(`settings hooks.SessionStart`);
-  }
-
-  s.permissions = s.permissions || {};
-  s.permissions.ask = s.permissions.ask || [];
-  // 過去に自分が足したが defs から消えたルールは刈り込む(ファイルの刈り込みと同じ所有権規則)
-  for (const rule of oldFragments?.ask || []) {
-    if (!defs.ask.includes(rule) && s.permissions.ask.includes(rule)) {
-      s.permissions.ask = s.permissions.ask.filter((r) => r !== rule);
-      changed = true;
-      log.del(`settings permissions.ask ${rule} (no longer in defs)`);
-    }
-  }
-  for (const rule of defs.ask) {
-    if (s.permissions.ask.includes(rule)) {
-      // 以前の install で自分が足した記録があるときだけ所有を引き継ぐ
-      if ((oldFragments?.ask || []).includes(rule)) owned.ask.push(rule);
-      else log.ok(`settings permissions.ask ${rule} (pre-existing, not ours)`);
-    } else {
-      s.permissions.ask.push(rule);
-      owned.ask.push(rule);
-      changed = true;
-      log.add(`settings permissions.ask ${rule}`);
-    }
-  }
-
-  // 配線を張らなかった枝で初期化だけされた空の足場をユーザーのファイルに書き残さない
-  if (s.env && Object.keys(s.env).length === 0) delete s.env;
-  if (s.hooks?.SessionStart && s.hooks.SessionStart.length === 0) delete s.hooks.SessionStart;
-  if (s.hooks && Object.keys(s.hooks).length === 0) delete s.hooks;
-  if (s.permissions?.ask && s.permissions.ask.length === 0) delete s.permissions.ask;
-  if (s.permissions && Object.keys(s.permissions).length === 0) delete s.permissions;
-
-  if (changed) writeJson(file, s);
-  return owned;
 }
 
 function removeSettings(ctx, fragments, log) {
@@ -402,36 +248,12 @@ function removeSettings(ctx, fragments, log) {
   if (changed) writeJson(file, s);
 }
 
-// Codex は ~/.codex/hooks.json(プロジェクトは <proj>/.codex/hooks.json)に
-// Claude の settings.json と同形の hooks を持つ。SessionStart 断片を同じ所有権規則で管理する。
+// Codex の hooks.json に旧レイアウトが書いた SessionStart 断片を、同じ所有権規則で除去する。
 function codexHooksPath(ctx) { return path.join(ctx.codexDir, 'hooks.json'); }
-
-function applyCodexHooks(ctx, oldFragments, log) {
-  if (!lstatOrNull(ctx.codexDir)?.isDirectory()) return false;
-  if (!shellDelivery().session) {
-    // payload がセッションフックを持たない: 過去に自分が張った断片だけを除去する
-    removeCodexHooks(ctx, oldFragments, log);
-    return false;
-  }
-  const sessionCmd = path.join(ctx.root, 'hooks', 'beads-session.sh');
-  const file = codexHooksPath(ctx);
-  const s = readJson(file, {});
-  s.hooks = s.hooks || {};
-  s.hooks.SessionStart = s.hooks.SessionStart || [];
-  const has = s.hooks.SessionStart.some((m) => (m.hooks || []).some((h) => (h.command || '').includes(sessionCmd)));
-  if (has) {
-    log.ok('codex hooks.SessionStart');
-    return oldFragments?.codexSessionStart === true;
-  }
-  s.hooks.SessionStart.push({ hooks: [{ type: 'command', command: sessionCmd, timeout: 10 }] });
-  writeJson(file, s);
-  log.add('codex hooks.SessionStart');
-  return true;
-}
 
 function removeCodexHooks(ctx, fragments, log) {
   if (!fragments?.codexSessionStart) return;
-  const sessionCmd = path.join(ctx.root, 'hooks', 'beads-session.sh');
+  const sessionCmd = path.join(ctx.legacyRoot, 'hooks', 'beads-session.sh');
   const s = readJson(codexHooksPath(ctx), null);
   if (!s?.hooks?.SessionStart) return;
   const before = JSON.stringify(s);
@@ -442,85 +264,95 @@ function removeCodexHooks(ctx, fragments, log) {
   if (Object.keys(s.hooks).length === 0) delete s.hooks;
   if (JSON.stringify(s) !== before) {
     writeJson(codexHooksPath(ctx), s);
-    log.del('codex hooks.SessionStart');
+    log.del('legacy codex hooks.SessionStart');
   }
 }
 
-function codexHooksState(ctx) {
-  if (!lstatOrNull(ctx.codexDir)?.isDirectory()) return null;
-  const sessionCmd = path.join(ctx.root, 'hooks', 'beads-session.sh');
-  const s = readJson(codexHooksPath(ctx), {});
-  return (s.hooks?.SessionStart || []).some((m) => (m.hooks || []).some((h) => (h.command || '').includes(sessionCmd)));
+// ---------------------------------------------------------------- 規則ブロック
+
+// payload/AGENTS.md は各ツールの規則ファイルへ、マーカー付きの管理ブロックとして届ける。
+// コピーではなくブロックなのは、規則ファイル(CLAUDE.md / AGENTS.md)はユーザー自身の
+// 記述と同居する前提のファイルだからである。マーカー間は installer の完全管理領域:
+// install / update が望む内容へ書き直し、uninstall が除去する。
+// - Claude: <claudeDir>/CLAUDE.md — 無ければ作る
+// - Codex(user): ~/.codex/AGENTS.md — .codex/ がある環境でだけ、無ければ作る
+// - Codex(project): <project>/AGENTS.md — 既存のファイルにだけ足す(プロジェクトの
+//   ルートに新しいファイルを作って見た目を変えない)
+const BLOCK_BEGIN = '<!-- agents-harness:begin (dotagents installer が管理。手で編集しない) -->';
+const BLOCK_END = '<!-- agents-harness:end -->';
+
+function rulesBody() {
+  const src = path.join(PAYLOAD, 'AGENTS.md');
+  return lstatOrNull(src) ? fs.readFileSync(src, 'utf8').trim() : null;
 }
 
-function settingsState(ctx) {
-  const defs = fragmentDefs(ctx);
-  const s = readJson(settingsPath(ctx), {});
-  return {
-    bashEnv: s.env?.BASH_ENV === defs.bashEnv,
-    sessionStart: (s.hooks?.SessionStart || []).some((m) => (m.hooks || []).some((h) => (h.command || '').includes(defs.sessionStart))),
-    ask: defs.ask.filter((r) => (s.permissions?.ask || []).includes(r)),
-  };
+function desiredBlock(body) { return [BLOCK_BEGIN, body, BLOCK_END].join('\n'); }
+
+function rulesTargets(ctx) {
+  const targets = [{ file: path.join(ctx.claudeDir, 'CLAUDE.md'), create: true }];
+  if (ctx.kind === 'user') {
+    if (lstatOrNull(ctx.codexDir)?.isDirectory()) {
+      targets.push({ file: path.join(ctx.codexDir, 'AGENTS.md'), create: true });
+    }
+  } else if (lstatOrNull(path.join(ctx.base, 'AGENTS.md'))?.isFile()) {
+    targets.push({ file: path.join(ctx.base, 'AGENTS.md'), create: false });
+  }
+  return targets;
 }
 
-// ---------------------------------------------------------------- 参照ブロック断片
-
-// 既存の root AGENTS.md を持つプロジェクトでは、ハーネス正本への参照ブロックを
-// マーカー付きで管理する。プロンプト層の配線なので版管理に乗り、clone だけで届く。
-// マーカー間は installer の完全管理領域(zshenv 管理行と同じ扱い): install / update が
-// 望む内容へ書き直し、uninstall が除去する。root AGENTS.md が無いプロジェクトには作らない。
-const REF_BEGIN = '<!-- agents-harness:begin (dotagents installer が管理。手で編集しない) -->';
-const REF_END = '<!-- agents-harness:end -->';
-const REF_BODY = '- エージェントの運転規則は [.agents/AGENTS.md](.agents/AGENTS.md) を正本とする(dotagents ハーネスの配布物。インストール先を直接編集しない)。';
-
-function rootAgentsFile(ctx) {
-  return ctx.kind === 'project' ? path.join(path.dirname(ctx.root), 'AGENTS.md') : null;
-}
-
-function stripRefBlock(lines) {
+function stripBlock(lines) {
   const kept = [];
   let inBlock = false;
   for (const l of lines) {
-    if (l.trim() === REF_BEGIN) { inBlock = true; continue; }
-    if (inBlock) { if (l.trim() === REF_END) inBlock = false; continue; }
+    if (l.trim() === BLOCK_BEGIN) { inBlock = true; continue; }
+    if (inBlock) { if (l.trim() === BLOCK_END) inBlock = false; continue; }
     kept.push(l);
   }
   return kept;
 }
 
-function applyRefBlock(ctx, log) {
-  const file = rootAgentsFile(ctx);
-  if (!file || !lstatOrNull(file)?.isFile()) return false;
-  const text = fs.readFileSync(file, 'utf8');
-  const desired = [REF_BEGIN, REF_BODY, REF_END].join('\n');
+// 戻り値は manifest への記録 { file(base 相対), createdFile } / null(対象外)。
+// createdFile はファイルごと自分が作った事実 — uninstall がブロックを剥いで空になった
+// ファイルを消してよいかの根拠になる。
+function applyRulesBlock(ctx, t, body, oldRecord, log) {
+  const st = lstatOrNull(t.file);
+  if (!st && !t.create) return null;
+  const rel = path.relative(ctx.base, t.file);
+  const desired = desiredBlock(body);
+  const text = st ? fs.readFileSync(t.file, 'utf8') : '';
   if (text.includes(desired)) {
-    log.ok('AGENTS.md reference block');
-    return true;
+    log.ok(`rules block ${rel}`);
+    return { file: rel, createdFile: oldRecord?.createdFile === true };
   }
-  const kept = stripRefBlock(text.split('\n'));
+  const kept = stripBlock(text.split('\n'));
   while (kept.length && kept[kept.length - 1] === '') kept.pop();
-  fs.writeFileSync(file, [...kept, '', desired, ''].join('\n'));
-  log.add('AGENTS.md reference block (points the existing root AGENTS.md at the harness)');
-  return true;
+  fs.mkdirSync(path.dirname(t.file), { recursive: true });
+  fs.writeFileSync(t.file, [...kept, ...(kept.length ? [''] : []), desired, ''].join('\n'));
+  if (st) log.update(`rules block ${rel}`);
+  else log.add(`rules block ${rel}`);
+  return { file: rel, createdFile: st ? oldRecord?.createdFile === true : true };
 }
 
-function removeRefBlock(ctx, fragments, log) {
-  if (!fragments?.refBlock) return;
-  const file = rootAgentsFile(ctx);
-  if (!file || !lstatOrNull(file)?.isFile()) return;
+function removeRulesBlock(ctx, record, log) {
+  const file = path.join(ctx.base, record.file);
+  if (!lstatOrNull(file)?.isFile()) return;
   const text = fs.readFileSync(file, 'utf8');
-  const kept = stripRefBlock(text.split('\n'));
-  if (kept.join('\n') !== text) {
-    while (kept.length && kept[kept.length - 1] === '') kept.pop();
-    fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
-    log.del('AGENTS.md reference block');
+  if (!text.includes(BLOCK_BEGIN)) return; // ブロックが無ければユーザーのファイルに触れない
+  const kept = stripBlock(text.split('\n'));
+  while (kept.length && kept[kept.length - 1] === '') kept.pop();
+  if (record.createdFile === true && kept.join('\n').trim() === '') {
+    fs.unlinkSync(file);
+    log.del(`rules block ${record.file} (removed the file — it was ours)`);
+    return;
   }
+  fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
+  log.del(`rules block ${record.file}`);
 }
 
-function refBlockState(ctx) {
-  const file = rootAgentsFile(ctx);
-  if (!file || !lstatOrNull(file)?.isFile()) return null;
-  return fs.readFileSync(file, 'utf8').includes([REF_BEGIN, REF_BODY, REF_END].join('\n'));
+function rulesBlockState(ctx, t, body) {
+  const st = lstatOrNull(t.file);
+  if (!st) return t.create ? false : null;
+  return fs.readFileSync(t.file, 'utf8').includes(desiredBlock(body));
 }
 
 // ---------------------------------------------------------------- log
@@ -706,8 +538,8 @@ async function resolveTarget(cmd, opts) {
   if (!isInteractive()) {
     throw new Error(
       `no target given for \`${cmd}\`. Pick exactly one:\n` +
-      `         agents-setup ${cmd} user              ~/.agents\n` +
-      `         agents-setup ${cmd} project [<dir>]   <dir>/.agents (defaults to the current directory)\n` +
+      `         agents-setup ${cmd} user              ~/.claude + ~/.codex\n` +
+      `         agents-setup ${cmd} project [<dir>]   <dir>/.claude + <dir>/.codex (defaults to the current directory)\n` +
       `       (run it in a terminal to choose interactively)`);
   }
   const cwd = process.cwd();
@@ -718,15 +550,15 @@ async function resolveTarget(cmd, opts) {
     options: [
       {
         label: 'This project',
-        detail: homePath(path.join(cwd, '.agents')),
+        detail: homePath(cwd),
         hint: cwd === REPO_ROOT
-          ? 'Prompts for this project only — note: this is the dotagents repo itself'
-          : 'Prompts for this project only',
+          ? 'Rules for this project only — note: this is the dotagents repo itself'
+          : 'Rules for this project only',
       },
       {
         label: 'User level',
-        detail: homePath(path.join(os.homedir(), '.agents')),
-        hint: 'Prompts and guard delivery, for every project',
+        detail: '~/.claude · ~/.codex',
+        hint: 'Rules, skills and review agents for every project',
       },
     ],
   });
@@ -737,102 +569,48 @@ async function resolveTarget(cmd, opts) {
   return opts;
 }
 
-// ---------------------------------------------------------------- シェル層(共有資源)
+// ---------------------------------------------------------------- 旧レイアウトの移行
 
-// シェル層はユーザーレベルにしか存在できず、全プロジェクトが共有する。その健全性は
-// 「manifest がある・配達フックの実体がある・zshenv 管理行が正しい」の 3 点で決まる。
-function shellLayerState() {
-  const uctx = makeCtx({});
-  const m = readJson(manifestPath(uctx), null);
-  if (!m) return 'missing';
-  const delivered = !!lstatOrNull(path.join(uctx.root, 'hooks', 'shellenv.sh'));
-  return delivered && zshenvState(uctx) === 'ok' ? 'ok' : 'partial';
-}
-
-// プロジェクト install の後始末。既存のユーザーレベル manifest があればその scope を保つ
-// (full を shell へ縮小しない)。無ければ最小形の shell スコープで敷く。
-async function ensureShellLayer(opts) {
-  if (!payloadEntries('shell').length) return; // payload にシェル層が無ければ敷く物が無い
-  if (shellLayerState() === 'ok') return;
-  const m = readJson(manifestPath(makeCtx({})), null);
-  if (opts.interactive) {
-    const answer = await pick(
-      'Set up guard delivery now?',
-      [
-        'It is missing — without it the shell-layer guards cannot fire.',
-        'zsh only has a user-global startup file, so delivery always lives at the user level.',
-      ],
-      [
-        { label: 'Skip', hint: 'Guards stay off; run `agents-setup install shell` later', value: 'skip' },
-        {
-          label: 'Set it up',
-          detail: homePath(path.join(os.homedir(), '.agents')),
-          hint: 'Adds hooks/bin here and one line to ~/.zshenv',
-          value: 'setup',
-        },
-      ],
-    );
-    if (answer !== 'setup') return;
-  } else {
-    console.log(ui.dim(`\nAdding the missing guard delivery at the user level (its only possible home).`));
-  }
-  await install({ target: !m || m.scope === 'shell' ? 'shell' : 'user', force: opts.force });
-}
-
-// uninstall の前に、共有資源であるシェル層の扱いを決める。'keep' なら除去後に最小形で
-// 敷き直し、'abort' なら何もしない。プロジェクトの uninstall はシェル層に届かないので、
-// 判断の対象はユーザーレベルだけである。
-async function resolveShellDisposition(ctx, m, opts) {
-  if (!payloadEntries('shell').length) return 'remove'; // 残す・敷き直すシェル層が payload に無い
-  if (ctx.kind === 'project') {
-    if (opts.interactive) {
-      console.log(ui.dim(`\n  Guard delivery lives at the user level; this removal does not touch it.`));
+// 旧レイアウト(<base>/.agents + symlink + zshenv 行 + settings / codex 断片 + 参照ブロック)を
+// 検出し、旧 manifest の所有記録に基づいて刈り込む。install / update / uninstall の入口で
+// 走る。ユーザーの改変(hash 不一致)と自前スキルは残して警告する — 所有権規則は
+// 新レイアウトと同一である。
+function migrateLegacy(ctx, log) {
+  const m = readJson(legacyManifestPath(ctx), null);
+  if (!m) return false;
+  for (const l of m.links || []) removeLink(l, log);
+  removeZshenvLine(ctx, log);
+  removeSettings(ctx, m.fragments, log);
+  removeCodexHooks(ctx, m.fragments, log);
+  if (m.fragments?.refBlock) {
+    // 旧・参照ブロック(マーカーは現行の規則ブロックと同一)。剥ぐだけでよい —
+    // 対象が rulesTargets に含まれる場合は、新しい規則ブロックが同じ場所に入り直す。
+    const file = path.join(ctx.base, 'AGENTS.md');
+    if (lstatOrNull(file)?.isFile()) {
+      const text = fs.readFileSync(file, 'utf8');
+      if (text.includes(BLOCK_BEGIN)) {
+        const kept = stripBlock(text.split('\n'));
+        while (kept.length && kept[kept.length - 1] === '') kept.pop();
+        fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
+        log.del('legacy AGENTS.md reference block');
+      }
     }
-    return 'remove';
   }
-  if (opts.keepShell) return 'keep';
-  if (m.scope === 'shell') {
-    // 全体がシェル層なので「残す」は無い。壊す範囲を伝えて既定は中止に倒す。
-    if (!opts.interactive) return 'remove';
-    const answer = await pick(
-      'Remove the guard delivery itself?',
-      [
-        'This installation IS the delivery (scope=shell).',
-        'Removing it turns off the shell-layer guards everywhere on this HOME.',
-      ],
-      [
-        { label: 'Cancel', hint: 'Leave the guards in place', value: 'abort' },
-        {
-          label: 'Remove anyway',
-          detail: homePath(ctx.root),
-          hint: 'Enforcement stops everywhere on this HOME',
-          tone: 'danger',
-          value: 'remove',
-        },
-      ],
-    );
-    return answer === 'remove' ? 'remove' : 'abort';
+  for (const [rel, hash] of Object.entries(m.files || {})) {
+    const dst = path.join(ctx.legacyRoot, rel);
+    const st = lstatOrNull(dst);
+    if (!st) continue;
+    if (sha256(dst) === hash) {
+      fs.unlinkSync(dst);
+      removeEmptyDirsUpTo(path.dirname(dst), ctx.legacyRoot);
+      log.del(`legacy ${path.join('.agents', rel)}`);
+    } else {
+      log.warn(`legacy file modified in place, keeping it: ${dst}`);
+    }
   }
-  if (!opts.interactive) return 'remove';
-  const answer = await pick(
-    'Keep the guard delivery?',
-    [
-      'The user level also holds it: hooks/bin plus one line in ~/.zshenv, shared by every project.',
-      'A project-level .agents cannot replace it — zsh is only reachable from here.',
-    ],
-    [
-      { label: 'Keep the guards', hint: 'Remove the prompt layer only, keep enforcement working', value: 'keep' },
-      {
-        label: 'Remove everything',
-        detail: homePath(ctx.root),
-        hint: 'Enforcement stops in every project on this HOME',
-        tone: 'danger',
-        value: 'remove',
-      },
-    ],
-  );
-  if (answer === CANCELLED) return 'abort';
-  return answer;
+  fs.unlinkSync(legacyManifestPath(ctx));
+  try { fs.rmdirSync(ctx.legacyRoot); } catch { /* 自前スキル等が残っていれば残す */ }
+  return true;
 }
 
 // ---------------------------------------------------------------- commands
@@ -841,165 +619,135 @@ async function install(opts, { requireExisting = false } = {}) {
   const ctx = makeCtx(opts);
   const log = makeLog();
   const old = readJson(manifestPath(ctx), null);
-  if (requireExisting && !old) {
-    throw new Error(`no manifest in ${homePath(ctx.root)} — run \`agents-setup install\` first.`);
+  if (requireExisting && !old && !readJson(legacyManifestPath(ctx), null)) {
+    throw new Error(`nothing installed for ${homePath(ctx.base)} — run \`agents-setup install\` first.`);
   }
-  // 対象 shell は必ずユーザーレベルを指すので、「project にシェル層を入れる」は表現できない
-  // (以前は組み合わせを検証で弾いていた。構文で閉じたので検査は要らない)。
-  // update はスコープを維持する。install shell で縮小、install user で全量へ拡大。
-  const scope = opts.target === 'shell' ? 'shell' : (requireExisting && old?.scope === 'shell' ? 'shell' : 'full');
 
-  // 1. payload → .agents/(所有ハッシュに基づく外科的コピー)
-  const entries = payloadEntries(scope);
+  // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込み
+  migrateLegacy(ctx, log);
+
+  // 1. payload → 各ツールの置き場(所有ハッシュに基づく外科的コピー)
+  const entries = deliveryEntries(ctx);
   const files = {};
-  for (const { src: srcRel, dst: dstRel } of entries) {
-    const src = path.join(PAYLOAD, srcRel);
-    const dst = path.join(ctx.root, dstRel);
+  for (const { src, dst, rel } of entries) {
     const srcHash = sha256(src);
     const st = lstatOrNull(dst);
-    const recorded = old?.files?.[dstRel];
+    const recorded = old?.files?.[rel];
     if (!st) {
       fs.mkdirSync(path.dirname(dst), { recursive: true });
       fs.copyFileSync(src, dst);
       fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
-      files[dstRel] = srcHash;
-      log.add(dstRel);
+      files[rel] = srcHash;
+      log.add(rel);
     } else if (sha256(dst) === srcHash) {
-      files[dstRel] = srcHash;
-      log.ok(dstRel);
+      files[rel] = srcHash;
+      log.ok(rel);
     } else if (recorded && sha256(dst) === recorded) {
       fs.copyFileSync(src, dst);
       fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
-      files[dstRel] = srcHash;
-      log.update(dstRel);
+      files[rel] = srcHash;
+      log.update(rel);
     } else if (opts.force) {
       fs.copyFileSync(src, dst);
       fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
-      files[dstRel] = srcHash;
-      log.update(`${dstRel}(--force で上書き)`);
+      files[rel] = srcHash;
+      log.update(`${rel}(--force で上書き)`);
     } else {
       log.warn(`modified in place, leaving it (use --force to overwrite): ${dst}`);
-      if (recorded) files[dstRel] = recorded; // 所有記録は保持し、状態は status が報告する
+      if (recorded) files[rel] = recorded; // 所有記録は保持し、状態は status が報告する
     }
   }
 
   // 2. payload から消えたファイルの刈り込み(自分が置いた内容のままのものだけ)
-  const dstSet = new Set(entries.map((e) => e.dst));
+  const relSet = new Set(entries.map((e) => e.rel));
   for (const [rel, hash] of Object.entries(old?.files || {})) {
-    if (files[rel] !== undefined || dstSet.has(rel)) continue;
-    const dst = path.join(ctx.root, rel);
+    if (files[rel] !== undefined || relSet.has(rel)) continue;
+    const dst = path.join(ctx.base, rel);
     const st = lstatOrNull(dst);
     if (!st) continue;
     if (sha256(dst) === hash) {
       fs.unlinkSync(dst);
-      removeEmptyDirsUpTo(path.dirname(dst), ctx.root);
+      removeEmptyDirsUpTo(path.dirname(dst), ctx.base);
       log.del(`${rel} (gone from payload)`);
     } else {
       log.warn(`gone from payload but modified in place, keeping it: ${dst}`);
     }
   }
 
-  // 3. リンク(旧リンクの刈り込み → 現リンクの保証)。
-  // 所有権は「自分が張った」事実で決まり、再 install では前回の記録を引き継ぐ。
-  const links = scope === 'shell' ? [] : desiredLinks(ctx);
-  const linkSet = new Set(links.map((l) => l.link));
-  const oldLinks = new Map((old?.links || []).map((l) => [l.link, l]));
-  for (const l of old?.links || []) {
-    if (!linkSet.has(l.link)) removeLink(ctx, l, log);
+  // 3. 規則ブロック(旧記録から外れた先の刈り込み → 現在の対象への適用)
+  const body = rulesBody();
+  const oldBlocks = new Map((old?.rulesBlocks || []).map((r) => [r.file, r]));
+  const rulesRecords = [];
+  if (body !== null) {
+    for (const t of rulesTargets(ctx)) {
+      const rec = applyRulesBlock(ctx, t, body, oldBlocks.get(path.relative(ctx.base, t.file)), log);
+      if (rec) rulesRecords.push(rec);
+    }
   }
-  const linkRecords = links.map((l) => {
-    const r = ensureLink(ctx, l, log);
-    const created = r === 'created' ? true : oldLinks.get(l.link)?.created === true;
-    return { ...l, created };
-  });
-
-  // 4. 環境断片(shell スコープでは zshenv 行のみ。settings / codex 断片は書かず、
-  // フルからの縮小時は自分の断片を除去する)。zshenv 行は配達フックが payload に
-  // 実在するときだけ張り、無ければ管理行(マーカー付き = 常に自分の持ち物)を除去する。
-  if (shellDelivery().shellenv) ensureZshenvLine(ctx, log);
-  else removeZshenvLine(ctx, log);
-  let fragments;
-  if (scope === 'shell') {
-    removeSettings(ctx, old?.fragments, log);
-    removeCodexHooks(ctx, old?.fragments, log);
-    fragments = { bashEnv: false, sessionStart: false, ask: [], codexSessionStart: false, refBlock: false };
-  } else {
-    fragments = applySettings(ctx, old?.fragments, log);
-    fragments.codexSessionStart = applyCodexHooks(ctx, old?.fragments, log);
-    fragments.refBlock = applyRefBlock(ctx, log);
+  const currentBlockFiles = new Set(rulesRecords.map((r) => r.file));
+  for (const r of old?.rulesBlocks || []) {
+    if (!currentBlockFiles.has(r.file)) removeRulesBlock(ctx, r, log);
   }
 
-  // 5. manifest
+  // 4. manifest(マシン固有の記録なので ~/.dotagents/ に置き、配備先には何も残さない)
   writeJson(manifestPath(ctx), {
-    schema: 1,
+    schema: 2,
     kind: ctx.kind,
-    scope,
+    base: ctx.base,
     version: pkg().version,
     source: REPO_ROOT,
     commit: gitCommit(),
     installedAt: new Date().toISOString(),
     files,
-    skills: ownedSkillNames(),
-    links: linkRecords,
-    fragments,
+    rulesBlocks: rulesRecords,
   });
 
   const c = log.counts;
-  console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.root)}`);
+  console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.base)}`);
   console.log(`  ${summary(c)}`);
   if (c.warn > 0) process.exitCode = 1;
-
-  // プロジェクトへ入れてもシェル層は付いてこない(配達はユーザーレベルにしかない)。
-  // 「無ければ足す」を installer 側の責務にして、順序と回数の運用知識を要らなくする。
-  if (ctx.kind === 'project') await ensureShellLayer(opts);
 }
 
 async function uninstall(opts) {
   const ctx = makeCtx(opts);
   const log = makeLog();
   const m = readJson(manifestPath(ctx), null);
-  if (!m) throw new Error(`no manifest in ${homePath(ctx.root)} — nothing of ours to remove.`);
+  const hasLegacy = !!readJson(legacyManifestPath(ctx), null);
+  if (!m && !hasLegacy) {
+    throw new Error(`nothing installed for ${homePath(ctx.base)} — nothing of ours to remove.`);
+  }
 
-  const shell = await resolveShellDisposition(ctx, m, opts);
-  if (shell === 'abort') { console.log(ui.dim('  Cancelled.')); return; }
+  // 旧レイアウトの持ち物(リンク・断片・.agents 内のファイル)も同じ所有権規則で外す
+  migrateLegacy(ctx, log);
 
-  for (const l of m.links || []) removeLink(ctx, l, log);
-  removeZshenvLine(ctx, log);
-  removeSettings(ctx, m.fragments, log);
-  removeCodexHooks(ctx, m.fragments, log);
-  removeRefBlock(ctx, m.fragments, log);
-
-  for (const [rel, hash] of Object.entries(m.files || {})) {
-    const dst = path.join(ctx.root, rel);
+  for (const r of m?.rulesBlocks || []) removeRulesBlock(ctx, r, log);
+  for (const [rel, hash] of Object.entries(m?.files || {})) {
+    const dst = path.join(ctx.base, rel);
     const st = lstatOrNull(dst);
     if (!st) continue;
     if (sha256(dst) === hash) {
       fs.unlinkSync(dst);
-      removeEmptyDirsUpTo(path.dirname(dst), ctx.root);
+      removeEmptyDirsUpTo(path.dirname(dst), ctx.base);
       log.del(rel);
     } else {
       log.warn(`modified in place, keeping it: ${dst}`);
     }
   }
 
-  fs.unlinkSync(manifestPath(ctx));
-  try { fs.rmdirSync(ctx.root); } catch { /* 自前スキル等が残っていれば残す */ }
+  if (m) fs.unlinkSync(manifestPath(ctx));
+  // 記録が尽きたら集約ディレクトリ自体も残さない(空のときだけ消える)
+  try { fs.rmdirSync(path.join(STATE_DIR(), 'projects')); } catch { /* 他の記録があれば残る */ }
+  try { fs.rmdirSync(STATE_DIR()); } catch { /* 同上 */ }
 
   const c = log.counts;
-  console.log(`\n  ${ui.bold('uninstall')} ${ui.dim('→')} ${homePath(ctx.root)}`);
+  console.log(`\n  ${ui.bold('uninstall')} ${ui.dim('→')} ${homePath(ctx.base)}`);
   console.log(`  ${summary(c)}${ui.dim(' · your own skills and modified files were left alone')}`);
-
-  // 一度すべて除去してから最小形で敷き直す。除去の外科性(自分が置いたものだけ)を
-  // 保ったまま、共有資源だけが残る。
-  if (shell === 'keep') {
-    console.log(ui.dim(`\n  Keeping the guards: removing the prompt layer, re-laying the shell layer.`));
-    await install({ target: 'shell', force: opts.force });
-  }
 }
 
 function status(opts) {
   const ctx = makeCtx(opts);
   const m = readJson(manifestPath(ctx), null);
+  const hasLegacy = !!readJson(legacyManifestPath(ctx), null);
   let drift = 0;
   const report = (okc, msg) => {
     console.log(`  ${okc ? ui.green('ok') : ui.red('NG')}  ${okc ? msg : ui.bold(msg)}`);
@@ -1007,55 +755,46 @@ function status(opts) {
   };
 
   if (!m) {
-    console.log(`\n  ${ui.yellow('not installed')} ${ui.dim('—')} no manifest in ${homePath(ctx.root)}`);
+    if (hasLegacy) {
+      console.log(`\n  ${ui.yellow('legacy layout')} ${ui.dim('—')} ${homePath(ctx.legacyRoot)} exists; run \`agents-setup update\` to migrate`);
+    } else {
+      console.log(`\n  ${ui.yellow('not installed')} ${ui.dim('—')} no manifest for ${homePath(ctx.base)}`);
+    }
     process.exitCode = 1;
     return;
   }
 
-  const scope = m.scope === 'shell' ? 'shell' : 'full';
-  console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.root)}`);
-  console.log(ui.dim(`  scope=${scope} version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installed=${m.installedAt}`));
+  console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.base)}`);
+  console.log(ui.dim(`  version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installed=${m.installedAt}`));
   console.log(ui.dim(`  source=${m.source}\n`));
 
   // payload との照合
-  const entries = payloadEntries(scope);
-  for (const { src: srcRel, dst: dstRel } of entries) {
-    const dst = path.join(ctx.root, dstRel);
+  const entries = deliveryEntries(ctx);
+  for (const { src, dst, rel } of entries) {
     const st = lstatOrNull(dst);
-    if (!st) { report(false, `${dstRel} — missing`); continue; }
+    if (!st) { report(false, `${rel} — missing`); continue; }
     const h = sha256(dst);
-    if (h === sha256(path.join(PAYLOAD, srcRel))) report(true, dstRel);
-    else if (h === m.files?.[dstRel]) report(false, `${dstRel} — payload is newer, run update`);
-    else report(false, `${dstRel} — modified in place`);
+    if (h === sha256(src)) report(true, rel);
+    else if (h === m.files?.[rel]) report(false, `${rel} — payload is newer, run update`);
+    else report(false, `${rel} — modified in place`);
   }
-  const dstSet = new Set(entries.map((e) => e.dst));
+  const relSet = new Set(entries.map((e) => e.rel));
   for (const rel of Object.keys(m.files || {})) {
-    if (!dstSet.has(rel)) report(false, `${rel} — gone from payload, run update to prune`);
+    if (!relSet.has(rel)) report(false, `${rel} — gone from payload, run update to prune`);
   }
 
-  // リンク・環境断片(shell スコープはリンクと settings / codex 断片を持たない)
-  if (scope !== 'shell') {
-    for (const l of desiredLinks(ctx)) {
-      const st = lstatOrNull(l.link);
-      const okc = !!st && st.isSymbolicLink() &&
-        (fs.readlinkSync(l.link) === linkValue(ctx, l) ||
-          path.resolve(path.dirname(l.link), fs.readlinkSync(l.link)) === l.target);
-      report(okc, `link ${l.link}`);
+  // 規則ブロック
+  const body = rulesBody();
+  if (body !== null) {
+    for (const t of rulesTargets(ctx)) {
+      const st = rulesBlockState(ctx, t, body);
+      if (st !== null) report(st, `rules block ${path.relative(ctx.base, t.file)}`);
     }
   }
-  // 環境断片の期待値は payload のフックの実在に従う(無いものは「張られていない」が正)
-  const has = shellDelivery();
-  if (ctx.zshenv) report(zshenvState(ctx) === (has.shellenv ? 'ok' : 'missing'), `zshenv managed line`);
-  if (scope !== 'shell') {
-    const st = settingsState(ctx);
-    report(st.bashEnv === has.shellenv, `settings env.BASH_ENV`);
-    report(st.sessionStart === has.session, `settings hooks.SessionStart`);
-    report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
-    const cx = codexHooksState(ctx);
-    if (cx !== null) report(cx === has.session, `codex hooks.SessionStart`);
-    const rb = refBlockState(ctx);
-    if (rb !== null) report(rb, `AGENTS.md reference block`);
-  }
+
+  // 旧レイアウトの残存
+  if (hasLegacy) report(false, `legacy layout ${homePath(ctx.legacyRoot)} — run update to migrate`);
+  if (ctx.kind === 'user' && zshenvHasMarker(ctx)) report(false, `legacy zshenv managed line — run update to prune`);
 
   console.log(drift === 0 ? `\n  ${ui.green('no drift')}` : `\n  ${ui.red(`drift: ${drift}`)}`);
   if (drift > 0) process.exitCode = 1;
@@ -1118,7 +857,7 @@ async function clone(opts) {
   console.log(`${ui.dim('clone')} ${src} ${ui.dim('→')} ${homePath(dir)}`);
   execFileSync('git', ['clone', src, dir], { stdio: 'inherit' });
   console.log(`\n${ui.green('✔')} corpus cloned. It is yours to edit — rules live in git, deployments follow it.`);
-  console.log(`${ui.dim('  next:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} install ${ui.dim('user | project [dir] | shell')}`);
+  console.log(`${ui.dim('  next:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} install ${ui.dim('user | project [dir]')}`);
   console.log(`${ui.dim('  follow upstream later with:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} pull`);
 }
 
@@ -1159,14 +898,26 @@ function pull() {
   }
   const n = incoming.split('\n').length;
   console.log(`${ui.green('✔')} pulled ${n} commit${n === 1 ? '' : 's'} and verified.`);
-  console.log(`${ui.dim('  deployments resync per install:')} agents-setup update ${ui.dim('… (each session entrance reports staleness)')}`);
+  console.log(`${ui.dim('  deployments resync per install:')} agents-setup update ${ui.dim('… (status detects drift)')}`);
 }
 
 // 正本の外(npx キャッシュ等)から配備系コマンドが呼ばれたら、既知の正本へ委譲する。
 // 使い捨てコピーを source として manifest に記録する経路を作らない。
+// 正本の在処は ~/.dotagents/ の記録から引く(旧レイアウトの ~/.agents/.dotagents.json も
+// 移行期間の後方互換として読む)。
+function knownCorpusSource() {
+  const user = readJson(path.join(STATE_DIR(), 'user.json'), null);
+  if (user?.source) return user.source;
+  const projectsDir = path.join(STATE_DIR(), 'projects');
+  for (const f of (lstatOrNull(projectsDir) ? fs.readdirSync(projectsDir).sort() : [])) {
+    const m = readJson(path.join(projectsDir, f), null);
+    if (m?.source) return m.source;
+  }
+  return readJson(path.join(os.homedir(), '.agents', LEGACY_MANIFEST_NAME), null)?.source ?? null;
+}
+
 function delegateToCorpus(argv) {
-  const manifest = readJson(path.join(os.homedir(), '.agents', MANIFEST_NAME), null);
-  const source = manifest?.source;
+  const source = knownCorpusSource();
   const bin = source && path.join(source, 'bin', 'agents-setup');
   if (source && source !== REPO_ROOT && lstatOrNull(bin)) {
     console.log(`${ui.dim('not a corpus here — delegating to')} ${homePath(source)}`);
@@ -1177,13 +928,13 @@ function delegateToCorpus(argv) {
   throw new Error('this copy is disposable (npx cache or tarball), not an editable corpus.\n' +
     '       Get one first, then deploy from it:\n' +
     '         npx @hiroiku/dotagents clone <dir>\n' +
-    `         <dir>/bin/agents-setup install user | project [dir] | shell`);
+    `         <dir>/bin/agents-setup install user | project [dir]`);
 }
 
 const COMMANDS = new Set(['clone', 'pull', 'install', 'update', 'uninstall', 'status']);
 // 対象(配備先)を取らないコマンド。clone は取得先ディレクトリ、pull は引数なし。
 const CORPUS_COMMANDS = new Set(['clone', 'pull']);
-const TARGETS = new Set(['user', 'project', 'shell']);
+const TARGETS = new Set(['user', 'project']);
 // 旧インタフェース。エイリアスとしては生かさない(2 系統は維持費を二重に払う)。
 // 正しい形へ案内するためだけに名前を覚えておく。
 const RETIRED = new Set(['--user', '--project', '--shell']);
@@ -1191,21 +942,20 @@ const RETIRED = new Set(['--user', '--project', '--shell']);
 // 対象は位置引数 1 つ。位置は 1 つしか無いので「user と project の同時指定」は
 // 表現できない — 排他は検証ではなく構文が保証する。
 function parseArgs(argv) {
-  const opts = { target: null, dir: null, cloneDir: null, from: null, force: false, keepShell: false, interactive: false, help: false, version: false };
+  const opts = { target: null, dir: null, cloneDir: null, from: null, force: false, interactive: false, help: false, version: false };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--version' || a === '-v') opts.version = true;
     else if (a === '--force') opts.force = true;
-    else if (a === '--keep-shell') opts.keepShell = true;
     else if (a === '--from') {
       if (argv[i + 1] === undefined) throw new Error('--from takes a value: --from <url|path>');
       opts.from = argv[++i];
     }
     else if (RETIRED.has(a)) {
       throw new Error(`${a} is retired. The target is a positional argument now:\n` +
-        `         agents-setup <command> user | project [<dir>] | shell`);
+        `         agents-setup <command> user | project [<dir>]`);
     }
     else if (a.startsWith('-')) throw new Error(`unknown argument: ${a}`);
     else positional.push(a);
@@ -1227,8 +977,12 @@ function parseArgs(argv) {
   }
 
   if (target !== undefined) {
+    if (target === 'shell') {
+      throw new Error('the `shell` target is retired: the payload no longer ships a shell layer.\n' +
+        '       Use `user` or `project [<dir>]`; `update` prunes any old shell wiring.');
+    }
     if (!TARGETS.has(target)) {
-      throw new Error(`unknown target: ${target} (expected user, project or shell)`);
+      throw new Error(`unknown target: ${target} (expected user or project)`);
     }
     opts.target = target;
   }
@@ -1246,12 +1000,8 @@ function parseArgs(argv) {
 
 // 対象の説明は 4 コマンドで同一なので 1 箇所に持つ(コマンドごとに書き写すと黙って古くなる)。
 const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— exactly one. Omit it to choose interactively; never defaulted.')}
-  ${ui.cyan('user')}           the user level (~/.agents)
-  ${ui.cyan('project')} [dir]  a project (<dir>/.agents; defaults to the current directory)
-  ${ui.cyan('shell')}          guard delivery only: hooks/bin and one line in ~/.zshenv.
-                 No prompts, links or settings — every zsh gets the guards, nothing else.`;
-
-const SHELL_NOTE = `The shell layer lives only at the user level and every project shares it.`;
+  ${ui.cyan('user')}           this machine (~/.claude and ~/.codex)
+  ${ui.cyan('project')} [dir]  a project (<dir>/.claude and <dir>/.codex; defaults to the current directory)`;
 
 const CMD_HELP = {
   clone: {
@@ -1278,34 +1028,34 @@ const CMD_HELP = {
       'corpus tests. Stops on uncommitted changes, conflicts, or red tests.',
     ],
     options: [],
-    notes: ['Deployments are not touched: each install resyncs with `update`, and every session entrance reports staleness.'],
+    notes: ['Deployments are not touched: each install resyncs with `update` (status detects drift).'],
     examples: [
       ['dotagents pull', 'follow the upstream corpus'],
     ],
   },
   install: {
-    line: 'copy payload/ into .agents/, then set up links and env fragments',
+    line: 'copy payload/ into the tool directories (.claude/ and .codex/)',
     body: [
-      'Copies payload/ into .agents/, links it into .claude/ (and .codex/ when present),',
-      'and writes the env fragments. Everything is idempotent and hash-owned: files you',
-      'edited after installation are kept and reported, and skills you wrote yourself are',
-      'never touched.',
+      'Copies skills and agent definitions into .claude/ (and .codex/ when present) as',
+      'plain files, and delivers the rules as a managed block in CLAUDE.md / AGENTS.md.',
+      'Everything is idempotent and hash-owned: files you edited after installation are',
+      'kept and reported, and skills you wrote yourself are never touched.',
     ],
     options: [['--force', 'overwrite files that were modified after installation']],
-    notes: [SHELL_NOTE, 'Installing into a project adds that layer when it is missing.'],
+    notes: ['A legacy .agents layout (symlinks, zshenv line, settings fragments) is migrated automatically.'],
     examples: [
       ['agents-setup install', 'choose the target interactively'],
       ['agents-setup install project', 'into the current directory'],
       ['agents-setup install project /path/to/x', 'into a specific project'],
-      ['agents-setup install shell', 'guards only, nothing else'],
+      ['agents-setup install user', 'for every project on this machine'],
     ],
   },
   update: {
     line: 'same as install, and prune whatever disappeared from payload/',
     body: [
       'Requires an existing installation. Beyond what install does, it removes files that',
-      'are gone from payload/ but still recorded in the manifest. The installed scope is',
-      'preserved: a shell-only installation stays shell-only.',
+      'are gone from payload/ but still recorded in the manifest (kept machine-locally',
+      'under ~/.dotagents/), and prunes any legacy .agents layout it finds.',
     ],
     options: [['--force', 'overwrite files that were modified after installation']],
     notes: ['Edit prompts in this repository, never in the installed tree — update carries them over.'],
@@ -1317,32 +1067,29 @@ const CMD_HELP = {
   uninstall: {
     line: 'remove only what this installer placed and still owns (hash-matched)',
     body: [
-      'Removes files whose content still matches the manifest, plus the links and env',
-      'fragments it added. Your own skills, files you modified, and settings entries you',
-      'wrote are left in place.',
+      'Removes files whose content still matches the manifest and strips the managed',
+      'rules blocks. Your own skills, files you modified, and everything you wrote',
+      'around the blocks are left in place.',
     ],
-    options: [['--keep-shell', 'keep the guard delivery other projects share']],
-    notes: [
-      SHELL_NOTE,
-      'Removing the user level takes it away from every project, so it asks first.',
-    ],
+    options: [],
+    notes: [],
     examples: [
       ['agents-setup uninstall project', 'remove from the current directory'],
-      ['agents-setup uninstall user --keep-shell', 'drop the prompts, keep the guards'],
+      ['agents-setup uninstall user', 'remove from this machine'],
     ],
   },
   status: {
-    line: 'verify manifest, payload, files, links and fragments (exit 1 on drift)',
+    line: 'verify manifest, payload, files and rules blocks (exit 1 on drift)',
     body: [
-      'Compares the installed tree against both the manifest and payload/, and reports',
-      'every difference: missing files, edits made in place, and payload changes that are',
-      'not applied yet. Exits 1 when anything differs.',
+      'Compares the installed files against both the manifest and payload/, and reports',
+      'every difference: missing files, edits made in place, payload changes not yet',
+      'applied, and leftover legacy layouts. Exits 1 when anything differs.',
     ],
     options: [],
     notes: [],
     examples: [
       ['agents-setup status project', 'check the current directory'],
-      ['agents-setup status user', 'check the user level'],
+      ['agents-setup status user', 'check this machine'],
     ],
   },
 };
@@ -1361,12 +1108,10 @@ function printHelp(cmd) {
     console.log(`\n${ui.bold('Options')}`);
     console.log(pad2([
       ['--force', 'overwrite files that were modified after installation'],
-      ['--keep-shell', 'on uninstall, keep the guard delivery other projects share'],
       ['--help, -h', 'show this help, or the help for a command'],
       ['--version, -v', 'print the version'],
     ]).join('\n'));
-    console.log(`\n${SHELL_NOTE}`);
-    console.log(`${ui.dim('install project')} adds it when missing; ${ui.dim('uninstall user')} asks before taking it away.`);
+    console.log(`\n${ui.dim('Deployments are plain copies — edit rules in the corpus, deliver with update.')}`);
     console.log(`\n${ui.dim(`Run \`agents-setup <command> --help\` for what a single command does.`)}`);
     return;
   }

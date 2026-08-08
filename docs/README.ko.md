@@ -7,7 +7,7 @@
 [![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-- **정본은 하나, 배포는 여럿.** 프롬프트, 스킬, 에이전트 역할이 하나의 git 저장소에 함께 산다. installer가 이를 `~/.agents`나 `<project>/.agents`로 복사하고, Claude Code와 Codex가 읽는 symlink를 연결한다.
+- **정본은 하나, 배포는 여럿.** 프롬프트, 스킬, 에이전트 역할이 하나의 git 저장소에 함께 산다. installer가 이를 Claude Code와 Codex가 읽는 디렉터리(`.claude/`, `.codex/`)로 곧바로 복사한다 — 평범한 파일이며, symlink도 중간 트리도 없다.
 - **가져다 쓰는 라이브러리가 아니라, 직접 운용하는 규칙집.** 규칙은 직접 편집하고 커밋하며, upstream을 따르는 것도 선택했을 때만이다 — 뒤에서 몰래 바뀌는 일은 없다.
 - **판단하는 모델을 위해 쓰였다.** 정본에는 유능한 모델이 도출할 수 없는 것만 기록한다 — 자신의 관례, 자신의 요구 사항 앵커, 자신의 역할 경계. 나머지는 모두 모델의 판단에 맡긴다. 그 근거는 [동봉된 하네스](../payload/docs/README.ko.md)에 있다.
 
@@ -19,12 +19,12 @@
 flowchart LR
     UP["upstream<br>github.com/hiroiku/dotagents"]
     C["정본<br>~/dotagents — 직접 편집하는 git 저장소"]
-    A["배포<br>~/.agents · 프로젝트별 .agents"]
+    A["배포<br>~/.claude + ~/.codex · 프로젝트별 .claude/"]
     S["세션<br>Claude Code · Codex"]
     UP -->|"clone · 1회"| C
     UP -->|"pull · 원할 때"| C
-    C -->|"install · update"| A
-    A -->|"symlink"| S
+    C -->|"install · update — 단순 복사"| A
+    A -->|"네이티브로 읽는다"| S
 ```
 
 ## 빠른 시작
@@ -41,8 +41,8 @@ npx @hiroiku/dotagents clone ~/dotagents
 
 ```sh
 cd ~/dotagents
-bin/agents-setup install project /path/to/project   # 프로젝트 하나   → <dir>/.agents
-bin/agents-setup install user                       # 이 머신        → ~/.agents
+bin/agents-setup install project /path/to/project   # 프로젝트 하나   → <dir>/.claude + <dir>/.codex
+bin/agents-setup install user                       # 이 머신        → ~/.claude + ~/.codex
 ```
 
 대상을 생략하면 대화형으로 고른다. 비대화형 셸에서 대상을 생략하면 아무것도 쓰지 않고 멈춘다 — 기본값이 규칙이 놓일 곳을 결정하는 일은 없다.
@@ -52,7 +52,7 @@ bin/agents-setup install user                       # 이 머신        → ~/.a
 ```sh
 bin/agents-setup pull                 # upstream 추종: changelog → rebase → 테스트
 bin/agents-setup update  project ...  # 배포를 재동기화한다
-bin/agents-setup status  project ...  # 파일과 링크를 검증 — 어긋나면 exit 1
+bin/agents-setup status  project ...  # 파일과 규칙 블록을 검증 — 어긋나면 exit 1
 bin/agents-setup --help               # 모든 명령, 대상, 옵션, 예시
 ```
 
@@ -62,7 +62,7 @@ bin/agents-setup --help               # 모든 명령, 대상, 옵션, 예시
 |---|---|---|
 | **clone(취득)** | 1회 | 정본을 직접 소유하는 git 저장소로 실체화한다 |
 | **pull(추종)** | 원할 때 | upstream을 가져와 들어오는 커밋 제목을 보여주고, 자신의 커밋을 그 위에 rebase하고, 정본의 테스트를 실행한다 |
-| **install·update(배포)** | 머신마다, 프로젝트마다 | 정본을 `.agents/`로 복사하고 링크를 연결한다 |
+| **install·update(배포)** | 머신마다, 프로젝트마다 | payload를 도구가 읽는 디렉터리로 복사한다 |
 
 세 가지 규칙이 이들을 연결한다:
 
@@ -74,26 +74,27 @@ bin/agents-setup --help               # 모든 명령, 대상, 옵션, 예시
 
 | 항목 | 도착지 | 전달 방식 |
 |---|---|---|
-| 편재 규칙(`AGENTS.md`) | `.agents/AGENTS.md` | symlink `.claude/CLAUDE.md → .agents/AGENTS.md`; Codex에도 `.codex/` 아래 같은 형태로 도착 |
-| 스킬 | `.agents/skills/` | 스킬마다 하나씩 `.claude/skills/`와 `.codex/skills/`로 링크되어, 직접 작성한 스킬과 공존한다 |
-| 리뷰 에이전트 | `.agents/agents/` | 에이전트마다 하나씩 `.claude/agents/`로 링크 |
-| 머신별 산출물(manifest) | `.agents/` | payload에 함께 실려 오는 `.gitignore`가 버전 관리에서 제외 |
+| 편재 규칙(`AGENTS.md`) | `.claude/CLAUDE.md` · `~/.codex/AGENTS.md` · 프로젝트 루트의 `AGENTS.md` | 마커 사이의 관리 블록 — 그 주위에 직접 쓴 내용은 절대 건드리지 않으며, `uninstall`이 파일을 원래대로 되돌린다 |
+| 스킬 | `.claude/skills/`와 `.codex/skills/` | 단순 복사, 스킬마다 디렉터리 하나씩, 직접 작성한 스킬과 공존한다 |
+| 리뷰 에이전트 | `.claude/agents/` | 단순 복사, 에이전트마다 파일 하나씩 |
+| 머신 로컬 기록(manifest) | `~/.dotagents/` | 프로젝트에는 절대 놓이지 않는다 — installer가 배치한 것의 해시 장부는 머신과 함께 산다 |
 
-모든 것은 멱등이며 **해시로 소유**된다: installer는 자신이 배치했고 지금도 인식할 수 있는 것만 건드린다. 직접 작성한 스킬은 절대 건드리지 않고, 배포 위치에서 수정한 파일은 그대로 두고 보고하며(`--force`로 덮어쓰기), `uninstall`이 제거하는 것도 manifest에 기록된 것뿐이다 — 그 외에는 건드리지 않는다.
+모든 것은 멱등이며 **해시로 소유**된다: installer는 자신이 배치했고 지금도 인식할 수 있는 것만 건드린다. 직접 작성한 스킬은 절대 건드리지 않고, 배포 위치에서 수정한 파일은 그대로 두고 보고하며(`--force`로 덮어쓰기), `uninstall`이 제거하는 것도 manifest에 기록된 것뿐이다 — 그 외에는 건드리지 않는다. 이전 버전이 남긴 구식 `.agents` 레이아웃(symlink, zshenv 줄, settings 조각)은 `install` / `update` 시 자동으로 감지되어 이행된다.
 
 ## 레이아웃
 
 ```
 bin/agents-setup      installer CLI (clone / pull / install / update / uninstall / status)
 test/                 installer의 contract 테스트 (npm test)
-payload/              배포되는 것의 단일 정의; 이 트리가 그대로 .agents/가 된다
-├── README.md         동봉된 하네스 — 무엇이 실려 오고, 왜 이토록 말을 아끼는가
-├── AGENTS.md         단 하나의 편재 규칙 (모든 세션이 항상 읽는다)
+payload/              배포되는 것의 단일 정의
+├── AGENTS.md         단 하나의 편재 규칙 — 관리 블록으로 전달된다
 ├── skills/           순간 규칙 (그 순간이 왔을 때만 읽는다)
-└── agents/           리뷰 역할 (적대적 · 보안 · 접근성)
+├── agents/           리뷰 역할 (적대적 · 보안 · 접근성)
+├── README.md         동봉된 하네스 — 무엇이 실려 오고, 왜 이토록 말을 아끼는가
+└── docs/             그 안내서의 번역 (문서일 뿐, 배포되지 않는다)
 ```
 
-[payload/](../payload/)가 배포물의 정본 정의이며, installer 쪽에는 배포물 목록이 따로 존재하지 않는다 — 목록을 복제하면 조용히 낡아가기 때문에, [package.json](../package.json)의 `files`는 `bin`과 `payload`만을 지정한다. payload가 싣고 오는 것은 [동봉된 하네스](../payload/docs/README.ko.md)에서 설명하며, 그 설명은 모든 배포와 함께 이동한다.
+[payload/](../payload/)가 배포물의 정본 정의다: 최상위 항목의 종류가 각각이 어디에 놓일지를 결정하며, installer 쪽에는 파일 목록이 따로 존재하지 않는다 — 목록을 복제하면 조용히 낡아가기 때문에, [package.json](../package.json)의 `files`는 `bin`과 `payload`만을 지정한다. payload가 싣고 오는 것은 [동봉된 하네스](../payload/docs/README.ko.md)에서 설명한다.
 
 ## 프롬프트 업데이트
 

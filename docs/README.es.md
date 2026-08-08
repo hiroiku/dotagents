@@ -7,7 +7,7 @@
 [![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
 
-- **Un corpus, muchos despliegues.** Los prompts, skills y roles de agente viven en un único repositorio git. El instalador los copia en `~/.agents` o `<project>/.agents` y conecta los enlaces simbólicos que leen Claude Code y Codex.
+- **Un corpus, muchos despliegues.** Los prompts, skills y roles de agente viven en un único repositorio git. El instalador los copia directamente en los directorios que leen Claude Code y Codex (`.claude/`, `.codex/`) — archivos simples, sin enlaces simbólicos, sin árbol intermedio.
 - **Un libro de reglas, no una biblioteca.** Editas las reglas, las confirmas (commit) y sigues el upstream solo cuando tú lo decides — nada cambia a tus espaldas.
 - **Escrito para modelos que juzgan.** El corpus registra solo lo que un modelo capaz no puede derivar — tus convenciones, tus anclas de requisitos, tus fronteras de roles. Todo lo demás se deja al juicio del modelo. El razonamiento vive en [El arnés incluido](../payload/docs/README.es.md).
 
@@ -19,12 +19,12 @@ Un corpus alimenta cada entorno. Los despliegues son copias simples — las sesi
 flowchart LR
     UP["upstream<br>github.com/hiroiku/dotagents"]
     C["tu corpus<br>~/dotagents — un repo git que editas"]
-    A["despliegues<br>~/.agents · .agents por proyecto"]
+    A["despliegues<br>~/.claude + ~/.codex · .claude/ por proyecto"]
     S["sesiones<br>Claude Code · Codex"]
     UP -->|"clone · una vez"| C
     UP -->|"pull · cuando tú eliges"| C
-    C -->|"install · update"| A
-    A -->|"symlinks"| S
+    C -->|"install · update — copias simples"| A
+    A -->|"lectura nativa"| S
 ```
 
 ## Inicio rápido
@@ -41,8 +41,8 @@ Un simple `git clone`, y es tuyo: edita las reglas, confírmalas, personalízalo
 
 ```sh
 cd ~/dotagents
-bin/agents-setup install project /path/to/project   # un proyecto    → <dir>/.agents
-bin/agents-setup install user                       # esta máquina   → ~/.agents
+bin/agents-setup install project /path/to/project   # un proyecto    → <dir>/.claude + <dir>/.codex
+bin/agents-setup install user                       # esta máquina   → ~/.claude + ~/.codex
 ```
 
 Omite el destino para elegirlo de forma interactiva. En un shell no interactivo, un destino omitido detiene el proceso sin escribir nada — ningún valor por defecto decide nunca dónde aterrizan las reglas.
@@ -52,7 +52,7 @@ Omite el destino para elegirlo de forma interactiva. En un shell no interactivo,
 ```sh
 bin/agents-setup pull                 # seguir el upstream: registro de cambios → rebase → pruebas
 bin/agents-setup update  project ...  # resincronizar un despliegue
-bin/agents-setup status  project ...  # verificar archivos y enlaces — exit 1 si hay deriva
+bin/agents-setup status  project ...  # verificar archivos y bloques de reglas — exit 1 si hay deriva
 bin/agents-setup --help               # todos los comandos, destinos, opciones, ejemplos
 ```
 
@@ -62,7 +62,7 @@ bin/agents-setup --help               # todos los comandos, destinos, opciones, 
 |---|---|---|
 | **clone** | una vez | materializa el corpus como un repositorio git que posees |
 | **pull** | cuando tú eliges | obtiene el upstream, muestra los títulos de los commits entrantes, hace rebase de tus commits encima, ejecuta las pruebas del corpus |
-| **install · update** | por máquina, por proyecto | copia el corpus en `.agents/` y conecta los enlaces |
+| **install · update** | por máquina, por proyecto | copia el payload en los directorios que leen las herramientas |
 
 Tres reglas los conectan:
 
@@ -74,26 +74,27 @@ Tres reglas los conectan:
 
 | Pieza | Destino | Entrega |
 |---|---|---|
-| Regla ubicua (`AGENTS.md`) | `.agents/AGENTS.md` | symlink `.claude/CLAUDE.md → .agents/AGENTS.md`; Codex recibe la misma forma bajo `.codex/` |
-| Skills | `.agents/skills/` | un enlace por skill en `.claude/skills/` y `.codex/skills/`, para que coexistan con los skills que escribiste tú mismo |
-| Agentes de revisión | `.agents/agents/` | un enlace por agente en `.claude/agents/` |
-| Productos específicos de la máquina (manifest) | `.agents/` | mantenidos fuera del control de versiones por un `.gitignore` que se entrega con el payload |
+| Regla ubicua (`AGENTS.md`) | `.claude/CLAUDE.md` · `~/.codex/AGENTS.md` · el `AGENTS.md` en la raíz de un proyecto | un bloque gestionado entre marcadores — lo que tú escribiste alrededor nunca se toca, y `uninstall` restaura el archivo |
+| Skills | `.claude/skills/` y `.codex/skills/` | copias simples, un directorio por skill, coexistiendo con los skills que escribiste tú mismo |
+| Agentes de revisión | `.claude/agents/` | copias simples, un archivo por agente |
+| Registro local de la máquina (manifest) | `~/.dotagents/` | nunca aterriza en un proyecto — el libro mayor de hashes de lo que el instalador colocó vive con la máquina |
 
-Todo es idempotente y de **posesión por hash**: el instalador solo toca lo que él colocó y aún reconoce. Tus propios skills nunca se tocan, los archivos que editaste en su lugar se conservan y se informan (`--force` para sobrescribir), y `uninstall` elimina exactamente lo que el manifest registra — nada más.
+Todo es idempotente y de **posesión por hash**: el instalador solo toca lo que él colocó y aún reconoce. Tus propios skills nunca se tocan, los archivos que editaste en su lugar se conservan y se informan (`--force` para sobrescribir), y `uninstall` elimina exactamente lo que el manifest registra — nada más. Una estructura `.agents` heredada (enlaces simbólicos, línea en zshenv, fragmentos de settings) dejada por versiones anteriores se detecta y se migra automáticamente en `install` / `update`.
 
 ## Estructura
 
 ```
 bin/agents-setup      CLI del instalador (clone / pull / install / update / uninstall / status)
 test/                 pruebas de contrato para el instalador (npm test)
-payload/              la única definición de lo que se distribuye; este árbol se convierte en .agents/
-├── README.md         el arnés incluido — qué se entrega, y por qué dice tan poco
-├── AGENTS.md         la única regla ubicua (leída por cada sesión, siempre)
+payload/              la única definición de lo que se distribuye
+├── AGENTS.md         la única regla ubicua — entregada como un bloque gestionado
 ├── skills/           reglas momentáneas (leídas solo cuando llega su momento)
-└── agents/           roles de revisión (adversarial · seguridad · accesibilidad)
+├── agents/           roles de revisión (adversarial · seguridad · accesibilidad)
+├── README.md         el arnés incluido — qué se entrega, y por qué dice tan poco
+└── docs/             traducciones de esa guía (documentación; no se despliega)
 ```
 
-[payload/](../payload/) es la definición canónica de la distribución; el instalador no mantiene ninguna lista de su contenido — las listas replicadas se pudren en silencio, así que [package.json](../package.json) `files` solo nombra `bin` y `payload`. Lo que entrega el payload se describe en [El arnés incluido](../payload/docs/README.es.md), y la descripción viaja con cada despliegue.
+[payload/](../payload/) es la definición canónica de la distribución: sus tipos de primer nivel deciden dónde aterrizan las cosas, y el instalador no mantiene ninguna lista de los archivos — las listas replicadas se pudren en silencio, así que [package.json](../package.json) `files` solo nombra `bin` y `payload`. Lo que entrega el payload se describe en [El arnés incluido](../payload/docs/README.es.md).
 
 ## Actualizar los prompts
 

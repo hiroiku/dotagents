@@ -2,7 +2,7 @@
 
 [English](../README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md) | [Deutsch](README.de.md) | Español | [Français](README.fr.md)
 
-El [README](../../docs/README.es.md) describe el mecanismo — un único corpus, desplegado por `agents-setup` en `~/.agents` y en los `.agents/` de cada proyecto. Este documento describe lo que ese corpus entrega en `payload/`: un arnés completo y funcional, incluido como la muestra de la que partes y que personalizas.
+El [README](../../docs/README.es.md) describe el mecanismo — un único corpus, desplegado por `agents-setup` directamente en los directorios que leen tus herramientas (`.claude/`, `.codex/`), como archivos simples. Este documento describe lo que ese corpus entrega en `payload/`: un arnés completo y funcional, incluido como la muestra de la que partes y que personalizas.
 
 ## Escrito para modelos que juzgan
 
@@ -16,7 +16,7 @@ Todo lo demás — cómo buscar, hasta dónde profundizar, qué aspecto tiene un
 
 ## Tres formas de entrega
 
-- **Ubicua** ([AGENTS.md](../AGENTS.md)) — se inyecta en cada sesión, gravando la atención de cada sesión, así que contiene una sola frase: _cuando termina una implementación o una corrección, delega la verificación en los agentes de revisión aplicables antes de informar de la finalización._
+- **Ubicua** ([AGENTS.md](../AGENTS.md)) — entregada como un bloque gestionado dentro del archivo de reglas de cada herramienta (`CLAUDE.md` / `AGENTS.md`) y leída por cada sesión, gravando la atención de cada sesión, así que contiene una sola frase: _cuando termina una implementación o una corrección, delega la verificación en los agentes de revisión aplicables antes de informar de la finalización._
 - **Momentánea** ([skills/](../skills/)) — se leen solo cuando llega su momento: [dotagents-git](../skills/dotagents-git/SKILL.md) en el momento del commit, [dotagents-prompting](../skills/dotagents-prompting/SKILL.md) al editar prompts. El detalle aquí no le cuesta nada a ningún otro momento.
 - **Roles** ([agents/](../agents/)) — subagentes con un contexto propio y un conjunto de herramientas restringido. Lo que un rol no debe hacer se aplica mediante las herramientas que no se le dan, no mediante una frase que deba recordar.
 

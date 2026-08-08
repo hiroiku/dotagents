@@ -2,7 +2,7 @@
 
 [English](../README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | 繁體中文 | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md)
 
-[README](../../docs/README.zh-TW.md) 描述的是機制——一份文庫,由 `agents-setup` 部署到 `~/.agents` 與各專案的 `.agents/`。本文件描述的則是那份文庫在 `payload/` 中所分發的內容:一套完整且可運作的框架——它作為範例隨附,供你據以起步並個人化。
+[README](../../docs/README.zh-TW.md) 描述的是機制——一份文庫,由 `agents-setup` 以純粹檔案的形式,直接部署進你的工具所讀取的目錄(`.claude/`、`.codex/`)。本文件描述的則是那份文庫在 `payload/` 中所分發的內容:一套完整且可運作的框架——它作為範例隨附,供你據以起步並個人化。
 
 ## 為懂得判斷的模型而寫
 
@@ -16,7 +16,7 @@
 
 ## 三種傳遞形態
 
-- **普遍**([AGENTS.md](../AGENTS.md))——注入每一次工作階段,對每一次工作階段的注意力課稅,因此它只容納一句話:_當實作或修復結束時,先把驗證委派給適用的審查代理,再回報完成。_
+- **普遍**([AGENTS.md](../AGENTS.md))——以受管理區塊的形式交付到各工具的規則檔(`CLAUDE.md` / `AGENTS.md`)之中,由每一次工作階段讀取,對每一次工作階段的注意力課稅,因此它只容納一句話:_當實作或修復結束時,先把驗證委派給適用的審查代理,再回報完成。_
 - **瞬時**([skills/](../skills/))——只在其時機到來時才被讀取:[dotagents-git](../skills/dotagents-git/SKILL.md) 在提交之時,[dotagents-prompting](../skills/dotagents-prompting/SKILL.md) 在編輯提示詞之時。寫在這裡的細節不會耗費任何其他時刻的成本。
 - **角色**([agents/](../agents/))——擁有自己上下文與受限工具集的子代理。一個角色不得做什麼,由它未被授予的工具來強制,而非由一句它必須記住的話。
 

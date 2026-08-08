@@ -2,7 +2,7 @@
 
 [English](../README.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | 한국어 | [Deutsch](README.de.md) | [Español](README.es.md) | [Français](README.fr.md)
 
-[README](../../docs/README.ko.md)는 메커니즘을 설명한다 — 정본은 하나이고, 그것을 `agents-setup`이 `~/.agents`와 프로젝트별 `.agents/`로 배포한다. 이 문서는 그 정본이 `payload/`에 싣고 오는 것을 설명한다: 그대로 작동하는 완결된 하네스이며, 여기서 출발해 개인화해 나가는 샘플로서 함께 실려 온다.
+[README](../../docs/README.ko.md)는 메커니즘을 설명한다 — 정본은 하나이고, 그것을 `agents-setup`이 도구가 읽는 디렉터리(`.claude/`, `.codex/`)로 곧바로, 평범한 파일로 배포한다. 이 문서는 그 정본이 `payload/`에 싣고 오는 것을 설명한다: 그대로 작동하는 완결된 하네스이며, 여기서 출발해 개인화해 나가는 샘플로서 함께 실려 온다.
 
 ## 판단하는 모델을 위해 쓰였다
 
@@ -16,7 +16,7 @@
 
 ## 전달의 세 가지 형태
 
-- **편재**([AGENTS.md](../AGENTS.md)) — 모든 세션에 주입되어 모든 세션의 주의력에 세금을 매기므로, 단 한 문장만 담는다: _구현이나 수정이 끝나면, 완료를 보고하기 전에 해당하는 리뷰 에이전트에게 검증을 위임한다._
+- **편재**([AGENTS.md](../AGENTS.md)) — 각 도구의 규칙 파일(`CLAUDE.md` / `AGENTS.md`) 안에 관리 블록으로 전달되어 모든 세션이 읽고, 모든 세션의 주의력에 세금을 매기므로, 단 한 문장만 담는다: _구현이나 수정이 끝나면, 완료를 보고하기 전에 해당하는 리뷰 에이전트에게 검증을 위임한다._
 - **순간**([skills/](../skills/)) — 그 순간이 왔을 때만 읽힌다: [dotagents-git](../skills/dotagents-git/SKILL.md)은 커밋 시점에, [dotagents-prompting](../skills/dotagents-prompting/SKILL.md)은 프롬프트를 편집할 때. 여기에 자세히 써도 다른 순간은 아무 비용도 치르지 않는다.
 - **역할**([agents/](../agents/)) — 자신만의 컨텍스트와 제한된 도구 집합을 가진 서브에이전트. 역할이 해서는 안 되는 일은 기억해야 하는 문장이 아니라 주어지지 않은 도구가 강제한다.
 

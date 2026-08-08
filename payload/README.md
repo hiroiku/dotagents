@@ -2,7 +2,7 @@
 
 English | [日本語](docs/README.ja.md) | [简体中文](docs/README.zh-CN.md) | [繁體中文](docs/README.zh-TW.md) | [한국어](docs/README.ko.md) | [Deutsch](docs/README.de.md) | [Español](docs/README.es.md) | [Français](docs/README.fr.md)
 
-[README](../README.md) describes the mechanism — one corpus, deployed by `agents-setup` into `~/.agents` and per-project `.agents/`. This document describes what that corpus ships in `payload/`: a complete, working harness, included as the sample you start from and personalize.
+[README](../README.md) describes the mechanism — one corpus, deployed by `agents-setup` straight into the directories your tools read (`.claude/`, `.codex/`), as plain files. This document describes what that corpus ships in `payload/`: a complete, working harness, included as the sample you start from and personalize.
 
 ## Written for models that judge
 
@@ -16,7 +16,7 @@ Everything else — how to search, how deep to go, what a finding looks like —
 
 ## Three shapes of delivery
 
-- **Ubiquitous** ([AGENTS.md](AGENTS.md)) — injected into every session, taxing every session's attention, so it holds a single sentence: _when implementation or a fix ends, delegate verification to the applicable review agents before reporting completion._
+- **Ubiquitous** ([AGENTS.md](AGENTS.md)) — delivered as a managed block inside each tool's rules file (`CLAUDE.md` / `AGENTS.md`) and read by every session, taxing every session's attention, so it holds a single sentence: _when implementation or a fix ends, delegate verification to the applicable review agents before reporting completion._
 - **Momentary** ([skills/](skills/)) — read only when their moment arrives: [dotagents-git](skills/dotagents-git/SKILL.md) at commit time, [dotagents-prompting](skills/dotagents-prompting/SKILL.md) when editing prompts. Detail here costs no other moment anything.
 - **Roles** ([agents/](agents/)) — subagents with a context of their own and a restricted toolset. What a role must not do is enforced by the tools it is not given, not by a sentence it must remember.
 
