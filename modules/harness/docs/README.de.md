@@ -16,8 +16,8 @@ Alles andere — wie gesucht wird, wie tief gegangen wird, wie ein Befund aussie
 
 ## Drei Formen der Zustellung
 
-- **Allgegenwärtig** ([AGENTS.md](../AGENTS.md)) — in jede Sitzung injiziert und damit eine Steuer auf die Aufmerksamkeit jeder Sitzung, daher steht darin ein einziger Satz: _wenn eine Implementierung oder ein Fix endet, delegiere die Verifikation an die anwendbaren Review-Agenten, bevor du Fertigstellung meldest._
-- **Momentan** ([skills/](../skills/)) — nur gelesen, wenn ihr Moment eintritt: [git](../skills/git/SKILL.md) beim Committen, [prompting](../skills/prompting/SKILL.md) beim Bearbeiten von Prompts. Detail kostet hier keinen anderen Moment etwas.
+- **Allgegenwärtig** ([AGENTS.md](../AGENTS.md)) — in jede Sitzung injiziert und damit eine Steuer auf die Aufmerksamkeit jeder Sitzung, daher stehen darin nur die wenigen Zeilen, deren Moment sich keinem Auslöser anvertrauen lässt: _delegiere die Verifikation an die anwendbaren Review-Agenten, bevor du Fertigstellung meldest_, und _Kommentare erklären die Absicht des Codes — keine Historie, keine ADRs, keine Vorkehrungen für die Zukunft._
+- **Momentan** ([skills/](../skills/)) — nur gelesen, wenn ihr Moment eintritt: [git](../skills/git/SKILL.md) beim Committen, [testing](../skills/testing/SKILL.md) beim Schreiben von Tests, [prompting](../skills/prompting/SKILL.md) beim Bearbeiten von Prompts. Detail kostet hier keinen anderen Moment etwas.
 - **Rollen** ([agents/](../agents/)) — Subagenten mit einem eigenen Kontext und einem beschränkten Werkzeugsatz. Was eine Rolle nicht tun darf, wird durch die Werkzeuge durchgesetzt, die sie nicht bekommt — nicht durch einen Satz, den sie sich merken muss.
 
 Claude Code erhält alle drei als ein einziges Plugin, daher wird ein Skill als `/dotagents:git` aufgerufen und ein Agent als `dotagents:review`. Codex, das keine Plugins kennt, bekommt die Skills als `dotagents-git` und dergleichen.
@@ -41,17 +41,8 @@ Reviewer lesen und führen aus; sie editieren nicht. `Read, Glob, Grep, Bash` is
 
 [git](../skills/git/SKILL.md) hält die ganze Meinung in wenigen Zeilen: Commit-Titel sagen, was sich für das Geschäft geändert hat, nie einen Dateinamen oder einen internen Bezeichner; keine KI-Attribution in Commit-Messages oder PRs; Squash ist der Standard für die Integration; dem Upstream wird per Rebase gefolgt, nicht per Merge.
 
-## Der kanonische Index
+## Tests — die Desiderata, in Promptgröße
 
-Die Regeltexte werden hier nicht dupliziert — eine Kopie würde still verrotten. Das Modul in voller Länge:
-
-| Datei | Enthält |
-|---|---|
-| [AGENTS.md](../AGENTS.md) | den einen allgegenwärtigen Satz |
-| [agents/review.md](../agents/review.md) | kontradiktorisches Review: erst Existenz, dann Korrektheit |
-| [agents/security.md](../agents/security.md) | Security-Review, verankert an der OWASP Top 10 |
-| [agents/accessibility.md](../agents/accessibility.md) | Accessibility-Review, verankert an WCAG 2.2 AA |
-| [skills/git/SKILL.md](../skills/git/SKILL.md) | Konventionen für Commit, Squash und Rebase |
-| [skills/prompting/SKILL.md](../skills/prompting/SKILL.md) | was zu lesen ist, bevor irgendetwas davon bearbeitet wird |
+[testing](../skills/testing/SKILL.md) ist [Test Desiderata](https://testdesiderata.com/), als Prompt wiedergegeben: die zwölf Eigenschaften eines guten Tests — vor allem anderen empfindlich für Verhalten und unempfindlich für Struktur, sodass ein Test nur fehlschlägt, wenn ein versprochenes Verhalten bricht — mitsamt der Rahmung des Kanons selbst, dass die Eigenschaften gegeneinander abzuwägen sind und die Mischung bewusst gewählt wird. Wie jeder andere Anker in diesem Modul benennt es den Kanon und hört dort auf.
 
 Dieses Modul deklariert keine externen Voraussetzungen: Es besteht nur aus Prompts und Rollendefinitionen und funktioniert überall dort, wo Claude Code oder Codex läuft.

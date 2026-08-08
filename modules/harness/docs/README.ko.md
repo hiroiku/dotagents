@@ -16,8 +16,8 @@
 
 ## 전달의 세 가지 형태
 
-- **편재**([AGENTS.md](../AGENTS.md)) — 모든 세션에 주입되어 모든 세션의 주의력에 세금을 매기므로, 단 한 문장만 담는다: _구현이나 수정이 끝나면, 완료를 보고하기 전에 해당하는 리뷰 에이전트에게 검증을 위임한다._
-- **순간**([skills/](../skills/)) — 그 순간이 왔을 때만 읽힌다: [git](../skills/git/SKILL.md)은 커밋 시점에, [prompting](../skills/prompting/SKILL.md)은 프롬프트를 편집할 때. 여기에 자세히 써도 다른 순간은 아무 비용도 치르지 않는다.
+- **편재**([AGENTS.md](../AGENTS.md)) — 모든 세션에 주입되어 모든 세션의 주의력에 세금을 매기므로, 그 순간을 트리거에 맡길 수 없는 몇 줄만 담는다: _완료를 보고하기 전에 해당하는 리뷰 에이전트에게 검증을 위임한다_, 그리고 _주석은 코드의 의도를 설명한다 — 이력도, ADR도, 미래를 위한 대비도 넣지 않는다._
+- **순간**([skills/](../skills/)) — 그 순간이 왔을 때만 읽힌다: [git](../skills/git/SKILL.md)은 커밋 시점에, [testing](../skills/testing/SKILL.md)은 테스트를 작성할 때, [prompting](../skills/prompting/SKILL.md)은 프롬프트를 편집할 때. 여기에 자세히 써도 다른 순간은 아무 비용도 치르지 않는다.
 - **역할**([agents/](../agents/)) — 자신만의 컨텍스트와 제한된 도구 집합을 가진 서브에이전트. 역할이 해서는 안 되는 일은 기억해야 하는 문장이 아니라 주어지지 않은 도구가 강제한다.
 
 Claude Code는 이 셋을 하나의 plugin으로 받으므로, 스킬은 `/dotagents:git`으로, 에이전트는 `dotagents:review`로 호출된다. plugin이 없는 Codex는 스킬을 `dotagents-git` 같은 이름으로 받는다.
@@ -41,17 +41,8 @@ AI 에이전트 특유의 실패 양식은 다 되지 않았는데 "다 됐다!"
 
 [git](../skills/git/SKILL.md)이 의견 전체를 몇 줄에 담는다: 커밋 제목은 비즈니스에 무엇이 바뀌었는지를 말하며, 파일명이나 내부 식별자는 절대 쓰지 않는다; 커밋 메시지와 PR에 AI 표기(attribution)는 넣지 않는다; 통합의 기본은 squash다; upstream은 merge가 아니라 rebase로 따른다.
 
-## 정본 색인
+## 테스트 — 바람직한 성질들, 프롬프트 크기로
 
-규칙 본문을 여기에 복제하지는 않는다 — 사본은 조용히 낡아가기 때문이다. module의 전부:
-
-| 파일 | 담고 있는 것 |
-|---|---|
-| [AGENTS.md](../AGENTS.md) | 단 하나의 편재 문장 |
-| [agents/review.md](../agents/review.md) | 적대적 리뷰: 존재를 먼저, 그다음 정확성 |
-| [agents/security.md](../agents/security.md) | OWASP Top 10에 앵커된 보안 리뷰 |
-| [agents/accessibility.md](../agents/accessibility.md) | WCAG 2.2 AA에 앵커된 접근성 리뷰 |
-| [skills/git/SKILL.md](../skills/git/SKILL.md) | 커밋, squash, rebase 관례 |
-| [skills/prompting/SKILL.md](../skills/prompting/SKILL.md) | 위의 것들을 편집하기 전에 무엇을 읽어야 하는가 |
+[testing](../skills/testing/SKILL.md)은 [Test Desiderata](https://testdesiderata.com/)를 프롬프트로 옮겨 낸 것이다: 좋은 테스트의 바람직한 성질 열두 가지 — 무엇보다도 행동에는 민감하고 구조에는 둔감해서, 테스트는 약속된 행동이 깨졌을 때만 실패한다 — 를, 성질들은 서로 트레이드오프 관계이고 그 배합은 의도적으로 고른다는 정전 자신의 틀과 함께 담는다. 이 module의 다른 모든 앵커와 마찬가지로, 정전을 지명하고 거기서 멈춘다.
 
 이 module은 외부 요구 사항을 선언하지 않는다: 프롬프트와 역할 정의뿐이며, Claude Code나 Codex가 도는 곳이라면 어디서든 작동한다.

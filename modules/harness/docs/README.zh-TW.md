@@ -16,8 +16,8 @@
 
 ## 三種傳遞形態
 
-- **普遍**([AGENTS.md](../AGENTS.md))——注入到每一次工作階段之中,對每一次工作階段的注意力課稅,因此它只容納一句話:_當實作或修復結束時,先把驗證委派給適用的審查代理,再回報完成。_
-- **瞬時**([skills/](../skills/))——只在其時機到來時才被讀取:[git](../skills/git/SKILL.md) 在提交之時,[prompting](../skills/prompting/SKILL.md) 在編輯提示詞之時。寫在這裡的細節不會耗費任何其他時刻的成本。
+- **普遍**([AGENTS.md](../AGENTS.md))——注入到每一次工作階段之中,對每一次工作階段的注意力課稅,因此它只容納那寥寥數行、時機無法託付給任何觸發條件的規則:_先把驗證委派給適用的審查代理,再回報完成_,以及_註解闡明程式碼的意圖——不寫歷史、不寫 ADR、不為未來預作準備。_
+- **瞬時**([skills/](../skills/))——只在其時機到來時才被讀取:[git](../skills/git/SKILL.md) 在提交之時,[testing](../skills/testing/SKILL.md) 在撰寫測試之時,[prompting](../skills/prompting/SKILL.md) 在編輯提示詞之時。寫在這裡的細節不會耗費任何其他時刻的成本。
 - **角色**([agents/](../agents/))——擁有自己上下文與受限工具集的子代理。一個角色不得做什麼,由它未被授予的工具來強制,而非由一句它必須記住的話。
 
 Claude Code 以單一個 plugin 接收這三者,因此一項技能以 `/dotagents:git` 被喚起,一個代理以 `dotagents:review` 被喚起。而沒有 plugin 的 Codex,則以 `dotagents-git` 之類的名稱取得這些技能。
@@ -41,17 +41,8 @@ AI 代理特有的失敗模式,是明明沒做完卻說「做完了!」——其
 
 [git](../skills/git/SKILL.md) 用寥寥數行容納了全部主張:提交標題陳述對業務而言改變了什麼,絕不寫檔名或內部識別字;提交訊息與 PR 中不留 AI 署名;整合以 squash 為預設;以重訂基底而非合併來跟隨上游。
 
-## 權威索引
+## 測試——提示詞大小的理想特質
 
-規則文本不在此處重複——複本會無聲腐壞。這個 module 的全貌如下:
-
-| 檔案 | 容納了什麼 |
-|---|---|
-| [AGENTS.md](../AGENTS.md) | 唯一的那句普遍規則 |
-| [agents/review.md](../agents/review.md) | 對抗式審查:先存在性,再正確性 |
-| [agents/security.md](../agents/security.md) | 錨定於 OWASP Top 10 的安全性審查 |
-| [agents/accessibility.md](../agents/accessibility.md) | 錨定於 WCAG 2.2 AA 的無障礙審查 |
-| [skills/git/SKILL.md](../skills/git/SKILL.md) | 提交、squash 與重訂基底的慣例 |
-| [skills/prompting/SKILL.md](../skills/prompting/SKILL.md) | 在編輯上述任何內容之前應當閱讀什麼 |
+[testing](../skills/testing/SKILL.md) 是寫成提示詞的 [Test Desiderata](https://testdesiderata.com/):一個好測試的十二項理想特質——首要的是對行為敏感、對結構遲鈍,使測試只在被承諾的行為被破壞時才失敗——並帶著權威文本自身的框架,即各項特質相互權衡取捨、配比須刻意選定。與這個 module 的其他每個錨點一樣,它指名權威文本,便到此為止。
 
 這個 module 不宣告任何外部要求:它只有提示詞與角色定義,在任何能運行 Claude Code 或 Codex 的地方都能運作。

@@ -1,3 +1,7 @@
-## レビュー
+## Review
 
-実装や修正を終えたら、完了を報告する前に該当するレビュー系サブエージェントへ検証を委譲する。
+When implementation or a fix is done, delegate verification to the applicable review agents before reporting completion.
+
+## Code
+
+Comments explain the intent of the code they sit on. No history, no ADRs, no provisions for the future.

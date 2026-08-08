@@ -16,8 +16,8 @@ Everything else — how to search, how deep to go, what a finding looks like —
 
 ## Three shapes of delivery
 
-- **Ubiquitous** ([AGENTS.md](AGENTS.md)) — injected into every session, taxing every session's attention, so it holds a single sentence: _when implementation or a fix ends, delegate verification to the applicable review agents before reporting completion._
-- **Momentary** ([skills/](skills/)) — read only when their moment arrives: [git](skills/git/SKILL.md) at commit time, [prompting](skills/prompting/SKILL.md) when editing prompts. Detail here costs no other moment anything.
+- **Ubiquitous** ([AGENTS.md](AGENTS.md)) — injected into every session, taxing every session's attention, so it holds only the few lines whose moment cannot be trusted to a trigger: _delegate verification to the applicable review agents before reporting completion_, and _comments explain the code's intent — no history, no ADRs, no provisions for the future._
+- **Momentary** ([skills/](skills/)) — read only when their moment arrives: [git](skills/git/SKILL.md) at commit time, [testing](skills/testing/SKILL.md) when writing tests, [prompting](skills/prompting/SKILL.md) when editing prompts. Detail here costs no other moment anything.
 - **Roles** ([agents/](agents/)) — subagents with a context of their own and a restricted toolset. What a role must not do is enforced by the tools it is not given, not by a sentence it must remember.
 
 Claude Code receives all three as one plugin, so a skill is invoked as `/dotagents:git` and an agent as `dotagents:review`. Codex, which has no plugins, gets the skills as `dotagents-git` and the like.
@@ -41,17 +41,8 @@ Reviewers read and run; they do not edit. `Read, Glob, Grep, Bash` is the whole 
 
 [git](skills/git/SKILL.md) holds the whole opinion in a few lines: commit titles say what changed for the business, never a filename or an internal identifier; no AI attribution in commit messages or PRs; squash is the default for integration; follow upstream by rebase, not merge.
 
-## The canonical index
+## Tests — the desiderata, prompt-sized
 
-The rule texts are not duplicated here — a copy would silently rot. The module in full:
-
-| File | Holds |
-|---|---|
-| [AGENTS.md](AGENTS.md) | the one ubiquitous sentence |
-| [agents/review.md](agents/review.md) | adversarial review: existence first, then correctness |
-| [agents/security.md](agents/security.md) | security review anchored to the OWASP Top 10 |
-| [agents/accessibility.md](agents/accessibility.md) | accessibility review anchored to WCAG 2.2 AA |
-| [skills/git/SKILL.md](skills/git/SKILL.md) | commit, squash and rebase conventions |
-| [skills/prompting/SKILL.md](skills/prompting/SKILL.md) | what to read before editing any of the above |
+[testing](skills/testing/SKILL.md) is [Test Desiderata](https://testdesiderata.com/) rendered as a prompt: the twelve properties of a good test — behavioral and structure-insensitive above all, so a test fails only when a promised behavior breaks — with the canon's own framing that the properties trade off against each other and the mix is chosen deliberately. Like every other anchor in this module, it names the canon and stops there.
 
 This module declares no external requirements: it is prompts and role definitions only, and works wherever Claude Code or Codex runs.

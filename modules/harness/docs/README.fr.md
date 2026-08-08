@@ -16,8 +16,8 @@ Tout le reste — comment chercher, jusqu'où creuser, à quoi ressemble un cons
 
 ## Trois formes de livraison
 
-- **Omniprésente** ([AGENTS.md](../AGENTS.md)) — injectée dans chaque session, taxant l'attention de chacune, elle ne tient donc qu'une seule phrase : _quand une implémentation ou un correctif se termine, délègue la vérification aux agents de revue applicables avant de signaler l'achèvement._
-- **Momentanées** ([skills/](../skills/)) — lues seulement quand leur moment arrive : [git](../skills/git/SKILL.md) au moment du commit, [prompting](../skills/prompting/SKILL.md) lors de la modification des prompts. Ici, le détail ne coûte rien à aucun autre moment.
+- **Omniprésente** ([AGENTS.md](../AGENTS.md)) — injectée dans chaque session, taxant l'attention de chacune, elle ne tient donc que les quelques lignes dont le moment ne peut être confié à aucun déclencheur : _délègue la vérification aux agents de revue applicables avant de signaler l'achèvement_, et _les commentaires expliquent l'intention du code — pas d'historique, pas d'ADR, pas de dispositions pour l'avenir._
+- **Momentanées** ([skills/](../skills/)) — lues seulement quand leur moment arrive : [git](../skills/git/SKILL.md) au moment du commit, [testing](../skills/testing/SKILL.md) au moment d'écrire des tests, [prompting](../skills/prompting/SKILL.md) lors de la modification des prompts. Ici, le détail ne coûte rien à aucun autre moment.
 - **Rôles** ([agents/](../agents/)) — des subagents dotés d'un contexte propre et d'un jeu d'outils restreint. Ce qu'un rôle ne doit pas faire est imposé par les outils qu'on ne lui donne pas, non par une phrase qu'il devrait retenir.
 
 Claude Code reçoit les trois comme un unique plugin, si bien qu'un skill s'invoque par `/dotagents:git` et un agent par `dotagents:review`. Codex, qui n'a pas de plugins, reçoit les skills sous les noms `dotagents-git` et consorts.
@@ -41,17 +41,8 @@ Les relecteurs lisent et exécutent ; ils n'éditent pas. `Read, Glob, Grep, Bas
 
 [git](../skills/git/SKILL.md) tient toute l'opinion en quelques lignes : les titres de commit disent ce qui a changé pour le métier, jamais un nom de fichier ni un identifiant interne ; pas d'attribution à l'IA dans les messages de commit ni dans les PR ; le squash est le défaut pour l'intégration ; on suit l'upstream par rebase, pas par merge.
 
-## L'index canonique
+## Tests — les desiderata, à la taille d'un prompt
 
-Les textes des règles ne sont pas dupliqués ici — une copie pourrirait en silence. Le module au complet :
-
-| Fichier | Contient |
-|---|---|
-| [AGENTS.md](../AGENTS.md) | l'unique phrase omniprésente |
-| [agents/review.md](../agents/review.md) | revue contradictoire : l'existence d'abord, puis la justesse |
-| [agents/security.md](../agents/security.md) | revue de sécurité ancrée à l'OWASP Top 10 |
-| [agents/accessibility.md](../agents/accessibility.md) | revue d'accessibilité ancrée à WCAG 2.2 AA |
-| [skills/git/SKILL.md](../skills/git/SKILL.md) | conventions de commit, de squash et de rebase |
-| [skills/prompting/SKILL.md](../skills/prompting/SKILL.md) | ce qu'il faut lire avant de modifier l'un des fichiers ci-dessus |
+[testing](../skills/testing/SKILL.md) est [Test Desiderata](https://testdesiderata.com/) restitué en prompt : les douze propriétés d'un bon test — avant tout sensible au comportement et insensible à la structure, de sorte qu'un test n'échoue que lorsqu'un comportement promis se rompt — avec le cadrage du canon lui-même, selon lequel les propriétés s'arbitrent les unes contre les autres et le dosage se choisit délibérément. Comme toute autre ancre de ce module, il nomme le canon et s'arrête là.
 
 Ce module ne déclare aucun prérequis externe : il n'est fait que de prompts et de définitions de rôles, et fonctionne partout où tournent Claude Code ou Codex.

@@ -16,8 +16,8 @@
 
 ## 配達の三つの形
 
-- **遍在則**([AGENTS.md](../AGENTS.md))— 全セッションに注入され、全セッションの注意に課税するので、収めるのはただ 1 文である: _実装や修正を終えたら、完了を報告する前に該当するレビュー系サブエージェントへ検証を委譲する。_
-- **瞬間則**([skills/](../skills/))— その瞬間が来たときだけ読まれる: [git](../skills/git/SKILL.md) はコミット時に、[prompting](../skills/prompting/SKILL.md) はプロンプト編集時に。ここに書く詳細は、他のどの瞬間にもコストを課さない。
+- **遍在則**([AGENTS.md](../AGENTS.md))— 全セッションに注入され、全セッションの注意に課税するので、収めるのは、その瞬間をトリガーに任せられないわずか数行だけである: _実装や修正を終えたら、完了を報告する前に該当するレビュー系サブエージェントへ検証を委譲する。_ そして _コメントはそのコードの意図を説明する — 経緯も ADR も、将来への備えも書かない。_
+- **瞬間則**([skills/](../skills/))— その瞬間が来たときだけ読まれる: [git](../skills/git/SKILL.md) はコミット時に、[testing](../skills/testing/SKILL.md) はテストを書くときに、[prompting](../skills/prompting/SKILL.md) はプロンプト編集時に。ここに書く詳細は、他のどの瞬間にもコストを課さない。
 - **役割**([agents/](../agents/))— 自分専用の context と制限されたツールセットを持つサブエージェント。役割がしてはならないことは、覚えておくべき 1 文ではなく、与えられていないツールによって強制される。
 
 Claude Code はこの 3 つを 1 つの plugin として受け取るので、スキルは `/dotagents:git`、エージェントは `dotagents:review` として呼び出される。plugin を持たない Codex は、スキルを `dotagents-git` のような名前で受け取る。
@@ -41,17 +41,8 @@ AI エージェント特有の失敗モードは、終わっていないのに�
 
 [git](../skills/git/SKILL.md) が意見の全体を数行で収める: コミットタイトルは業務にとって何が変わったかを言い、ファイル名や内部識別子は決して書かない。コミットメッセージや PR に AI の帰属表示は入れない。統合の既定は squash。上流への追従は merge ではなく rebase で行う。
 
-## 正本の索引
+## テスト — 望ましい性質、プロンプトサイズで
 
-規則の本文はここには複製しない — 写しは黙って古びる。module の全体は以下の通り:
-
-| ファイル | 収める物 |
-|---|---|
-| [AGENTS.md](../AGENTS.md) | 唯一の遍在則の 1 文 |
-| [agents/review.md](../agents/review.md) | 敵対的レビュー: まず存在、次に正しさ |
-| [agents/security.md](../agents/security.md) | OWASP Top 10 にアンカーしたセキュリティレビュー |
-| [agents/accessibility.md](../agents/accessibility.md) | WCAG 2.2 AA にアンカーしたアクセシビリティレビュー |
-| [skills/git/SKILL.md](../skills/git/SKILL.md) | コミット・squash・rebase の慣習 |
-| [skills/prompting/SKILL.md](../skills/prompting/SKILL.md) | 上記のいずれかを編集する前に読む物 |
+[testing](../skills/testing/SKILL.md) は [Test Desiderata](https://testdesiderata.com/) をプロンプトとして仕立て直した物である: 良いテストの 12 の望ましい性質 — 何よりもまず、振る舞いに敏感で構造に鈍感、つまりテストが落ちるのは約束された振る舞いが破れたときだけ — を、性質どうしは互いにトレードオフであり、その配合は意図して選ばれるという正典自身の枠組みごと収める。この module の他のどのアンカーとも同じく、正典を名指しし、そこで止まる。
 
 この module は外部要件を宣言しない: プロンプトと役割の定義だけであり、Claude Code か Codex が動く場所ならどこでも動く。

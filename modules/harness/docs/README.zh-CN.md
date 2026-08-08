@@ -16,15 +16,15 @@
 
 ## 三种传递形态
 
-- **普遍**([AGENTS.md](../AGENTS.md))——被注入每一次会话,消耗每一次会话的注意力,因此它只容纳一句话:_当实现或修复结束时,先把验证委托给适用的审查代理,再报告完成。_
-- **瞬时**([skills/](../skills/))——只在其时机到来时才被读取:[git](../skills/git/SKILL.md) 在提交之时,[prompting](../skills/prompting/SKILL.md) 在编辑提示词之时。写在这里的细节不会耗费任何其他时刻的成本。
+- **普遍**([AGENTS.md](../AGENTS.md))——被注入每一次会话,消耗每一次会话的注意力,因此它只容纳寥寥数行——那些时机无法托付给任何触发器的规则:_先把验证委托给适用的审查代理,再报告完成_,以及_注释解释代码的意图——不写历史,不写 ADR,也不为未来预留。_
+- **瞬时**([skills/](../skills/))——只在其时机到来时才被读取:[git](../skills/git/SKILL.md) 在提交之时,[testing](../skills/testing/SKILL.md) 在编写测试之时,[prompting](../skills/prompting/SKILL.md) 在编辑提示词之时。写在这里的细节不会耗费任何其他时刻的成本。
 - **角色**([agents/](../agents/))——拥有独立上下文与受限工具集的子代理。一个角色不得做什么,由不交给它的工具来强制,而不是由一句它必须记住的话来约束。
 
 Claude Code 会把这三者作为一个 plugin 一并接收,因此一项技能以 `/dotagents:git` 的形式被调用,一个代理则以 `dotagents:review` 的形式被调用。而没有 plugin 的 Codex,则以 `dotagents-git` 之类的名字获得这些技能。
 
 ## 审查——用干净的上下文,搜寻缺失之物
 
-AI 代理特有的失败模式,是明明没做完却说"做完了!"——其本质不是说谎,而是遗漏:一个只装着自己所写之物的上下文,看不见自己没有写下的东西。因此验证交给上下文干净的审查代理。它们收到的是需求、如何定位对象、如何运行它——绝不包含实现者的自我报告。
+AI 代理特有的失败模式,是明明没做完却说“做完了!”——其本质不是说谎,而是遗漏:一个只装着自己所写之物的上下文,看不见自己没有写下的东西。因此验证交给上下文干净的审查代理。它们收到的是需求、如何定位对象、如何运行它——绝不包含实现者的自我报告。
 
 [review](../agents/review.md) 按顺序进行两轮扫描:
 
@@ -41,17 +41,8 @@ AI 代理特有的失败模式,是明明没做完却说"做完了!"——其本�
 
 [git](../skills/git/SKILL.md) 用寥寥数行容纳了全部观点:提交标题陈述对业务而言发生了什么变化,绝不写文件名或内部标识符;提交信息与 PR 中不出现 AI 署名;集成默认使用 squash;跟随上游用变基,而非合并。
 
-## 权威索引
+## 测试——提示词大小的理想特质
 
-规则文本不会在此重复——副本会无声腐坏。这个 module 的全貌:
-
-| 文件 | 容纳的内容 |
-|---|---|
-| [AGENTS.md](../AGENTS.md) | 唯一的那句普遍规则 |
-| [agents/review.md](../agents/review.md) | 对抗式审查:先看存在性,再看正确性 |
-| [agents/security.md](../agents/security.md) | 锚定于 OWASP Top 10 的安全审查 |
-| [agents/accessibility.md](../agents/accessibility.md) | 锚定于 WCAG 2.2 AA 的无障碍审查 |
-| [skills/git/SKILL.md](../skills/git/SKILL.md) | 提交、squash 与变基的约定 |
-| [skills/prompting/SKILL.md](../skills/prompting/SKILL.md) | 在编辑以上任何内容之前应当阅读什么 |
+[testing](../skills/testing/SKILL.md) 是写成提示词的 [Test Desiderata](https://testdesiderata.com/):一个好测试的十二项理想特质——首要的是对行为敏感、对结构迟钝,使测试只在被承诺的行为被破坏时才失败——并带着权威标准自身的框架,即各项特质相互权衡取舍、配比须刻意选定。与这个 module 的其他每个锚点一样,它指明权威标准,到此为止。
 
 这个 module 不声明任何外部依赖:它只是提示词与角色定义,在任何能运行 Claude Code 或 Codex 的地方都可以工作。

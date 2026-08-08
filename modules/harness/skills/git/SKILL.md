@@ -1,10 +1,10 @@
 ---
-description: git のコミットや push を行うときに使用する。
+description: Use when working with git.
 ---
 
-# Git のガイドライン
+# Git
 
-- コミットタイトルは「業務上、何が変わったか」を書く。ファイル名やコードの内部識別子を主語にしない。
-- AI の関与を示す表記 (Co-Authored-By、Generated with など) をコミットメッセージや PR に書かない。
-- 統合は squash を既定にする。
-- 上流への追従は merge ではなく rebase で行う。
+- A commit title says what changed for the business. Never a filename or an internal identifier as its subject.
+- No sign of AI involvement (Co-Authored-By, Generated with, and the like) in commit messages or PRs.
+- Squash is the default for integration.
+- Follow upstream by rebase, not merge.
