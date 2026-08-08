@@ -143,6 +143,16 @@ function payloadEntries(scope) {
   return rels.map((src) => ({ src, dst: SRC_RENAMES[src] ?? src }));
 }
 
+// シェル層の配線(zshenv 行・BASH_ENV・SessionStart)は、対応するフックが payload に
+// 実在するときだけ張る。payload が配布物の唯一の定義なので、フックが消えたら配線も
+// 「自分が張ったものだけ」を同じ所有権規則で除去する。
+function shellDelivery() {
+  return {
+    shellenv: !!lstatOrNull(path.join(PAYLOAD, 'hooks', 'shellenv.sh')),
+    session: !!lstatOrNull(path.join(PAYLOAD, 'hooks', 'beads-session.sh')),
+  };
+}
+
 function ownedAgentNames() {
   const dir = path.join(PAYLOAD, 'agents');
   if (!lstatOrNull(dir)) return [];
@@ -264,23 +274,31 @@ function removeZshenvLine(ctx, log) {
 
 function fragmentDefs(ctx) {
   return {
+    // パスは除去(所有照合)にも使うため、payload の実在によらず常に導出する。
+    // 配線するかどうかは shellDelivery() が決める。
     bashEnv: path.join(ctx.root, 'hooks', 'shellenv.sh'),
     sessionStart: path.join(ctx.root, 'hooks', 'beads-session.sh'),
-    // merge の ask は AGENTS_MERGE_SLOT_OK ガード(強制則)が覆うため持たない —
-    // 上位で封じたら下位を撤去する。push は外向き公開でガードが無く、ask が正しい層のまま。
-    ask: ['Bash(git push:*)'],
+    ask: [],
   };
 }
 
 function applySettings(ctx, oldFragments, log) {
   const defs = fragmentDefs(ctx);
+  const has = shellDelivery();
   const file = settingsPath(ctx);
   const s = readJson(file, {});
   const owned = { bashEnv: false, sessionStart: false, ask: [] };
   let changed = false;
 
   s.env = s.env || {};
-  if (s.env.BASH_ENV === undefined) {
+  if (!has.shellenv) {
+    // payload が配達フックを持たない: 過去に自分が張った配線だけを除去する
+    if (oldFragments?.bashEnv === true && s.env.BASH_ENV === defs.bashEnv) {
+      delete s.env.BASH_ENV;
+      changed = true;
+      log.del(`settings env.BASH_ENV (no shellenv hook in payload)`);
+    }
+  } else if (s.env.BASH_ENV === undefined) {
     s.env.BASH_ENV = defs.bashEnv;
     owned.bashEnv = true;
     changed = true;
@@ -298,7 +316,15 @@ function applySettings(ctx, oldFragments, log) {
   // 既存 entry は `bash <path>` のような前置き付きでも同一とみなす(重複登録の予防)
   const hasSession = s.hooks.SessionStart.some((m) =>
     (m.hooks || []).some((h) => (h.command || '').includes(defs.sessionStart)));
-  if (hasSession) {
+  if (!has.session) {
+    if (oldFragments?.sessionStart === true && hasSession) {
+      s.hooks.SessionStart = s.hooks.SessionStart
+        .map((m) => ({ ...m, hooks: (m.hooks || []).filter((h) => !(h.command || '').includes(defs.sessionStart)) }))
+        .filter((m) => (m.hooks || []).length > 0);
+      changed = true;
+      log.del(`settings hooks.SessionStart (no session hook in payload)`);
+    }
+  } else if (hasSession) {
     owned.sessionStart = oldFragments?.sessionStart === true;
     log.ok(`settings hooks.SessionStart`);
   } else {
@@ -330,6 +356,13 @@ function applySettings(ctx, oldFragments, log) {
       log.add(`settings permissions.ask ${rule}`);
     }
   }
+
+  // 配線を張らなかった枝で初期化だけされた空の足場をユーザーのファイルに書き残さない
+  if (s.env && Object.keys(s.env).length === 0) delete s.env;
+  if (s.hooks?.SessionStart && s.hooks.SessionStart.length === 0) delete s.hooks.SessionStart;
+  if (s.hooks && Object.keys(s.hooks).length === 0) delete s.hooks;
+  if (s.permissions?.ask && s.permissions.ask.length === 0) delete s.permissions.ask;
+  if (s.permissions && Object.keys(s.permissions).length === 0) delete s.permissions;
 
   if (changed) writeJson(file, s);
   return owned;
@@ -375,6 +408,11 @@ function codexHooksPath(ctx) { return path.join(ctx.codexDir, 'hooks.json'); }
 
 function applyCodexHooks(ctx, oldFragments, log) {
   if (!lstatOrNull(ctx.codexDir)?.isDirectory()) return false;
+  if (!shellDelivery().session) {
+    // payload がセッションフックを持たない: 過去に自分が張った断片だけを除去する
+    removeCodexHooks(ctx, oldFragments, log);
+    return false;
+  }
   const sessionCmd = path.join(ctx.root, 'hooks', 'beads-session.sh');
   const file = codexHooksPath(ctx);
   const s = readJson(file, {});
@@ -433,7 +471,7 @@ function settingsState(ctx) {
 // 望む内容へ書き直し、uninstall が除去する。root AGENTS.md が無いプロジェクトには作らない。
 const REF_BEGIN = '<!-- agents-harness:begin (dotagents installer が管理。手で編集しない) -->';
 const REF_END = '<!-- agents-harness:end -->';
-const REF_BODY = '- エージェントの運転規則(役割・品質評価・Git・Beads の共通規則とスキル参照)は [.agents/AGENTS.md](.agents/AGENTS.md) を正本とする(dotagents ハーネスの配布物。インストール先を直接編集しない)。';
+const REF_BODY = '- エージェントの運転規則は [.agents/AGENTS.md](.agents/AGENTS.md) を正本とする(dotagents ハーネスの配布物。インストール先を直接編集しない)。';
 
 function rootAgentsFile(ctx) {
   return ctx.kind === 'project' ? path.join(path.dirname(ctx.root), 'AGENTS.md') : null;
@@ -483,23 +521,6 @@ function refBlockState(ctx) {
   const file = rootAgentsFile(ctx);
   if (!file || !lstatOrNull(file)?.isFile()) return null;
   return fs.readFileSync(file, 'utf8').includes([REF_BEGIN, REF_BODY, REF_END].join('\n'));
-}
-
-// ---------------------------------------------------------------- 前提の器官
-
-// ハーネスが上に建つ外部の器官。導入は代行せず、不在の事実と導入先だけを伝える
-// (乖離には数えない — これらの所有者はハーネスではない)。
-function organReport() {
-  const has = (cmd) => {
-    try {
-      execFileSync('/bin/sh', ['-c', `command -v ${cmd}`], { stdio: 'ignore' });
-      return true;
-    } catch { return false; }
-  };
-  const lines = [];
-  if (!has('bd')) lines.push(`${ui.yellow('!')} missing prerequisite ${ui.bold('bd')} (required) — the ledger this harness builds on: https://github.com/gastownhall/beads`);
-  if (!has('codegraph')) lines.push(`${ui.yellow('!')} missing prerequisite ${ui.bold('codegraph')} (recommended) — replaces search loops with one explore: https://github.com/colbymchenry/codegraph`);
-  return lines;
 }
 
 // ---------------------------------------------------------------- log
@@ -731,6 +752,7 @@ function shellLayerState() {
 // プロジェクト install の後始末。既存のユーザーレベル manifest があればその scope を保つ
 // (full を shell へ縮小しない)。無ければ最小形の shell スコープで敷く。
 async function ensureShellLayer(opts) {
+  if (!payloadEntries('shell').length) return; // payload にシェル層が無ければ敷く物が無い
   if (shellLayerState() === 'ok') return;
   const m = readJson(manifestPath(makeCtx({})), null);
   if (opts.interactive) {
@@ -761,6 +783,7 @@ async function ensureShellLayer(opts) {
 // 敷き直し、'abort' なら何もしない。プロジェクトの uninstall はシェル層に届かないので、
 // 判断の対象はユーザーレベルだけである。
 async function resolveShellDisposition(ctx, m, opts) {
+  if (!payloadEntries('shell').length) return 'remove'; // 残す・敷き直すシェル層が payload に無い
   if (ctx.kind === 'project') {
     if (opts.interactive) {
       console.log(ui.dim(`\n  Guard delivery lives at the user level; this removal does not touch it.`));
@@ -891,8 +914,10 @@ async function install(opts, { requireExisting = false } = {}) {
   });
 
   // 4. 環境断片(shell スコープでは zshenv 行のみ。settings / codex 断片は書かず、
-  // フルからの縮小時は自分の断片を除去する)
-  ensureZshenvLine(ctx, log);
+  // フルからの縮小時は自分の断片を除去する)。zshenv 行は配達フックが payload に
+  // 実在するときだけ張り、無ければ管理行(マーカー付き = 常に自分の持ち物)を除去する。
+  if (shellDelivery().shellenv) ensureZshenvLine(ctx, log);
+  else removeZshenvLine(ctx, log);
   let fragments;
   if (scope === 'shell') {
     removeSettings(ctx, old?.fragments, log);
@@ -922,7 +947,6 @@ async function install(opts, { requireExisting = false } = {}) {
   const c = log.counts;
   console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.root)}`);
   console.log(`  ${summary(c)}`);
-  for (const l of organReport()) console.log(l);
   if (c.warn > 0) process.exitCode = 1;
 
   // プロジェクトへ入れてもシェル層は付いてこない(配達はユーザーレベルにしかない)。
@@ -1019,20 +1043,21 @@ function status(opts) {
       report(okc, `link ${l.link}`);
     }
   }
-  if (ctx.zshenv) report(zshenvState(ctx) === 'ok', `zshenv managed line`);
+  // 環境断片の期待値は payload のフックの実在に従う(無いものは「張られていない」が正)
+  const has = shellDelivery();
+  if (ctx.zshenv) report(zshenvState(ctx) === (has.shellenv ? 'ok' : 'missing'), `zshenv managed line`);
   if (scope !== 'shell') {
     const st = settingsState(ctx);
-    report(st.bashEnv, `settings env.BASH_ENV`);
-    report(st.sessionStart, `settings hooks.SessionStart`);
+    report(st.bashEnv === has.shellenv, `settings env.BASH_ENV`);
+    report(st.sessionStart === has.session, `settings hooks.SessionStart`);
     report(st.ask.length === fragmentDefs(ctx).ask.length, `settings permissions.ask`);
     const cx = codexHooksState(ctx);
-    if (cx !== null) report(cx, `codex hooks.SessionStart`);
+    if (cx !== null) report(cx === has.session, `codex hooks.SessionStart`);
     const rb = refBlockState(ctx);
     if (rb !== null) report(rb, `AGENTS.md reference block`);
   }
 
   console.log(drift === 0 ? `\n  ${ui.green('no drift')}` : `\n  ${ui.red(`drift: ${drift}`)}`);
-  for (const l of organReport()) console.log(l);
   if (drift > 0) process.exitCode = 1;
 }
 

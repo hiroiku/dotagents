@@ -102,27 +102,3 @@ test('正本の外では配備しない: 既知の正本へ委譲し、無けれ
   assert.match(delegated.out, /delegating to/, '既知の正本の agents-setup へ委譲する');
 });
 
-test('doctor: 正本が読めるときは配備の古さ(更新・未配布)を一段だけ照合する', () => {
-  const home = tmp('dotagents-home-');
-  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
-  execFileSync(process.execPath, [CLI, 'install', 'user'], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
-  const doctor = path.join(home, '.agents', 'bin', 'agents-doctor');
-  const env = { PATH: process.env.PATH, HOME: home };
-
-  assert.equal(execFileSync(doctor, { env, encoding: 'utf8' }), '', '正本と一致していれば無音');
-
-  // 正本を写した別ディレクトリを進めて、manifest の source を差し替える(実リポジトリは触らない)
-  const src = tmp('dotagents-src-');
-  fs.cpSync(path.join(REPO, 'payload'), path.join(src, 'payload'), { recursive: true });
-  fs.appendFileSync(path.join(src, 'payload', 'AGENTS.md'), '\n<!-- 上流の新しい規則 -->\n');
-  fs.writeFileSync(path.join(src, 'payload', 'docs', 'new-rule.md'), '# 未配布\n');
-  const manifestPath = path.join(home, '.agents', '.dotagents.json');
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  manifest.source = src;
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-
-  let failed = null;
-  try { execFileSync(doctor, { env, encoding: 'utf8' }); } catch (e) { failed = e; }
-  assert.ok(failed, '古い配備は exit 1');
-  assert.match(failed.stdout, /配備が正本より古い: 更新 1 件 \/ 未配布 1 件/);
-});

@@ -38,25 +38,23 @@ const read = (p) => fs.readFileSync(p, 'utf8');
 const agentsDir = (home) => path.join(home, '.agents');
 const manifest = (root) => JSON.parse(read(path.join(root, '.dotagents.json')));
 
-test('fresh install: 配布物・リンク・環境断片が揃い、status が乖離なしになる', () => {
+test('fresh install: 配布物とリンクだけが入り、シェル層の配線は張られず、status が乖離なしになる', () => {
   const home = freshHome();
   run(home, ['install', 'user']);
 
-  for (const rel of ['AGENTS.md', 'bin/bd', 'bin/git-guard', 'bin/agents-doctor', 'hooks/shellenv.sh', 'agents/agents-reviewer.md']) {
+  for (const rel of ['AGENTS.md', 'skills/dotagents-prompting/SKILL.md', '.gitignore']) {
     assert.ok(fs.existsSync(path.join(agentsDir(home), rel)), `${rel} が配布されている`);
   }
-  assert.ok(fs.statSync(path.join(agentsDir(home), 'bin/bd')).mode & 0o100, '実行ビットが保存される');
   assert.equal(fs.readlinkSync(path.join(home, '.claude/CLAUDE.md')), path.join(agentsDir(home), 'AGENTS.md'));
-  assert.ok(fs.lstatSync(path.join(home, '.claude/agents/agents-reviewer.md')).isSymbolicLink());
   assert.ok(!fs.lstatSync(path.join(home, '.claude/skills')).isSymbolicLink(), 'skills はディレクトリごとリンクしない');
-  assert.ok(fs.lstatSync(path.join(home, '.claude/skills/agents-quality-loop')).isSymbolicLink(), 'スキル単位でリンクする');
-  assert.match(read(path.join(home, '.zshenv')), /\[ -f "\$HOME\/\.agents\/hooks\/shellenv\.sh" \] && \./);
-  const settings = JSON.parse(read(path.join(home, '.claude/settings.json')));
-  assert.equal(settings.env.BASH_ENV, path.join(agentsDir(home), 'hooks/shellenv.sh'));
-  assert.ok(settings.permissions.ask.includes('Bash(git push:*)'));
-  const codexHooks = JSON.parse(read(path.join(home, '.codex/hooks.json')));
-  assert.ok(codexHooks.hooks.SessionStart.some((m) => m.hooks.some((h) => h.command.includes('beads-session.sh'))),
-    'Codex にも SessionStart 断片が配られる');
+  assert.ok(fs.lstatSync(path.join(home, '.claude/skills/dotagents-prompting')).isSymbolicLink(), 'スキル単位でリンクする');
+  assert.ok(fs.lstatSync(path.join(home, '.codex/AGENTS.md')).isSymbolicLink(), 'Codex にも AGENTS.md を張る');
+  assert.ok(fs.lstatSync(path.join(home, '.codex/skills/dotagents-prompting')).isSymbolicLink(), 'Codex にもスキルを張る');
+
+  // payload にフックが無い以上、環境断片はどこにも書かれない
+  assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv は作らない');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/settings.json')), 'settings 断片を書かない');
+  assert.ok(!fs.existsSync(path.join(home, '.codex/hooks.json')), 'codex hooks 断片を書かない');
 
   const { out } = run(home, ['status', 'user']);
   assert.match(out, /no drift/);
@@ -66,13 +64,12 @@ test('冪等: 2 回目の install は何も変更しない', () => {
   const home = freshHome();
   run(home, ['install', 'user']);
   const before = read(path.join(agentsDir(home), '.dotagents.json'));
-  const settingsBefore = read(path.join(home, '.claude/settings.json'));
   run(home, ['install', 'user']);
   const after = JSON.parse(read(path.join(agentsDir(home), '.dotagents.json')));
   const beforeObj = JSON.parse(before);
   delete after.installedAt; delete beforeObj.installedAt;
   assert.deepEqual(after, beforeObj);
-  assert.equal(read(path.join(home, '.claude/settings.json')), settingsBefore);
+  assert.ok(!fs.existsSync(path.join(home, '.claude/settings.json')), '2 回目も settings を書かない');
 });
 
 test('改変保護: ユーザーが編集したファイルは update が触れず警告し、--force でのみ上書きする', () => {
@@ -100,7 +97,7 @@ test('リンク所有権: インストール前から存在した同内容リン
   assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), '自作リンクは消える');
 });
 
-test('外科的 uninstall: 自前スキルを残し、zshenv と settings を原状復帰する', () => {
+test('外科的 uninstall: 自前スキルとユーザーの設定に触れず、配布物だけが消える', () => {
   const home = freshHome();
   fs.mkdirSync(path.join(agentsDir(home), 'skills/my-own-skill'), { recursive: true });
   fs.writeFileSync(path.join(agentsDir(home), 'skills/my-own-skill/SKILL.md'), '# mine\n');
@@ -115,22 +112,62 @@ test('外科的 uninstall: 自前スキルを残し、zshenv と settings を原
 
   assert.ok(fs.existsSync(path.join(agentsDir(home), 'skills/my-own-skill/SKILL.md')), '自前スキルは残る');
   assert.ok(!fs.existsSync(path.join(agentsDir(home), 'AGENTS.md')), '配布物は消える');
-  assert.equal(read(path.join(home, '.zshenv')), 'export MY_VAR=1\n', 'zshenv は原状復帰');
-  assert.deepEqual(JSON.parse(read(path.join(home, '.claude/settings.json'))), userSettings, 'settings は原状復帰');
-  assert.deepEqual(JSON.parse(read(path.join(home, '.codex/hooks.json'))), userCodexHooks, 'codex hooks は自分の断片だけ除去され原状復帰');
+  assert.equal(read(path.join(home, '.zshenv')), 'export MY_VAR=1\n', 'zshenv は原状のまま');
+  assert.deepEqual(JSON.parse(read(path.join(home, '.claude/settings.json'))), userSettings, 'settings は原状のまま');
+  assert.deepEqual(JSON.parse(read(path.join(home, '.codex/hooks.json'))), userCodexHooks, 'codex hooks は原状のまま');
 });
 
-test('shell スコープ: 強制則の層だけが入り、プロンプトへの影響を持たず、外科的に戻る', () => {
+test('旧世代の刈り込み: 過去に自分が張ったシェル層の配線は、フックの消えた payload での update が除去する', () => {
+  const home = freshHome();
+  run(home, ['install', 'user']);
+  const root = agentsDir(home);
+
+  // 旧世代の install が張った配線を再現する(所有記録付き)
+  const marker = '# agents-harness';
+  fs.writeFileSync(path.join(home, '.zshenv'),
+    `export MY_VAR=1\n[ -f "$HOME/.agents/hooks/shellenv.sh" ] && . "$HOME/.agents/hooks/shellenv.sh" ${marker}\n`);
+  const sPath = path.join(home, '.claude/settings.json');
+  fs.writeFileSync(sPath, JSON.stringify({
+    env: { BASH_ENV: path.join(root, 'hooks/shellenv.sh') },
+    hooks: { SessionStart: [{ hooks: [{ type: 'command', command: path.join(root, 'hooks/beads-session.sh') }] }] },
+    permissions: { ask: ['Bash(git push:*)', 'Bash(gh pr merge:*)'] },
+  }, null, 2) + '\n');
+  const cxPath = path.join(home, '.codex/hooks.json');
+  fs.writeFileSync(cxPath, JSON.stringify({
+    hooks: { SessionStart: [
+      { hooks: [{ type: 'command', command: 'bash /Users/x/herdr.sh session' }] },
+      { hooks: [{ type: 'command', command: path.join(root, 'hooks/beads-session.sh'), timeout: 10 }] },
+    ] },
+  }, null, 2) + '\n');
+  const mPath = path.join(root, '.dotagents.json');
+  const m = JSON.parse(read(mPath));
+  m.fragments = { bashEnv: true, sessionStart: true, ask: ['Bash(git push:*)'], codexSessionStart: true, refBlock: false };
+  fs.writeFileSync(mPath, JSON.stringify(m, null, 2) + '\n');
+
+  run(home, ['update', 'user']);
+
+  assert.equal(read(path.join(home, '.zshenv')), 'export MY_VAR=1\n', '管理行は除去され、ユーザーの行は残る');
+  const s = JSON.parse(read(sPath));
+  assert.equal(s.env?.BASH_ENV, undefined, '所有していた BASH_ENV は除去される');
+  assert.equal(s.hooks, undefined, '所有していた SessionStart は除去される');
+  assert.deepEqual(s.permissions.ask, ['Bash(gh pr merge:*)'], '所有していた ask だけが刈り込まれ、ユーザーのルールは残る');
+  const cx = JSON.parse(read(cxPath));
+  assert.equal(cx.hooks.SessionStart.length, 1, 'codex は自分の断片だけ除去する');
+  assert.match(cx.hooks.SessionStart[0].hooks[0].command, /herdr/, 'ユーザーの hook は残る');
+
+  const { out } = run(home, ['status', 'user']);
+  assert.match(out, /no drift/, '刈り込み後は乖離なし');
+});
+
+test('shell スコープ: payload にシェル層が無ければ何も配らず、外科的に戻る', () => {
   const home = freshHome();
   run(home, ['install', 'shell']);
 
-  assert.ok(fs.existsSync(path.join(home, '.agents/bin/bd')), 'ガードは入る');
-  assert.ok(fs.existsSync(path.join(home, '.agents/hooks/shellenv.sh')), '配達フックは入る');
+  assert.equal(manifest(agentsDir(home)).scope, 'shell');
+  assert.deepEqual(manifest(agentsDir(home)).files, {}, '配る物が無い');
   assert.ok(!fs.existsSync(path.join(home, '.agents/AGENTS.md')), 'プロンプトは入らない');
   assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'リンクを張らない');
-  assert.ok(!fs.existsSync(path.join(home, '.claude/settings.json')), 'settings 断片を書かない');
-  assert.match(read(path.join(home, '.zshenv')), /agents-harness/, 'zshenv 行だけが環境断片');
-  assert.equal(manifest(agentsDir(home)).scope, 'shell');
+  assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv 行も作らない');
 
   const { out } = run(home, ['status', 'user']);
   assert.match(out, /scope=shell/);
@@ -138,30 +175,9 @@ test('shell スコープ: 強制則の層だけが入り、プロンプトへの
 
   run(home, ['uninstall', 'user']);
   assert.ok(!fs.existsSync(path.join(home, '.agents')));
-  assert.ok(!read(path.join(home, '.zshenv')).includes('agents-harness'));
 });
 
-test('settings 断片: defs から消えた自分所有の ask ルールだけを update が刈り込む', () => {
-  const home = freshHome();
-  run(home, ['install', 'user']);
-  const sPath = path.join(home, '.claude/settings.json');
-  const s = JSON.parse(read(sPath));
-  s.permissions.ask.push('Bash(git merge:*)');   // 旧世代で自分が足した扱いにする
-  s.permissions.ask.push('Bash(gh pr merge:*)'); // ユーザー自身のルール(所有外)
-  fs.writeFileSync(sPath, JSON.stringify(s, null, 2) + '\n');
-  const mPath = path.join(home, '.agents/.dotagents.json');
-  const m = JSON.parse(read(mPath));
-  m.fragments.ask.push('Bash(git merge:*)');
-  fs.writeFileSync(mPath, JSON.stringify(m, null, 2) + '\n');
-
-  run(home, ['update', 'user']);
-  const after = JSON.parse(read(sPath)).permissions.ask;
-  assert.ok(!after.includes('Bash(git merge:*)'), '所有していた旧ルールは刈り込まれる');
-  assert.ok(after.includes('Bash(git push:*)'), '現行 defs のルールは残る');
-  assert.ok(after.includes('Bash(gh pr merge:*)'), '所有外のユーザールールには触れない');
-});
-
-test('shell スコープ: update はスコープを維持し、install(--user)で全量へ拡大する', () => {
+test('shell スコープ: update はスコープを維持し、install(user)で全量へ拡大する', () => {
   const home = freshHome();
   run(home, ['install', 'shell']);
   run(home, ['update', 'user']);
@@ -208,16 +224,25 @@ test('参照ブロック: 既存の root AGENTS.md にだけマーカー付き�
   run(home, ['uninstall', 'project', proj2]);
 });
 
-test('project モード: 相対リンクで張り、断片は settings.local.json に書く', () => {
+test('project モード: 相対リンクで張り、user レベルには何も敷かない', () => {
   const home = freshHome();
   const proj = freshProject();
   run(home, ['install', 'project', proj]);
   assert.equal(fs.readlinkSync(path.join(proj, '.claude/CLAUDE.md')), '../.agents/AGENTS.md');
-  assert.equal(fs.readlinkSync(path.join(proj, '.claude/skills/agents-kickoff')), '../../.agents/skills/agents-kickoff');
-  assert.ok(fs.existsSync(path.join(proj, '.claude/settings.local.json')));
-  assert.ok(!fs.existsSync(path.join(proj, '.claude/settings.json')), '版管理対象の settings.json には書かない');
+  assert.equal(fs.readlinkSync(path.join(proj, '.claude/skills/dotagents-prompting')), '../../.agents/skills/dotagents-prompting');
+  assert.ok(!fs.existsSync(path.join(proj, '.claude/settings.local.json')), '書く断片が無ければ settings も作らない');
+  assert.ok(!fs.existsSync(path.join(home, '.agents')), 'payload にシェル層が無ければ user レベルに補完しない');
+  assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv にも触れない');
   run(home, ['uninstall', 'project', proj]);
   assert.ok(!fs.existsSync(path.join(proj, '.agents')), '.agents ごと消える');
+});
+
+test('uninstall --keep-shell: 残すシェル層が payload に無ければ、全てが外科的に外れる', () => {
+  const home = freshHome();
+  run(home, ['install', 'user']);
+  run(home, ['uninstall', 'user', '--keep-shell']);
+  assert.ok(!fs.existsSync(path.join(home, '.agents')), '敷き直すシェル層が無いので全て消える');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'リンクも消える');
 });
 
 // ---------------------------------------------------------------- 対象の確定
@@ -302,68 +327,4 @@ test('unknown command: 使い方を丸ごと吐かず、理由と入口だけを
   assert.equal(r.code, 1);
   assert.match(r.out, /unknown command: bogus/);
   assert.match(r.out, /agents-setup --help/);
-});
-
-// ---------------------------------------------------------------- シェル層(共有資源)
-
-test('シェル層の補完: project install はユーザーレベルのガード配達を最小形で敷く', () => {
-  const home = freshHome();
-  const proj = freshProject();
-  run(home, ['install', 'project', proj]);
-
-  assert.ok(fs.existsSync(path.join(home, '.agents/hooks/shellenv.sh')), '配達フックが補完される');
-  assert.ok(fs.existsSync(path.join(home, '.agents/bin/git-guard')), 'ガードが補完される');
-  assert.match(read(path.join(home, '.zshenv')), /agents-harness/, 'zsh への配達行が入る');
-  assert.equal(manifest(agentsDir(home)).scope, 'shell', '補完は最小形(プロンプトは持ち込まない)');
-  assert.ok(!fs.existsSync(path.join(home, '.agents/AGENTS.md')), 'ユーザーレベルにプロンプトは入らない');
-  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'ユーザーレベルにリンクは張らない');
-
-  // 2 回目は既に ok なので何も足さない
-  const before = read(path.join(home, '.zshenv'));
-  run(home, ['install', 'project', freshProject()]);
-  assert.equal(read(path.join(home, '.zshenv')), before, '冪等(管理行は 1 本のまま)');
-});
-
-test('シェル層の補完: 既存のユーザーレベル full を shell へ縮小しない', () => {
-  const home = freshHome();
-  run(home, ['install', 'user']);
-  fs.writeFileSync(path.join(home, '.zshenv'), 'export MY_VAR=1\n'); // 配達行だけ失われた状態
-
-  run(home, ['install', 'project', freshProject()]);
-
-  assert.match(read(path.join(home, '.zshenv')), /agents-harness/, '欠けた配達行は修復される');
-  assert.equal(manifest(agentsDir(home)).scope, 'full', 'scope は full のまま');
-  assert.ok(fs.existsSync(path.join(home, '.agents/AGENTS.md')), 'プロンプト層は失われない');
-  assert.ok(fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'リンクも失われない');
-});
-
-test('シェル層の保護: project の uninstall は共有資源に触れない', () => {
-  const home = freshHome();
-  const proj = freshProject();
-  run(home, ['install', 'project', proj]);
-  run(home, ['uninstall', 'project', proj]);
-
-  assert.ok(!fs.existsSync(path.join(proj, '.agents')), 'プロジェクト側は消える');
-  assert.ok(fs.existsSync(path.join(home, '.agents/hooks/shellenv.sh')), '他プロジェクトが使う配達は残る');
-  assert.match(read(path.join(home, '.zshenv')), /agents-harness/, 'zshenv 管理行も残る');
-});
-
-test('シェル層の保護: uninstall --user --keep-shell はプロンプト層だけ外し、ガードを残す', () => {
-  const home = freshHome();
-  run(home, ['install', 'user']);
-  run(home, ['uninstall', 'user', '--keep-shell']);
-
-  assert.ok(!fs.existsSync(path.join(home, '.agents/AGENTS.md')), 'プロンプトは消える');
-  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'リンクは消える');
-  assert.ok(!JSON.parse(read(path.join(home, '.claude/settings.json'))).env?.BASH_ENV, 'settings 断片も消える');
-  assert.ok(fs.existsSync(path.join(home, '.agents/hooks/shellenv.sh')), 'ガード配達は残る');
-  assert.ok(fs.existsSync(path.join(home, '.agents/bin/git-guard')), 'ガード本体も残る');
-  assert.match(read(path.join(home, '.zshenv')), /agents-harness/, 'zshenv 管理行も残る');
-  assert.equal(manifest(agentsDir(home)).scope, 'shell', '最小形へ縮小して所有を保つ');
-
-  const { out } = run(home, ['status', 'user']);
-  assert.match(out, /no drift/, '残した層は所有として整合している');
-
-  run(home, ['uninstall', 'user']);
-  assert.ok(!fs.existsSync(path.join(home, '.agents')), '最終的には外科的に消える');
 });
