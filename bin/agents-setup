@@ -759,7 +759,7 @@ async function ensureShellLayer(opts) {
     const answer = await pick(
       'Set up guard delivery now?',
       [
-        'It is missing — without it neither the merge-slot lock nor the bd issue guard can fire.',
+        'It is missing — without it the shell-layer guards cannot fire.',
         'zsh only has a user-global startup file, so delivery always lives at the user level.',
       ],
       [
@@ -798,7 +798,7 @@ async function resolveShellDisposition(ctx, m, opts) {
       'Remove the guard delivery itself?',
       [
         'This installation IS the delivery (scope=shell).',
-        'Removing it turns off the merge-slot lock and the bd issue guard everywhere on this HOME.',
+        'Removing it turns off the shell-layer guards everywhere on this HOME.',
       ],
       [
         { label: 'Cancel', hint: 'Leave the guards in place', value: 'abort' },
