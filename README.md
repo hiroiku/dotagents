@@ -68,7 +68,7 @@ Three rules connect them:
 
 - **No deploying from a throwaway.** Outside a corpus (an npx cache, an unpacked tarball) the deploy commands delegate to the corpus your machine already knows — or stop and point to `clone`.
 - **Following is deliberate.** What you pull are the texts that govern your agents, so `pull` shows the incoming commit titles first — written in domain language, they read as a changelog — then rebases and runs the tests. Nothing auto-updates.
-- **Drift is visible.** `status` compares every deployed file and link against the corpus and exits 1 on drift; `update` resyncs exactly what the installer owns.
+- **Drift is visible.** `status` compares every deployed file and rules block against the corpus and exits 1 on drift; `update` resyncs exactly what the installer owns.
 
 ## What lands where
 

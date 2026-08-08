@@ -68,7 +68,7 @@ Drei Regeln verbinden sie:
 
 - **Kein Deployment aus einem Wegwerfobjekt.** Außerhalb eines Korpus (ein npx-Cache, ein entpackter Tarball) delegieren die Deploy-Befehle an den Korpus, den deine Maschine bereits kennt — oder stoppen mit einem Hinweis auf `clone`.
 - **Folgen ist absichtlich.** Was du pullst, sind die Texte, die deine Agenten regieren, daher zeigt `pull` zuerst die eingehenden Commit-Titel — in Fachsprache geschrieben, lesen sie sich wie ein Changelog — und rebased und testet erst danach. Nichts aktualisiert sich automatisch.
-- **Drift ist sichtbar.** `status` vergleicht jede bereitgestellte Datei und jeden Link mit dem Korpus und endet mit Exit 1 bei Drift; `update` resynchronisiert genau das, was dem Installer gehört.
+- **Drift ist sichtbar.** `status` vergleicht jede bereitgestellte Datei und jeden Regelblock mit dem Korpus und endet mit Exit 1 bei Drift; `update` resynchronisiert genau das, was dem Installer gehört.
 
 ## Was wo landet
 

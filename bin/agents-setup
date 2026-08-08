@@ -27,7 +27,7 @@ const { execFileSync } = require('node:child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const PAYLOAD = path.join(REPO_ROOT, 'payload');
-// マシン固有の記録の集約先。~/.claude・~/.codex と同じ古典的 dot ディレクトリ文化に置く。
+// マシン固有の記録(manifest)の集約先。
 const STATE_DIR = () => path.join(os.homedir(), '.dotagents');
 // 旧レイアウト(<base>/.agents)の manifest 名と zshenv 管理行 — 刈り込み(移行)専用。
 const LEGACY_MANIFEST_NAME = '.dotagents.json';
@@ -86,6 +86,15 @@ function removeEmptyDirsUpTo(from, stopAt) {
   }
 }
 
+// 空ディレクトリの遡り削除は各ツールのディレクトリ(.claude / .codex)で止める —
+// それ自体はユーザーの持ち物であり、空でも消さない。
+function pruneStop(ctx, dst) {
+  for (const d of [ctx.claudeDir, ctx.codexDir]) {
+    if (dst.startsWith(d + path.sep)) return d;
+  }
+  return ctx.base;
+}
+
 // ---------------------------------------------------------------- context
 
 // 対象は opts.target(user / project)ただ 1 つ。base = 配達の基準ディレクトリで、
@@ -125,8 +134,7 @@ function manifestPath(ctx) {
 
 function legacyManifestPath(ctx) { return path.join(ctx.legacyRoot, LEGACY_MANIFEST_NAME); }
 
-// 断片は絶対パスを含むマシン固有の設定なので、プロジェクトでは版管理対象の
-// settings.json ではなく settings.local.json に書く。
+// 旧レイアウトが断片を書いた settings の場所(プロジェクトは settings.local.json)。刈り込みに使う。
 function settingsPath(ctx) {
   return path.join(ctx.claudeDir, ctx.kind === 'project' ? 'settings.local.json' : 'settings.json');
 }
@@ -156,17 +164,24 @@ function ownedAgentNames() {
 // - それ以外(README / docs)→ 配備しない。解説は正本と npm パッケージで読む。
 function deliveryEntries(ctx) {
   const entries = [];
-  const add = (src, dst) => entries.push({ src, dst, rel: path.relative(ctx.base, dst) });
+  // unit = 配達の単位(スキルならそのディレクトリ)。unit 自体が symlink の環境では
+  // リンク越しに書き込まないよう、コピー側が unit を見て丸ごと退く。
+  const add = (src, dst, unit) => entries.push({ src, dst, unit, rel: path.relative(ctx.base, dst) });
   const codex = lstatOrNull(ctx.codexDir)?.isDirectory();
   for (const name of ownedSkillNames()) {
     const dir = path.join(PAYLOAD, 'skills', name);
     for (const rel of walk(dir)) {
-      add(path.join(dir, rel), path.join(ctx.claudeDir, 'skills', name, rel));
-      if (codex) add(path.join(dir, rel), path.join(ctx.codexDir, 'skills', name, rel));
+      const claudeUnit = path.join(ctx.claudeDir, 'skills', name);
+      add(path.join(dir, rel), path.join(claudeUnit, rel), claudeUnit);
+      if (codex) {
+        const codexUnit = path.join(ctx.codexDir, 'skills', name);
+        add(path.join(dir, rel), path.join(codexUnit, rel), codexUnit);
+      }
     }
   }
   for (const file of ownedAgentNames()) {
-    add(path.join(PAYLOAD, 'agents', file), path.join(ctx.claudeDir, 'agents', file));
+    const dst = path.join(ctx.claudeDir, 'agents', file);
+    add(path.join(PAYLOAD, 'agents', file), dst, dst);
   }
   return entries;
 }
@@ -183,6 +198,34 @@ function removeLink(l, log) {
     fs.unlinkSync(l.link);
     log.del(`legacy link ${l.link}`);
   }
+}
+
+// 配達先に残った旧 symlink の掃除。.agents を指すリンクと切れたリンクは、旧レイアウトの
+// 残骸であり実体をコピーする場所を塞ぐので除去する(所有記録に無い手張りのリンクも、
+// 行き先が .agents か切れている限り機能し得ないため同じ扱い)。それ以外の生きた symlink は
+// ユーザーの構成として残し、後段が conflict として警告する。
+function clearStaleSymlink(ctx, p, log) {
+  const st = lstatOrNull(p);
+  if (!st?.isSymbolicLink()) return;
+  const resolved = path.resolve(path.dirname(p), fs.readlinkSync(p));
+  const inLegacy = resolved === ctx.legacyRoot || resolved.startsWith(ctx.legacyRoot + path.sep);
+  if (inLegacy || !fs.existsSync(p)) {
+    fs.unlinkSync(p);
+    log.del(`stale symlink ${path.relative(ctx.base, p)}`);
+  }
+}
+
+// 掃除の対象 = これから配達する場所すべて(規則ファイル・スキル単位・エージェント単位)。
+function staleSymlinkCandidates(ctx) {
+  const out = [path.join(ctx.claudeDir, 'CLAUDE.md')];
+  const codex = lstatOrNull(ctx.codexDir)?.isDirectory();
+  if (ctx.kind === 'user' && codex) out.push(path.join(ctx.codexDir, 'AGENTS.md'));
+  for (const name of ownedSkillNames()) {
+    out.push(path.join(ctx.claudeDir, 'skills', name));
+    if (codex) out.push(path.join(ctx.codexDir, 'skills', name));
+  }
+  for (const file of ownedAgentNames()) out.push(path.join(ctx.claudeDir, 'agents', file));
+  return out;
 }
 
 // ---------------------------------------------------------------- ~/.zshenv(刈り込み専用)
@@ -318,6 +361,11 @@ function applyRulesBlock(ctx, t, body, oldRecord, log) {
   const st = lstatOrNull(t.file);
   if (!st && !t.create) return null;
   const rel = path.relative(ctx.base, t.file);
+  if (st?.isSymbolicLink()) {
+    // リンク越しに書くとリンク先(ユーザーの実体)を書き換えてしまう
+    log.warn(`a symlink is in the way, leaving it alone: ${t.file}`);
+    return null;
+  }
   const desired = desiredBlock(body);
   const text = st ? fs.readFileSync(t.file, 'utf8') : '';
   if (text.includes(desired)) {
@@ -352,6 +400,7 @@ function removeRulesBlock(ctx, record, log) {
 function rulesBlockState(ctx, t, body) {
   const st = lstatOrNull(t.file);
   if (!st) return t.create ? false : null;
+  if (st.isSymbolicLink()) return fs.existsSync(t.file) ? false : (t.create ? false : null);
   return fs.readFileSync(t.file, 'utf8').includes(desiredBlock(body));
 }
 
@@ -452,8 +501,8 @@ function isInteractive() {
 const CANCELLED = Symbol('cancelled');
 
 // 矢印キーで選ぶ。何を打てばよいかを覚えさせず、選べる物を常に画面へ出す。
-// options: [{ label, detail, hint, tone }]
-function select({ title, notes = [], options }) {
+// options: [{ label, detail, hint }]
+function select({ title, options }) {
   return new Promise((resolve) => {
     const stdin = process.stdin;
     const width = termWidth();
@@ -465,15 +514,13 @@ function select({ title, notes = [], options }) {
       const lines = [];
       lines.push('');
       lines.push(`  ${ui.bold(title)}`);
-      for (const n of notes) lines.push(`  ${ui.dim(n)}`);
       lines.push('');
       options.forEach((o, i) => {
         const on = i === index;
-        const tone = o.tone === 'danger' ? ui.red : ui.cyan;
-        const label = on ? tone(ui.bold(pad(o.label, labelWidth))) : pad(o.label, labelWidth);
+        const label = on ? ui.cyan(ui.bold(pad(o.label, labelWidth))) : pad(o.label, labelWidth);
         const room = width - labelWidth - 8;
         const detail = o.detail ? (on ? ui.gray(truncHead(o.detail, room)) : ui.dim(truncHead(o.detail, room))) : '';
-        lines.push(`  ${on ? tone('❯') : ' '} ${label}   ${detail}`.trimEnd());
+        lines.push(`  ${on ? ui.cyan('❯') : ' '} ${label}   ${detail}`.trimEnd());
         if (o.hint) lines.push(`      ${ui.dim(truncHead(o.hint, width - 8))}`);
       });
       lines.push('');
@@ -510,14 +557,6 @@ function select({ title, notes = [], options }) {
     process.stdout.write('\x1b[?25l');
     paint();
   });
-}
-
-// 2 択も同じ器で聞く。返すのは真偽ではなく選ばれた値 — yes/no にすると、安全側を
-// 先頭に置いた瞬間に呼び出し側が反転を抱える(`!yes` が「実行する」になる)。
-// 先頭は常に影響範囲の狭い側に置く: 連打や早合点で決まっても被害が小さい方を既定にする。
-async function pick(title, notes, options) {
-  const i = await select({ title, notes, options });
-  return i === CANCELLED ? CANCELLED : options[i].value;
 }
 
 function closePrompt() {
@@ -623,13 +662,23 @@ async function install(opts, { requireExisting = false } = {}) {
     throw new Error(`nothing installed for ${homePath(ctx.base)} — run \`agents-setup install\` first.`);
   }
 
-  // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込み
+  // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込みと、配達先を塞ぐ旧 symlink の掃除
   migrateLegacy(ctx, log);
+  for (const p of staleSymlinkCandidates(ctx)) clearStaleSymlink(ctx, p, log);
 
   // 1. payload → 各ツールの置き場(所有ハッシュに基づく外科的コピー)
   const entries = deliveryEntries(ctx);
   const files = {};
-  for (const { src, dst, rel } of entries) {
+  const blockedUnits = new Set();
+  for (const { src, dst, unit, rel } of entries) {
+    // 掃除を生き延びた symlink はユーザーの構成。リンク越しに書き込まず、警告して退く
+    if (lstatOrNull(unit)?.isSymbolicLink()) {
+      if (!blockedUnits.has(unit)) {
+        blockedUnits.add(unit);
+        log.warn(`a symlink is in the way, leaving it alone: ${unit}`);
+      }
+      continue;
+    }
     const srcHash = sha256(src);
     const st = lstatOrNull(dst);
     const recorded = old?.files?.[rel];
@@ -667,7 +716,7 @@ async function install(opts, { requireExisting = false } = {}) {
     if (!st) continue;
     if (sha256(dst) === hash) {
       fs.unlinkSync(dst);
-      removeEmptyDirsUpTo(path.dirname(dst), ctx.base);
+      removeEmptyDirsUpTo(path.dirname(dst), pruneStop(ctx, dst));
       log.del(`${rel} (gone from payload)`);
     } else {
       log.warn(`gone from payload but modified in place, keeping it: ${dst}`);
@@ -727,7 +776,7 @@ async function uninstall(opts) {
     if (!st) continue;
     if (sha256(dst) === hash) {
       fs.unlinkSync(dst);
-      removeEmptyDirsUpTo(path.dirname(dst), ctx.base);
+      removeEmptyDirsUpTo(path.dirname(dst), pruneStop(ctx, dst));
       log.del(rel);
     } else {
       log.warn(`modified in place, keeping it: ${dst}`);
@@ -770,9 +819,11 @@ function status(opts) {
 
   // payload との照合
   const entries = deliveryEntries(ctx);
-  for (const { src, dst, rel } of entries) {
+  for (const { src, dst, unit, rel } of entries) {
+    if (lstatOrNull(unit)?.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
     const st = lstatOrNull(dst);
     if (!st) { report(false, `${rel} — missing`); continue; }
+    if (st.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
     const h = sha256(dst);
     if (h === sha256(src)) report(true, rel);
     else if (h === m.files?.[rel]) report(false, `${rel} — payload is newer, run update`);
@@ -800,13 +851,11 @@ function status(opts) {
   if (drift > 0) process.exitCode = 1;
 }
 
-// ---------------------------------------------------------------- main
-
 // ---------------------------------------------------------------- 正本(取得と追従)
 //
-// 三層の動詞を分ける: clone(取得・初回)/ pull(追従・繰り返し)/ install・update(配備)。
+// 動詞を分ける: clone(取得・初回)/ pull(追従・繰り返し)/ install・update(配備)。
 // 追従の本体は git に委ねる — pull が包むのは「差分の提示 → 統合 → 検証」だけで、
-// 配備の再同期は行わない(古さは各セッション入口の計器 agents-doctor が検出する)。
+// 配備の再同期は行わない(乖離は status が検出する)。
 
 // この実行ファイルが編集可能な正本(git リポジトリ)の中にいるか。
 // npx のキャッシュや tarball 展開は正本ではない — そこから黙って配備しない。
@@ -938,6 +987,7 @@ const TARGETS = new Set(['user', 'project']);
 // 旧インタフェース。エイリアスとしては生かさない(2 系統は維持費を二重に払う)。
 // 正しい形へ案内するためだけに名前を覚えておく。
 const RETIRED = new Set(['--user', '--project', '--shell']);
+const RETIRED_FLAGS = new Set(['--keep-shell']);
 
 // 対象は位置引数 1 つ。位置は 1 つしか無いので「user と project の同時指定」は
 // 表現できない — 排他は検証ではなく構文が保証する。
@@ -956,6 +1006,10 @@ function parseArgs(argv) {
     else if (RETIRED.has(a)) {
       throw new Error(`${a} is retired. The target is a positional argument now:\n` +
         `         agents-setup <command> user | project [<dir>]`);
+    }
+    else if (RETIRED_FLAGS.has(a)) {
+      throw new Error(`${a} is retired: the payload no longer ships a shell layer, so there is nothing to keep.\n` +
+        `       Use plain \`uninstall\`; \`update\` prunes any old shell wiring.`);
     }
     else if (a.startsWith('-')) throw new Error(`unknown argument: ${a}`);
     else positional.push(a);
@@ -1041,7 +1095,7 @@ const CMD_HELP = {
       'Everything is idempotent and hash-owned: files you edited after installation are',
       'kept and reported, and skills you wrote yourself are never touched.',
     ],
-    options: [['--force', 'overwrite files that were modified after installation']],
+    options: [['--force', 'overwrite whatever sits in the way and does not match the payload']],
     notes: ['A legacy .agents layout (symlinks, zshenv line, settings fragments) is migrated automatically.'],
     examples: [
       ['agents-setup install', 'choose the target interactively'],
@@ -1057,7 +1111,7 @@ const CMD_HELP = {
       'are gone from payload/ but still recorded in the manifest (kept machine-locally',
       'under ~/.dotagents/), and prunes any legacy .agents layout it finds.',
     ],
-    options: [['--force', 'overwrite files that were modified after installation']],
+    options: [['--force', 'overwrite whatever sits in the way and does not match the payload']],
     notes: ['Edit prompts in this repository, never in the installed tree — update carries them over.'],
     examples: [
       ['agents-setup update project', 'refresh the current directory'],
@@ -1107,7 +1161,7 @@ function printHelp(cmd) {
     console.log(`\n${TARGET_HELP}`);
     console.log(`\n${ui.bold('Options')}`);
     console.log(pad2([
-      ['--force', 'overwrite files that were modified after installation'],
+      ['--force', 'overwrite whatever sits in the way and does not match the payload'],
       ['--help, -h', 'show this help, or the help for a command'],
       ['--version, -v', 'print the version'],
     ]).join('\n'));

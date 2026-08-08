@@ -71,6 +71,8 @@ test('fresh install(user): 実ファイルのコピーと規則ブロックだ�
 
   assert.ok(!fs.existsSync(path.join(home, '.agents')), '.agents は作らない');
   assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv に触れない');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/README.md')), '解説(README)は配備しない');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/docs')), '解説の翻訳も配備しない');
   assert.equal(userManifest(home).kind, 'user', 'manifest は ~/.dotagents/user.json');
   assert.ok(!fs.existsSync(path.join(home, '.claude/.dotagents.json')), '配備先に manifest を残さない');
 
@@ -140,7 +142,18 @@ test('外科的 uninstall: 自前スキルとユーザーの設定に触れず�
   assert.ok(!fs.existsSync(path.join(home, '.claude/agents/dotagents-review.md')), 'エージェント定義も消える');
   assert.equal(read(path.join(home, '.zshenv')), 'export MY_VAR=1\n', 'zshenv は原状のまま');
   assert.deepEqual(JSON.parse(read(path.join(home, '.claude/settings.json'))), userSettings, 'settings は原状のまま');
+  assert.ok(fs.existsSync(path.join(home, '.codex')), '既存の .codex は空になっても残る');
   assert.ok(!fs.existsSync(stateDir(home)), '記録が尽きたら ~/.dotagents も残さない');
+});
+
+test('外科的 uninstall: 改変された配布ファイルは残す', () => {
+  const home = freshHome();
+  run(home, ['install', 'user']);
+  const target = path.join(home, '.claude/skills/dotagents-prompting/SKILL.md');
+  fs.appendFileSync(target, '\n# user edit\n');
+  run(home, ['uninstall', 'user']);
+  assert.ok(fs.existsSync(target), '改変ファイルは消さない');
+  assert.ok(read(target).includes('# user edit'), '内容もそのまま');
 });
 
 test('旧レイアウトの移行: .agents・symlink・zshenv 行・settings 断片を update が刈り込み、新レイアウトを敷く', () => {
@@ -202,6 +215,73 @@ test('旧レイアウトの移行: .agents・symlink・zshenv 行・settings 断
   assert.match(out, /no drift/, '移行後は乖離なし');
 });
 
+test('旧レイアウトの残存: status は乖離として報告し、uninstall は legacy だけでも外科的に外す', () => {
+  const home = freshHome();
+  const root = path.join(home, '.agents');
+  fs.mkdirSync(root, { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'payload/AGENTS.md'), path.join(root, 'AGENTS.md'));
+  fs.symlinkSync(path.join(root, 'AGENTS.md'), path.join(home, '.claude/CLAUDE.md'));
+  fs.writeFileSync(path.join(root, '.dotagents.json'), JSON.stringify({
+    schema: 1, kind: 'user', scope: 'full', version: '1.0.0', source: REPO,
+    files: { 'AGENTS.md': sha(path.join(root, 'AGENTS.md')) },
+    links: [{ link: path.join(home, '.claude/CLAUDE.md'), target: path.join(root, 'AGENTS.md'), created: true }],
+    fragments: {},
+  }, null, 2) + '\n');
+
+  const st = run(home, ['status', 'user'], { allowFail: true });
+  assert.equal(st.code, 1, '旧レイアウトの残存は乖離');
+  assert.match(st.out, /legacy layout/);
+
+  run(home, ['uninstall', 'user']);
+  assert.ok(!fs.existsSync(root), '.agents ごと消える');
+  assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), '旧リンクも消える');
+});
+
+test('移行の頑健性: 所有記録に無い .agents 向き symlink が残っていても、update は完走して実体を敷く', () => {
+  const home = freshHome();
+  const root = path.join(home, '.agents');
+  fs.mkdirSync(path.join(root, 'skills/dotagents-prompting'), { recursive: true });
+  fs.copyFileSync(path.join(REPO, 'payload/AGENTS.md'), path.join(root, 'AGENTS.md'));
+  fs.copyFileSync(path.join(REPO, 'payload/skills/dotagents-prompting/SKILL.md'),
+    path.join(root, 'skills/dotagents-prompting/SKILL.md'));
+  // ユーザーの手張り(旧 manifest の links に記録が無い)symlink
+  fs.mkdirSync(path.join(home, '.claude/skills'), { recursive: true });
+  fs.symlinkSync(path.join(root, 'AGENTS.md'), path.join(home, '.claude/CLAUDE.md'));
+  fs.symlinkSync(path.join(root, 'skills/dotagents-prompting'), path.join(home, '.claude/skills/dotagents-prompting'));
+  fs.writeFileSync(path.join(root, '.dotagents.json'), JSON.stringify({
+    schema: 1, kind: 'user', scope: 'full', version: '1.0.0', source: REPO,
+    files: {
+      'AGENTS.md': sha(path.join(root, 'AGENTS.md')),
+      'skills/dotagents-prompting/SKILL.md': sha(path.join(root, 'skills/dotagents-prompting/SKILL.md')),
+    },
+    links: [],
+    fragments: {},
+  }, null, 2) + '\n');
+
+  run(home, ['update', 'user']);
+
+  assert.ok(!fs.existsSync(root), '.agents は消える');
+  assert.ok(!fs.lstatSync(path.join(home, '.claude/CLAUDE.md')).isSymbolicLink(), '切れたリンクは実体に置き換わる');
+  assert.ok(!fs.lstatSync(path.join(home, '.claude/skills/dotagents-prompting')).isSymbolicLink(), 'スキルも実体になる');
+  const { out } = run(home, ['status', 'user']);
+  assert.match(out, /no drift/, '移行後は乖離なし');
+});
+
+test('生きた手張り symlink は上書きせず、警告して退く', () => {
+  const home = freshHome();
+  const mine = path.join(home, 'my-skills/dotagents-prompting');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'SKILL.md'), '# my very own\n');
+  fs.mkdirSync(path.join(home, '.claude/skills'), { recursive: true });
+  fs.symlinkSync(mine, path.join(home, '.claude/skills/dotagents-prompting'));
+
+  const r = run(home, ['install', 'user'], { allowFail: true });
+  assert.equal(r.code, 1, '警告で exit 1');
+  assert.ok(fs.lstatSync(path.join(home, '.claude/skills/dotagents-prompting')).isSymbolicLink(), 'リンクは残る');
+  assert.equal(read(path.join(mine, 'SKILL.md')), '# my very own\n', 'リンク先を書き換えない');
+  assert.equal(userManifest(home).files['.claude/skills/dotagents-prompting/SKILL.md'], undefined, '所有記録に入れない');
+});
+
 test('project install: プロジェクトの .claude/ に実ファイルで入り、マシン固有の物を何も残さない', () => {
   const home = freshHome();
   const proj = freshProject();
@@ -214,6 +294,7 @@ test('project install: プロジェクトの .claude/ に実ファイルで入�
   assert.ok(!fs.existsSync(path.join(proj, '.agents')), '.agents は作らない');
   assert.ok(!fs.existsSync(path.join(proj, '.codex')), '.codex が無いプロジェクトには作らない');
   assert.ok(!fs.existsSync(path.join(proj, 'AGENTS.md')), 'root AGENTS.md が無いプロジェクトには作らない');
+  assert.ok(!fs.existsSync(path.join(proj, '.claude/README.md')), '解説は配備しない');
 
   const status = execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: proj, encoding: 'utf8' });
   assert.ok(!status.includes('dotagents.json'), 'manifest はプロジェクトに現れない(~/.dotagents に置く)');
@@ -283,6 +364,9 @@ test('廃止フラグ: 旧インタフェースはエイリアスとして生か
     assert.match(r.out, /is retired/);
     assert.match(r.out, /user \| project \[<dir>\]/, '位置引数の形を示す');
   }
+  const ks = run(home, ['uninstall', 'user', '--keep-shell'], { allowFail: true });
+  assert.equal(ks.code, 1, '--keep-shell は動作しない');
+  assert.match(ks.out, /--keep-shell is retired/, '理由と正しい形を案内する');
   assert.ok(!fs.existsSync(stateDir(home)), '止まった以上、何も書いていない');
 });
 

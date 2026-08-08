@@ -68,7 +68,7 @@ Tres reglas los conectan:
 
 - **No se despliega desde algo desechable.** Fuera de un corpus (una caché de npx, un tarball descomprimido) los comandos de despliegue delegan en el corpus que tu máquina ya conoce — o se detienen y señalan `clone`.
 - **Seguir es deliberado.** Lo que haces pull son los textos que gobiernan tus agentes, así que `pull` muestra primero los títulos de los commits entrantes — escritos en lenguaje de dominio, se leen como un registro de cambios — y luego hace rebase y ejecuta las pruebas. Nada se actualiza automáticamente.
-- **La deriva es visible.** `status` compara cada archivo y cada enlace desplegados con el corpus y termina con exit 1 si hay deriva; `update` resincroniza exactamente lo que el instalador posee.
+- **La deriva es visible.** `status` compara cada archivo y cada bloque de reglas desplegados con el corpus y termina con exit 1 si hay deriva; `update` resincroniza exactamente lo que el instalador posee.
 
 ## Dónde aterriza cada cosa
 

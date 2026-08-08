@@ -68,7 +68,7 @@ Trois règles les relient :
 
 - **Pas de déploiement depuis un jetable.** En dehors d'un corpus (un cache npx, une archive tarball décompressée), les commandes de déploiement délèguent au corpus que ta machine connaît déjà — ou s'arrêtent en pointant vers `clone`.
 - **Le suivi est délibéré.** Ce que tu récupères par pull, ce sont les textes qui gouvernent tes agents, donc `pull` montre d'abord les titres des commits entrants — écrits en langage du domaine, ils se lisent comme un journal des modifications — puis rebase et exécute les tests. Rien ne se met à jour automatiquement.
-- **La dérive est visible.** `status` compare chaque fichier et chaque lien déployés au corpus et sort avec exit 1 en cas de dérive ; `update` resynchronise exactement ce que possède l'installeur.
+- **La dérive est visible.** `status` compare chaque fichier et chaque bloc de règles déployés au corpus et sort avec exit 1 en cas de dérive ; `update` resynchronise exactement ce que possède l'installeur.
 
 ## Ce qui atterrit où
 
