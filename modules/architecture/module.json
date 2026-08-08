@@ -1,0 +1,3 @@
+{
+  "description": "Design rules a build can enforce: six layers with an inward dependency rule, business words on the inside, failure as a value. Install it only into the projects that adopt it."
+}
