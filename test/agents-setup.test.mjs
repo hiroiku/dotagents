@@ -221,6 +221,26 @@ test('uninstall は減算: 名前を挙げた module だけが消え、残りは
   assert.match(r.out, /not installed here: demo/);
 });
 
+test('正本から消えた module: update が記録から落として刈り、残りは配られたまま', () => {
+  const home = freshHome();
+  const { dir, cli } = makeCorpus();
+  run(home, ['install', 'harness', 'demo', '-g'], { cli });
+
+  fs.rmSync(path.join(dir, 'modules', 'demo'), { recursive: true });
+
+  const st = run(home, ['status', '-g'], { cli, allowFail: true });
+  assert.equal(st.code, 1, '消えた module は乖離');
+  assert.match(st.out, /module demo — gone from the corpus/);
+  assert.match(st.out, /skills\/demo-skill\/SKILL\.md — no longer delivered/, '消えた module のファイルだけを名指しする');
+  assert.doesNotMatch(st.out, /skills\/prompting\/SKILL\.md — no longer delivered/, '無事な module のファイルを巻き込まない');
+
+  run(home, ['update', '-g'], { cli });
+  assert.deepEqual(userManifest(home).modules, ['harness'], '記録から落ちる');
+  assert.ok(!fs.existsSync(path.join(home, PLUGIN, 'skills/demo-skill')), '消えた module のファイルは刈られる');
+  assert.ok(fs.existsSync(path.join(home, PLUGIN, 'skills/prompting/SKILL.md')), '残りは配られたまま');
+  assert.match(run(home, ['status', '-g'], { cli }).out, /no drift/);
+});
+
 test('list: 正本が提供する module と、要る外部コマンドの有無を示す(導入は代行しない)', () => {
   const home = freshHome();
   const { cli } = makeCorpus();

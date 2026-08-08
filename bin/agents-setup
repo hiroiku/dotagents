@@ -79,7 +79,8 @@ function lstatOrNull(p) {
 
 function gitCommit() {
   try {
-    return execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    return execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch { return null; }
 }
 
@@ -195,13 +196,14 @@ function pluginManifest(modules) {
   }, null, 2) + '\n';
 }
 
-// 配達先の導出。module の最上位の種類が行き先を決める:
-// - skills/<name>/ → Claude: plugin の skills/<name>/(呼び名は /dotagents:<name> になる)
-//                    Codex : .codex/skills/dotagents-<name>/(名前空間が無いので名前へ畳む)
-// - agents/<f>.md  → Claude: plugin の agents/<f>(Codex にエージェント定義の置き場は無い)
-// - hooks/**       → Claude: plugin の hooks/(settings.json を触らずにフックを配る経路)
+// 配備しない物。module の残りはすべて plugin の中身なので、種類を数え上げない —
+// skills/ と agents/ と hooks/ に限らず、plugin が解する物はそのまま運べる。
+const NOT_DELIVERED = new Set(['MODULE.md', 'AGENTS.md', 'README.md', 'docs']);
+
+// 配達先の導出:
+// - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
+// - skills/<name>/ → Codex : .codex/skills/dotagents-<name>/(名前空間が無いので名前へ畳む)
 // - AGENTS.md      → コピーではなく規則ファイルへの管理ブロック(rulesTargets)
-// - それ以外(MODULE.md / README / docs)→ 配備しない。
 function deliveryEntries(ctx, modules) {
   const entries = [];
   const seen = new Map();
@@ -221,12 +223,9 @@ function deliveryEntries(ctx, modules) {
 
   for (const m of modules) {
     const root = path.join(MODULES_DIR, m);
-    for (const kind of ['skills', 'agents', 'hooks']) {
-      const dir = path.join(root, kind);
-      if (!lstatOrNull(dir)?.isDirectory()) continue;
-      for (const rel of walk(dir)) {
-        add({ module: m, src: path.join(dir, rel), dst: path.join(pluginRoot, kind, rel), unit: pluginRoot });
-      }
+    for (const rel of walk(root)) {
+      if (NOT_DELIVERED.has(rel.split(path.sep)[0])) continue;
+      add({ module: m, src: path.join(root, rel), dst: path.join(pluginRoot, rel), unit: pluginRoot });
     }
     const skills = path.join(root, 'skills');
     if (codex && lstatOrNull(skills)?.isDirectory()) {
@@ -330,7 +329,11 @@ function removeSettings(ctx, fragments, log) {
   if (!fragments) return;
   const defs = fragmentDefs(ctx);
   const file = settingsPath(ctx);
-  const s = readJson(file, null);
+  let s;
+  try { s = readJson(file, null); } catch (e) {
+    log.warn(`cannot read ${file}, leaving its legacy fragments: ${e.message}`);
+    return;
+  }
   if (!s) return;
   let changed = false;
 
@@ -366,7 +369,11 @@ function codexHooksPath(ctx) { return path.join(ctx.codexDir, 'hooks.json'); }
 function removeCodexHooks(ctx, fragments, log) {
   if (!fragments?.codexSessionStart) return;
   const sessionCmd = path.join(ctx.legacyRoot, 'hooks', 'beads-session.sh');
-  const s = readJson(codexHooksPath(ctx), null);
+  let s;
+  try { s = readJson(codexHooksPath(ctx), null); } catch (e) {
+    log.warn(`cannot read ${codexHooksPath(ctx)}, leaving its legacy fragments: ${e.message}`);
+    return;
+  }
   if (!s?.hooks?.SessionStart) return;
   const before = JSON.stringify(s);
   s.hooks.SessionStart = s.hooks.SessionStart
@@ -807,9 +814,14 @@ async function install(opts, { requireExisting = false, replaceModules = false }
 
   // 憶えている選択に今回の指定を足す(install は加算、uninstall が減算)。module の概念を
   // 持たない旧記録(新旧どちらのレイアウトでも)は、当時の唯一の配布物とみなして harness へ寄せる。
+  assertKnownModules(opts.modules);
   const remembered = old ? old.modules ?? ['harness'] : legacy ? ['harness'] : [];
-  const modules = replaceModules ? opts.modules : [...new Set([...remembered, ...opts.modules])].sort();
-  assertKnownModules(modules);
+  const wanted = replaceModules ? opts.modules : [...new Set([...remembered, ...opts.modules])].sort();
+  // 正本から消えた module は記録から落とす。挙げられた名前は上で検査済みなので、
+  // ここで落ちるのは「憶えていたが、もう正本に無い」物だけである。
+  const known = new Set(moduleNames());
+  const modules = wanted.filter((n) => known.has(n));
+  for (const n of wanted.filter((n) => !known.has(n))) log.del(`module ${n} (gone from the corpus)`);
   const entries = deliveryEntries(ctx, modules);
 
   // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込みと、配達先を塞ぐ旧 symlink の掃除
@@ -926,7 +938,7 @@ async function uninstall(opts) {
   // module 名を挙げた uninstall は減算である。残りがあるなら、残りだけを配り直す —
   // 外れた module のファイルは「配達されなくなった物」として同じ所有権規則で刈られる。
   if (opts.modules.length && m) {
-    assertKnownModules(opts.modules);
+    // 正本から消えた module も外せる必要があるので、検査は記録に対して行う。
     const remembered = m.modules ?? ['harness'];
     const unknown = opts.modules.filter((n) => !remembered.includes(n));
     if (unknown.length) throw new Error(`not installed here: ${unknown.join(' ')} (installed: ${remembered.join(' ')})`);
@@ -988,11 +1000,13 @@ function status(opts) {
   console.log(ui.dim(`  version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installed=${m.installedAt}`));
   console.log(ui.dim(`  source=${m.source}\n`));
 
-  const gone = modules.filter((n) => !moduleNames().includes(n));
-  for (const n of gone) report(false, `module ${n} — gone from the corpus, run update to prune`);
+  const known = new Set(moduleNames());
+  for (const n of modules.filter((n) => !known.has(n))) {
+    report(false, `module ${n} — gone from the corpus, run update to prune`);
+  }
 
-  // 正本との照合
-  const entries = gone.length ? [] : deliveryEntries(ctx, modules);
+  // 正本との照合。消えた module の分は「配達されなくなった物」として下で報告される。
+  const entries = deliveryEntries(ctx, modules.filter((n) => known.has(n)));
   for (const e of entries) {
     const { dst, unit, rel } = e;
     if (lstatOrNull(unit)?.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
@@ -1100,7 +1114,7 @@ async function clone(opts) {
   console.log(`${ui.dim('clone')} ${src} ${ui.dim('→')} ${homePath(dir)}`);
   execFileSync('git', ['clone', src, dir], { stdio: 'inherit' });
   console.log(`\n${ui.green('✔')} corpus cloned. It is yours to edit — rules live in git, deployments follow it.`);
-  console.log(`${ui.dim('  next:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} install ${ui.dim('user | project [dir]')}`);
+  console.log(`${ui.dim('  next:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} list ${ui.dim('· then')} install <module> ${ui.dim('[-g | -C <dir>]')}`);
   console.log(`${ui.dim('  follow upstream later with:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} pull`);
 }
 
@@ -1121,7 +1135,7 @@ function pull() {
     console.log(`${ui.green('✔')} already following ${upstream} — nothing new upstream.`);
     return;
   }
-  // コミットタイトルの規約(業務上何が変わったか)が、そのまま人間の読める changelog になる
+  // 取り込む前にコミットタイトルを見せる
   console.log(`${ui.bold('incoming from')} ${upstream}:`);
   for (const line of incoming.split('\n')) console.log(`  ${line}`);
   console.log('');
@@ -1170,7 +1184,7 @@ function delegateToCorpus(argv) {
   throw new Error('this copy is disposable (npx cache or tarball), not an editable corpus.\n' +
     '       Get one first, then deploy from it:\n' +
     '         npx @hiroiku/dotagents clone <dir>\n' +
-    `         <dir>/bin/agents-setup install user | project [dir]`);
+    `         <dir>/bin/agents-setup install <module> [-g | -C <dir>]`);
 }
 
 const COMMANDS = new Set(['clone', 'pull', 'list', 'install', 'update', 'uninstall', 'status']);
@@ -1252,7 +1266,7 @@ function parseArgs(argv) {
 
 // ---------------------------------------------------------------- help
 
-// 対象の説明は 4 コマンドで同一なので 1 箇所に持つ(コマンドごとに書き写すと黙って古くなる)。
+// 対象の説明は 4 コマンドで同一なので 1 箇所に持つ。
 const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— this project by default; the wider scope always takes a flag.')}
   ${ui.cyan('(default)')}      the current directory (<cwd>/.claude and <cwd>/.codex)
   ${ui.cyan('-g, --global')}   this machine (~/.claude and ~/.codex)
@@ -1380,7 +1394,7 @@ function printHelp(cmd) {
 
   if (!cmd) {
     console.log(`${ui.bold('agents-setup')} ${ui.dim('<command> [module...] [options]')}\n`);
-    // 対象が 2 つあるので、語彙も 2 つに分けて示す — 入口の多さではなく、object の違いである。
+    // 対象ごとに語彙を分けて示す。
     console.log(`${ui.bold('The corpus')} ${ui.dim('— the git repository of rules you own')}`);
     console.log(pad2(['clone', 'pull', 'list'].map((k) => [k, CMD_HELP[k].line])).join('\n'));
     console.log(`\n${ui.bold('Deployments')} ${ui.dim('— what a tool actually reads')}`);
