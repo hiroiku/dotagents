@@ -14,14 +14,15 @@
 ## Ein Modul installieren
 
 ```sh
-npx @hiroiku/dotagents clone      # einmalig — nach ~/.dotagents/corpus, ein Git-Repo, das dir gehört
-cd ~/.dotagents/corpus
+bun add -g @hiroiku/dotagents      # einmalig — oder: npm i -g @hiroiku/dotagents
 
-bin/agents-setup list                     # was du installieren kannst
-bin/agents-setup install harness          # in das aktuelle Projekt
-bin/agents-setup install harness -g       # für jedes Projekt auf dieser Maschine
-bin/agents-setup install harness -C ~/x   # in ein bestimmtes Projekt
+dotagents list                     # was du installieren kannst
+dotagents install harness          # in das aktuelle Projekt
+dotagents install harness -g       # für jedes Projekt auf dieser Maschine
+dotagents install harness -C ~/x   # in ein bestimmtes Projekt
 ```
+
+Es gibt keinen separaten Einrichtungsschritt. Der erste Befehl klont den Corpus — das Git-Repository der Regeln, das dir gehört — nach `~/.dotagents/corpus` und macht dann weiter. Der Befehl, den du tippst, ist am ersten Tag derselbe wie an jedem weiteren.
 
 Das Ziel ist standardmäßig dieses Projekt — der kleinste Wirkungsradius — und der weitere Geltungsbereich verlangt immer ein Flag. Was hineinkommt, hat nie einen Standardwert: Benenne ein Modul oder wähle interaktiv. Eine nicht-interaktive Shell stoppt, statt für dich zu entscheiden.
 
@@ -66,14 +67,18 @@ Deine eigenen Module liegen in `~/.dotagents/modules/`. Sie werden von denselben
 ## Befehle
 
 ```sh
-bin/agents-setup pull                 # dem Upstream folgen: zeigt, was kommt, rebasiert deine Commits, führt die Tests aus
-bin/agents-setup update               # hier neu ausliefern — keine Argumente, es merkt sich, welche Module du gewählt hast
-bin/agents-setup uninstall <module>   # ein Modul entfernen, den Rest behalten; ohne Namen wird alles entfernt
-bin/agents-setup status               # jede ausgelieferte Datei prüfen — exit 1 bei Drift
-bin/agents-setup --help               # jeder Befehl, jede Option, jedes Beispiel
+dotagents update               # dem Upstream folgen, dann neu ausliefern — keine Argumente, es merkt sich deine Wahl
+dotagents uninstall <module>   # ein Modul entfernen, den Rest behalten; ohne Namen wird alles entfernt
+dotagents status               # jede ausgelieferte Datei prüfen — exit 1 bei Drift
+dotagents pull                 # nur dem Upstream folgen, ohne neu auszuliefern
+dotagents --help               # jeder Befehl, jede Option, jedes Beispiel
 ```
 
-`install` ist additiv und `uninstall` subtraktiv, daher wird die Menge, die eine Bereitstellung hält, Modul für Modul auf- und abgebaut. `pull` ist der einzige Befehl, der die Module selbst verändert, und er rührt nie eine Bereitstellung an: Was du pullst, sind die Texte, die deine Agenten regieren, daher zeigt er dir die eingehenden Commit-Titel, bevor er integriert — und nichts aktualisiert sich automatisch.
+`install` ist additiv und `uninstall` subtraktiv, daher wird die Menge, die eine Bereitstellung hält, Modul für Modul auf- und abgebaut. Der eine Befehl, der beide Hälften aktuell hält, ist `update`: Er folgt dem Upstream so, wie `pull` es tut, und liefert dann neu aus, woran sich das Manifest erinnert.
+
+**Nichts bewegt sich von selbst.** Was ankommt, sind die Texte, die deine Agenten regieren, daher werden die eingehenden Commit-Titel gezeigt, bevor irgendetwas integriert wird. Gibt es etwas im Upstream, wirst du einmal am Tag darauf hingewiesen — nicht aktualisiert.
+
+Der global installierte Befehl ist nur ein dünner Einstiegspunkt: Er findet den Corpus, klont einen, falls keiner da ist, und übergibt. Implementierung und Regeln wohnen beide im Corpus, deshalb hält `update` dich aktuell, ohne dass du den Befehl selbst je neu installieren musst.
 
 ## Was der Installer anrührt — und was nicht
 

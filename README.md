@@ -14,18 +14,19 @@ English | [日本語](docs/README.ja.md) | [简体中文](docs/README.zh-CN.md) 
 ## Install a module
 
 ```sh
-npx @hiroiku/dotagents clone      # once — into ~/.dotagents/corpus, a git repo you own
-cd ~/.dotagents/corpus
+bun add -g @hiroiku/dotagents      # once — or: npm i -g @hiroiku/dotagents
 
-bin/agents-setup list                     # what you can install
-bin/agents-setup install harness          # into the current project
-bin/agents-setup install harness -g       # for every project on this machine
-bin/agents-setup install harness -C ~/x   # into a specific project
+dotagents list                     # what you can install
+dotagents install harness          # into the current project
+dotagents install harness -g       # for every project on this machine
+dotagents install harness -C ~/x   # into a specific project
 ```
+
+There is no separate setup step. The first command clones the corpus — the git repository of rules you own — into `~/.dotagents/corpus` and carries on, so the command you type is the same on the first day and every day after.
 
 The target defaults to this project — the smallest blast radius — and the wider scope always takes a flag. What goes in never defaults: name a module, or pick interactively. A non-interactive shell stops rather than choosing for you.
 
-Node or Bun, whichever the machine has: `bunx` reaches the same package, and the CLI itself picks the runtime that is there.
+Node or Bun, whichever the machine has — the CLI runs on either runtime.
 
 ## What a module is
 
@@ -66,14 +67,18 @@ Modules of your own go in `~/.dotagents/modules/`. They are installed by the sam
 ## Commands
 
 ```sh
-bin/agents-setup pull                 # follow upstream: shows what is coming, rebases your commits, runs the tests
-bin/agents-setup update               # redeliver here — no arguments, it remembers which modules you chose
-bin/agents-setup uninstall <module>   # drop one module, keep the rest; name none to remove everything
-bin/agents-setup status               # verify every delivered file — exit 1 on drift
-bin/agents-setup --help               # every command, option, example
+dotagents update               # follow upstream, then redeliver — no arguments, it remembers what you chose
+dotagents uninstall <module>   # drop one module, keep the rest; name none to remove everything
+dotagents status               # verify every delivered file — exit 1 on drift
+dotagents pull                 # follow upstream only, without redelivering
+dotagents --help               # every command, option, example
 ```
 
-`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. `pull` is the only command that changes the modules themselves, and it never touches a deployment: what you pull are the texts that govern your agents, so it shows you the incoming commit titles before integrating, and nothing auto-updates.
+`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. `update` is the one command that keeps both halves current: it follows upstream the way `pull` does, then redelivers what the manifest remembers.
+
+**Nothing moves on its own.** What arrives are the texts that govern your agents, so the incoming commit titles are shown before anything is integrated. When there is something upstream, you are told once a day — not updated.
+
+The command you installed globally is a thin entry point: it finds the corpus, cloning one if there is none, and hands over. Both the implementation and the rules live in the corpus, so `update` keeps you current without ever reinstalling the command itself.
 
 ## What the installer will and will not touch
 

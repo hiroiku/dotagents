@@ -14,14 +14,15 @@
 ## module を install する
 
 ```sh
-npx @hiroiku/dotagents clone      # 初回のみ — 自分が所有する git リポジトリ ~/.dotagents/corpus へ
-cd ~/.dotagents/corpus
+bun add -g @hiroiku/dotagents      # 初回のみ — もしくは npm i -g @hiroiku/dotagents
 
-bin/agents-setup list                     # install できる物
-bin/agents-setup install harness          # 現在のプロジェクトへ
-bin/agents-setup install harness -g       # このマシンの全プロジェクトへ
-bin/agents-setup install harness -C ~/x   # 指定したプロジェクトへ
+dotagents list                     # install できる物
+dotagents install harness          # 現在のプロジェクトへ
+dotagents install harness -g       # このマシンの全プロジェクトへ
+dotagents install harness -C ~/x   # 指定したプロジェクトへ
 ```
+
+別途の準備手順は無い。最初のコマンドが、自分の所有する規則の git リポジトリ(corpus)を `~/.dotagents/corpus` へ取ってきてから続きを行う。打つコマンドは初日も、その後も同じである。
 
 対象の既定はこのプロジェクトである — 影響範囲が最小だからだ。より広い範囲には必ず flag が要る。何を入れるかに既定値は無い: module を名指しするか、対話で選ぶ。非対話シェルでは、代わりに選ぶのではなく停止する。
 
@@ -66,14 +67,18 @@ module は `PATH` に期待する物を宣言してよい。要件は**検出さ
 ## コマンド
 
 ```sh
-bin/agents-setup pull                 # 上流に追従: 何が来るかを見せ、自分のコミットを rebase し、テストを走らせる
-bin/agents-setup update               # ここへ再配備する — 引数は不要、選んだ module を記憶している
-bin/agents-setup uninstall <module>   # module を 1 つ外し、残りは保つ。名指ししなければすべてを除去する
-bin/agents-setup status               # 配備された全ファイルを検査 — 乖離があれば exit 1
-bin/agents-setup --help               # 全コマンド・オプション・例
+dotagents update               # 上流に追従してから再配備する — 引数は不要、選んだ module を記憶している
+dotagents uninstall <module>   # module を 1 つ外し、残りは保つ。名指ししなければすべてを除去する
+dotagents status               # 配備された全ファイルを検査 — 乖離があれば exit 1
+dotagents pull                 # 追従だけを行い、再配備はしない
+dotagents --help               # 全コマンド・オプション・例
 ```
 
-`install` は加算、`uninstall` は減算であり、配備先が保持する集合は module 1 つずつ積み上げられ、取り崩される。module そのものを変える唯一のコマンドが `pull` であり、配備先には決して触れない: pull で取り込むのはエージェントを支配する文書なので、統合の前に入ってくるコミットタイトルを見せる。自動更新は無い。
+`install` は加算、`uninstall` は減算であり、配備先が保持する集合は module 1 つずつ積み上げられ、取り崩される。両側を揃えておく唯一のコマンドが `update` である: `pull` と同じ形で上流に追従し、そのうえで manifest が憶えている物を配り直す。
+
+**勝手には動かない。** 取り込むのはエージェントを支配する文書なので、統合の前に入ってくるコミットタイトルを見せる。上流に差分があるときは 1 日 1 回伝えるだけで、更新はしない。
+
+グローバルに入れたコマンドは薄い入口である。corpus を見つけ(無ければ取ってきて)、そこへ渡すだけの層でしかない。実装も規則も corpus の側にあるので、コマンド自体を入れ直さなくても `update` だけで最新に追いつく。
 
 ## installer が触れる物、触れない物
 

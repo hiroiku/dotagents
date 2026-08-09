@@ -14,14 +14,15 @@
 ## module 설치
 
 ```sh
-npx @hiroiku/dotagents clone      # 1회 — 직접 소유하는 git 저장소인 ~/.dotagents/corpus로
-cd ~/.dotagents/corpus
+bun add -g @hiroiku/dotagents      # 1회 — 또는 npm i -g @hiroiku/dotagents
 
-bin/agents-setup list                     # 설치할 수 있는 것
-bin/agents-setup install harness          # 현재 프로젝트에
-bin/agents-setup install harness -g       # 이 머신의 모든 프로젝트에
-bin/agents-setup install harness -C ~/x   # 특정 프로젝트에
+dotagents list                     # 설치할 수 있는 것
+dotagents install harness          # 현재 프로젝트에
+dotagents install harness -g       # 이 머신의 모든 프로젝트에
+dotagents install harness -C ~/x   # 특정 프로젝트에
 ```
+
+따로 준비하는 단계는 없다. 첫 명령이 직접 소유하는 규칙의 git 저장소(corpus)를 `~/.dotagents/corpus`로 가져온 뒤 하던 일을 이어서 한다. 입력하는 명령은 첫날에도, 그 뒤로도 같다.
 
 대상의 기본값은 현재 프로젝트다 — 영향 범위가 가장 작은 곳 — 이고, 더 넓은 범위에는 언제나 플래그가 필요하다. 무엇을 넣을지에는 기본값이 없다: module을 지명하거나 대화형으로 고른다. 비대화형 셸은 대신 골라 주지 않고 멈춘다.
 
@@ -66,14 +67,18 @@ module은 `PATH`에 무엇을 기대하는지 선언할 수 있다. 요구 사�
 ## 명령
 
 ```sh
-bin/agents-setup pull                 # upstream 추종: 무엇이 들어오는지 보여주고, 커밋을 rebase하고, 테스트를 실행한다
-bin/agents-setup update               # 여기에 재전달 — 인자 없이, 어떤 module을 골랐는지 기억한다
-bin/agents-setup uninstall <module>   # module 하나만 빼고 나머지는 남긴다; 이름 없이 쓰면 전부 제거
-bin/agents-setup status               # 전달된 모든 파일을 검증 — 표류가 있으면 exit 1
-bin/agents-setup --help               # 모든 명령, 옵션, 예시
+dotagents update               # upstream을 추종한 뒤 재전달 — 인자 없이, 어떤 module을 골랐는지 기억한다
+dotagents uninstall <module>   # module 하나만 빼고 나머지는 남긴다; 이름 없이 쓰면 전부 제거
+dotagents status               # 전달된 모든 파일을 검증 — 표류가 있으면 exit 1
+dotagents pull                 # 추종만 하고 재전달은 하지 않는다
+dotagents --help               # 모든 명령, 옵션, 예시
 ```
 
-`install`은 더하고(additive) `uninstall`은 빼는(subtractive) 명령이므로, 배포가 담는 집합은 module 하나씩 쌓이고 허물어진다. module 자체를 바꾸는 명령은 `pull`뿐이며, 그것은 배포를 절대 건드리지 않는다: pull로 받아오는 것은 에이전트를 지배하는 문서이므로, 통합하기 전에 들어오는 커밋 제목을 보여주며, 자동으로 업데이트되는 것은 없다.
+`install`은 더하고(additive) `uninstall`은 빼는(subtractive) 명령이므로, 배포가 담는 집합은 module 하나씩 쌓이고 허물어진다. 양쪽을 함께 최신으로 두는 명령은 `update` 하나다: `pull`과 같은 방식으로 upstream을 추종한 뒤, manifest가 기억하는 것을 다시 전달한다.
+
+**스스로 움직이는 것은 없다.** 받아오는 것은 에이전트를 지배하는 문서이므로, 통합하기 전에 들어오는 커밋 제목을 보여준다. upstream에 차이가 있으면 하루 한 번 알릴 뿐, 대신 업데이트하지 않는다.
+
+전역으로 설치한 그 명령은 얇은 입구일 뿐이다: corpus를 찾고(없으면 가져오고) 거기에 넘긴다. 구현도 규칙도 corpus 쪽에 살기 때문에, 명령 자체를 다시 설치하지 않아도 `update`만으로 최신을 따라간다.
 
 ## installer가 건드리는 것과 건드리지 않는 것
 

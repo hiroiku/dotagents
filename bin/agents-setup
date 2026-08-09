@@ -24,7 +24,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const readline = require('node:readline');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const MODULES_DIR = path.join(REPO_ROOT, 'modules');
@@ -972,11 +972,27 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     const missing = missingRequirements(m);
     if (missing.length) console.log(`  ${ui.yellow('!')} ${m} expects ${missing.join(' ')} on PATH — install it when you need it`);
   }
+  noticeUpstream();
   // plugin の agents / hooks は次のセッションから効く(SKILL.md だけは即時に読まれる)。
   if (c.add + c.update + c.del > 0) {
     console.log(ui.dim('  run /reload-plugins in a running Claude Code session, or start a new one'));
   }
   if (c.warn > 0) process.exitCode = 1;
+}
+
+// update は「追従してから配り直す」。正本が動けば配備も動く、を 1 つのコマンドにする。
+// 追従できない事情は伝えて配り直しへ進み、正本を動かした後に信用できなくなったとき
+// (取り込みが中断した・テストが赤い・検証できなかった)だけ止まる。
+async function update(opts) {
+  if (!opts.noFollow) {
+    try {
+      pull({ quiet: true });
+    } catch (e) {
+      if (e.hard) throw e;
+      console.log(`  ${ui.yellow('!')} not following upstream: ${e.message.split('\n')[0]}`);
+    }
+  }
+  return install(opts, { requireExisting: true });
 }
 
 async function uninstall(opts) {
@@ -1091,6 +1107,7 @@ function status(opts) {
   if (ctx.kind === 'user' && zshenvHasMarker(ctx)) report(false, `legacy zshenv managed line — run update to prune`);
 
   console.log(drift === 0 ? `\n  ${ui.green('no drift')}` : `\n  ${ui.red(`drift: ${drift}`)}`);
+  noticeUpstream();
   if (drift > 0) process.exitCode = 1;
 }
 
@@ -1154,7 +1171,9 @@ function question(title) {
   });
 }
 
-async function clone(opts) {
+// next は「取得だけで終わる」ときの案内。入口が配備の途中で取ってくる場合は、
+// そのまま続きをやるので出さない。
+async function clone(opts, { next = true } = {}) {
   const dir = path.resolve(opts.cloneDir ?? CORPUS_DIR());
   const st = lstatOrNull(dir);
   if (st && (!st.isDirectory() || fs.readdirSync(dir).length)) {
@@ -1163,9 +1182,10 @@ async function clone(opts) {
   const src = cloneSource(opts);
   console.log(`${ui.dim('clone')} ${src} ${ui.dim('→')} ${homePath(dir)}`);
   execFileSync('git', ['clone', src, dir], { stdio: 'inherit' });
+  if (!next) return;
   console.log(`\n${ui.green('✔')} corpus cloned. It is yours to edit — rules live in git, deployments follow it.`);
-  console.log(`${ui.dim('  next:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} list ${ui.dim('· then')} install <module> ${ui.dim('[-g | -C <dir>]')}`);
-  console.log(`${ui.dim('  follow upstream later with:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} pull`);
+  console.log(`${ui.dim('  next:')} ${ui.cyan('dotagents list')} ${ui.dim('· then')} ${ui.cyan('dotagents install <module>')} ${ui.dim('[-g | -C <dir>]')}`);
+  console.log(`${ui.dim('  the corpus itself is at')} ${homePath(dir)}`);
 }
 
 // 検証を走らせる道具は、このファイルを走らせているランタイムから決める。npm は node の
@@ -1177,7 +1197,48 @@ function testRunner() {
     : { cmd: 'npm', args: ['test'], name: 'npm test' };
 }
 
-function pull() {
+// update から見れば、追従は出来ればやること(best-effort)である。手元の編集・上流未設定・
+// そもそも git ではない正本 — どれも「正本がそう在る」だけで、配備まで止める理由にはならない。
+// 止めるべきなのは、正本を動かしてしまった後に信用できなくなった場合だけなので、
+// そちらに印を付ける。数え上げるのは危険な側であって、安全な側ではない。
+const hard = (msg) => Object.assign(new Error(msg), { hard: true });
+
+// 上流の差分は 1 日 1 回だけ見て、在ることだけ伝える。取り込むかは使う人が決める —
+// 規則は勝手に変わらない、という約束をこの知らせで破らない。
+//
+// 置き場所は正本自身の .git/ の下。これは「いつ上流を見たか」というその正本についての
+// キャッシュであって、何をどこへ置いたかの記録(state/)ではない。正本を捨てれば一緒に
+// 消え、配備の記録が尽きたときに state/ が畳めなくなることもない。
+const UPSTREAM_TTL = 24 * 60 * 60 * 1000;
+const upstreamFile = () => path.join(REPO_ROOT, '.git', 'dotagents-upstream.json');
+const rememberUpstream = (behind) => writeJson(upstreamFile(), { checkedAt: Date.now(), behind });
+
+// 上流が無い・オフライン・fetch が返らないときは黙る。知らせは付加物であって、
+// 配備の成否を左右しない。
+function countBehind() {
+  try {
+    const upstream = corpusGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).trim();
+    corpusGit(['fetch', '--quiet'], { timeout: 5000, stdio: 'ignore' });
+    return Number(corpusGit(['rev-list', '--count', `HEAD..${upstream}`]).trim()) || 0;
+  } catch { return 0; }
+}
+
+function noticeUpstream() {
+  if (!isCorpus()) return;
+  const last = readJson(upstreamFile(), null);
+  let behind = last?.behind ?? 0;
+  if (!last || Date.now() - last.checkedAt >= UPSTREAM_TTL) {
+    behind = countBehind();
+    rememberUpstream(behind);
+  }
+  if (behind > 0) {
+    console.log(`  ${ui.yellow('!')} ${behind} commit${behind === 1 ? '' : 's'} upstream — ` +
+      `${ui.cyan('dotagents update')} ${ui.dim('follows and redelivers')}`);
+  }
+}
+
+// quiet は update の中から呼ばれるとき。差分があれば見せるが、無いときまで喋らない。
+function pull({ quiet = false } = {}) {
   if (corpusGit(['status', '--porcelain']).trim()) {
     throw new Error('the corpus has uncommitted changes. Commit or stash them first —\n' +
       '       pulling over local edits mixes upstream and your hand in one diff.');
@@ -1190,8 +1251,10 @@ function pull() {
   }
   corpusGit(['fetch', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
   const incoming = corpusGit(['log', '--oneline', `HEAD..${upstream}`]).trim();
+  // 上流を実際に見た直後なので、知らせの記録もここで新しくする。
+  rememberUpstream(0);
   if (!incoming) {
-    console.log(`${ui.green('✔')} already following ${upstream} — nothing new upstream.`);
+    if (!quiet) console.log(`${ui.green('✔')} already following ${upstream} — nothing new upstream.`);
     return;
   }
   // 取り込む前にコミットタイトルを見せる
@@ -1201,7 +1264,7 @@ function pull() {
   try {
     execFileSync('git', ['-C', REPO_ROOT, 'pull', '--rebase'], { stdio: 'inherit' });
   } catch {
-    throw new Error('integration stopped (see git output above). Resolve, `git rebase --continue`, then re-run pull.');
+    throw hard('integration stopped (see git output above). Resolve, `git rebase --continue`, then re-run pull.');
   }
   // corpus がテストを持つと宣言しているかだけを見る。走らせ方はランタイムが決める。
   if (pkg().scripts?.test) {
@@ -1212,16 +1275,16 @@ function pull() {
     } catch (e) {
       // 走らせられなかったのと、走って落ちたのを混ぜない — 前者は赤ではなく未検証である。
       if (e.code === 'ENOENT') {
-        throw new Error(`pulled, but ${runner.name} could not be run here, so the corpus is unverified.\n` +
+        throw hard(`pulled, but ${runner.name} could not be run here, so the corpus is unverified.\n` +
           '       Run its tests yourself before deploying.');
       }
-      throw new Error('pulled, but the corpus fails its own tests. Fix before deploying —\n' +
+      throw hard('pulled, but the corpus fails its own tests. Fix before deploying —\n' +
         '       do not run `update` from a red corpus.');
     }
   }
   const n = incoming.split('\n').length;
   console.log(`${ui.green('✔')} pulled ${n} commit${n === 1 ? '' : 's'} and verified.`);
-  console.log(`${ui.dim('  deployments resync per install:')} agents-setup update ${ui.dim('… (status detects drift)')}`);
+  if (!quiet) console.log(`${ui.dim('  deliver it with:')} ${ui.cyan('dotagents update')}`);
 }
 
 // 正本の外(npx / bunx のキャッシュ等)から配備系コマンドが呼ばれたら、既知の正本へ委譲する。
@@ -1239,19 +1302,30 @@ function knownCorpusSource() {
   return readJson(path.join(os.homedir(), '.agents', LEGACY_MANIFEST_NAME), null)?.source ?? null;
 }
 
-function delegateToCorpus(argv) {
-  const source = knownCorpusSource();
-  const bin = source && path.join(source, 'bin', 'agents-setup');
-  if (source && source !== REPO_ROOT && lstatOrNull(bin)) {
-    console.log(`${ui.dim('not a corpus here — delegating to')} ${homePath(source)}`);
-    const r = require('node:child_process').spawnSync(process.execPath, [bin, ...argv], { stdio: 'inherit' });
-    process.exitCode = r.status ?? 1;
-    return;
+// この使い捨てコピー(npm でグローバルに入れた物・npx / bunx のキャッシュ)は入口であって
+// 実装ではない。実装も規則も正本の側にあり、ここは正本を見つけて渡すだけの層である。
+//
+// 入口は行き止まりにならない。正本がまだ無ければ取ってきてから渡す — 使う人が
+// 覚えるコマンドを 1 つに保つには、初回だけ別の手順、という段差を作らない。
+//
+// この薄さが版ずれへの備えでもある。入口の仕事が「探す・取る・渡す」だけなら、
+// 手元の入口が古くても、動く実装は常に正本の側の最新である。
+async function delegateToCorpus(argv, opts) {
+  let source = knownCorpusSource();
+  let bin = source && source !== REPO_ROOT ? path.join(source, 'bin', 'agents-setup') : null;
+
+  if (!bin || !lstatOrNull(bin)) {
+    console.log(`${ui.dim('no corpus on this machine yet — getting one first')}`);
+    await clone({ ...opts, cloneDir: null }, { next: false });
+    console.log('');
+    source = CORPUS_DIR();
+    bin = path.join(source, 'bin', 'agents-setup');
+    if (!lstatOrNull(bin)) throw new Error(`the clone left no ${homePath(bin)} to hand over to.`);
   }
-  throw new Error('this copy is disposable (an npx or bunx cache, or a tarball), not an editable corpus.\n' +
-    '       Get one first, then deploy from it:\n' +
-    '         npx @hiroiku/dotagents clone <dir>          (bunx works the same)\n' +
-    `         <dir>/bin/agents-setup install <module> [-g | -C <dir>]`);
+
+  console.log(`${ui.dim('delegating to')} ${homePath(source)}`);
+  const r = spawnSync(process.execPath, [bin, ...argv], { stdio: 'inherit' });
+  process.exitCode = r.status ?? 1;
 }
 
 const COMMANDS = new Set(['clone', 'pull', 'list', 'install', 'update', 'uninstall', 'status']);
@@ -1268,7 +1342,8 @@ const RETIRED_FLAGS = new Set(['--keep-shell']);
 function parseArgs(argv) {
   const opts = {
     global: false, dir: null, dirExplicit: false, modules: [],
-    cloneDir: null, from: null, force: false, interactive: false, help: false, version: false,
+    cloneDir: null, from: null, force: false, noFollow: false,
+    interactive: false, help: false, version: false,
   };
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
@@ -1276,6 +1351,7 @@ function parseArgs(argv) {
     if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--version' || a === '-v') opts.version = true;
     else if (a === '--force') opts.force = true;
+    else if (a === '--no-follow') opts.noFollow = true;
     else if (a === '--global' || a === '-g') opts.global = true;
     else if (a === '--directory' || a === '-C') {
       if (argv[i + 1] === undefined) throw new Error('-C takes a value: -C <dir>');
@@ -1350,12 +1426,11 @@ const CMD_HELP = {
     ],
     options: [['--from <url|path>', 'clone from an explicit source instead of the published repository']],
     notes: [
-      'A clone is for editing and following. `npx @hiroiku/dotagents clone` is the one command that works outside a corpus.',
-      'Node or Bun, whichever the machine has: `bunx` reaches the same package, and the CLI runs on either runtime.',
+      'You rarely need this by hand: run any command outside a corpus and it clones one first, then hands over to it.',
+      'Reach for it when you want the corpus somewhere of your own choosing, or from a fork.',
     ],
     examples: [
-      ['npx @hiroiku/dotagents clone', 'into the home this tool keeps'],
-      ['bunx @hiroiku/dotagents clone', 'the same, on a machine with Bun'],
+      ['dotagents clone', 'into the home this tool keeps'],
       ['dotagents clone ~/work/rules', 'somewhere of your choosing'],
       ['dotagents clone x --from /path/to/repo', 'clone a local fork'],
     ],
@@ -1369,7 +1444,7 @@ const CMD_HELP = {
       'corpus tests. Stops on uncommitted changes, conflicts, or red tests.',
     ],
     options: [],
-    notes: ['Deployments are not touched: each install resyncs with `update` (status detects drift).'],
+    notes: ['This moves the corpus only. `update` does the same and then redelivers — reach for that unless you want the follow alone.'],
     examples: [
       ['dotagents pull', 'follow the upstream corpus'],
     ],
@@ -1410,18 +1485,25 @@ const CMD_HELP = {
   },
   update: {
     usage: '[options]',
-    line: 'redeliver whatever is recorded here, and prune what is no longer delivered',
+    line: 'follow upstream, then redeliver whatever is recorded here',
     body: [
-      'Requires an existing installation, and works on the module set the manifest',
-      'remembers — no module names, no flags to recall. Beyond what install does, it',
-      'removes files still recorded but no longer delivered, and prunes any legacy',
-      '.agents layout it finds.',
+      'Follows the upstream corpus the way `pull` does, then redelivers. Requires an',
+      'existing installation, and works on the module set the manifest remembers — no',
+      'module names, no flags to recall. Beyond what install does, it removes files still',
+      'recorded but no longer delivered, and prunes any legacy .agents layout it finds.',
+      '',
+      'A corpus you have edited, or one with no upstream, cannot be followed — that is',
+      'reported and the redelivery goes ahead. A corpus that fails its own tests stops it.',
     ],
-    options: [['--force', 'overwrite whatever sits in the way and does not match the corpus']],
-    notes: ['Edit prompts in this repository, never in the installed tree — update carries them over.'],
+    options: [
+      ['--force', 'overwrite whatever sits in the way and does not match the corpus'],
+      ['--no-follow', 'redeliver what is already here, without touching the corpus'],
+    ],
+    notes: ['Edit prompts in the corpus, never in the installed tree — update carries them over.'],
     examples: [
-      ['agents-setup update', 'refresh the current project'],
-      ['agents-setup update -g --force', 'refresh this machine, discarding local edits'],
+      ['dotagents update', 'follow, then refresh the current project'],
+      ['dotagents update -g --force', 'refresh this machine, discarding local edits'],
+      ['dotagents update --no-follow', 'redeliver the corpus as it stands'],
     ],
   },
   uninstall: {
@@ -1512,9 +1594,9 @@ async function main() {
     throw new Error(`unknown command: ${cmd}\n       Run \`agents-setup --help\` to see what is available.`);
   }
   migrateStateDir();
-  // clone はどこからでも実行できる。それ以外は編集可能な正本からだけ —
-  // 正本の外(npx / bunx のキャッシュ等)では既知の正本へ委譲するか、clone への案内で止まる。
-  if (cmd !== 'clone' && !isCorpus()) return delegateToCorpus(process.argv.slice(2));
+  // 実装が住むのは正本の中だけである。外から呼ばれた入口は、正本を見つけ(無ければ
+  // 取ってき)てそこへ渡す — 使う人から見れば、同じ 1 つのコマンドで済み続ける。
+  if (cmd !== 'clone' && !isCorpus()) return delegateToCorpus(process.argv.slice(2), opts);
   switch (cmd) {
     case 'clone': return clone(opts);
     case 'pull': return pull();
@@ -1524,7 +1606,7 @@ async function main() {
       return install(await resolveModules(cmd, opts));
     // update / uninstall は既存の記録に対して働く。記録が無ければそちらで止まるので、
     // 迷子のカレントディレクトリを塞ぐ関門は install にだけ要る。
-    case 'update': return install(opts, { requireExisting: true });
+    case 'update': return update(opts);
     case 'uninstall': return uninstall(opts);
     case 'status': return status(opts);
   }

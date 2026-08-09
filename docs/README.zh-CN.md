@@ -14,14 +14,15 @@
 ## 安装一个 module
 
 ```sh
-npx @hiroiku/dotagents clone      # 一次性——克隆到 ~/.dotagents/corpus,一个你所拥有的 git 仓库
-cd ~/.dotagents/corpus
+bun add -g @hiroiku/dotagents      # 一次性——或 npm i -g @hiroiku/dotagents
 
-bin/agents-setup list                     # 你可以安装什么
-bin/agents-setup install harness          # 安装进当前项目
-bin/agents-setup install harness -g       # 面向本机上的每一个项目
-bin/agents-setup install harness -C ~/x   # 安装进指定的项目
+dotagents list                     # 你可以安装什么
+dotagents install harness          # 安装进当前项目
+dotagents install harness -g       # 面向本机上的每一个项目
+dotagents install harness -C ~/x   # 安装进指定的项目
 ```
+
+没有单独的准备步骤。第一条命令会先把 corpus——那个你所拥有的规则 git 仓库——克隆到 `~/.dotagents/corpus`,然后继续做该做的事。你敲下的命令,第一天与此后的每一天都一样。
 
 目标默认是当前项目——影响范围最小的那一个——而更广的作用域始终需要显式加上标志。装入什么则从不取默认值:要么指名一个 module,要么交互式挑选。非交互式 shell 会直接停止,而不会替你做出选择。
 
@@ -66,14 +67,18 @@ modules/<name>/
 ## 命令
 
 ```sh
-bin/agents-setup pull                 # 跟随上游:先展示即将到来的内容,再变基你的提交并运行测试
-bin/agents-setup update               # 在此重新交付——无需参数,它记得你选择了哪些 module
-bin/agents-setup uninstall <module>   # 移除一个 module,其余保持不变;不指名则移除全部
-bin/agents-setup status               # 校验每一个已交付的文件——存在漂移时以退出码 1 结束
-bin/agents-setup --help               # 全部命令、选项、示例
+dotagents update               # 先跟随上游,再重新交付——无需参数,它记得你选择了哪些 module
+dotagents uninstall <module>   # 移除一个 module,其余保持不变;不指名则移除全部
+dotagents status               # 校验每一个已交付的文件——存在漂移时以退出码 1 结束
+dotagents pull                 # 只跟随上游,不重新交付
+dotagents --help               # 全部命令、选项、示例
 ```
 
-`install` 是增量式的,`uninstall` 是削减式的,因此一次部署所持有的集合是逐个 module 地建立与拆除的。`pull` 是唯一会改变 module 本身的命令,而它绝不触碰部署:你所拉取的是治理你的代理行为的文本,因此它会在整合之前先展示传入的提交标题,不存在任何自动更新。
+`install` 是增量式的,`uninstall` 是削减式的,因此一次部署所持有的集合是逐个 module 地建立与拆除的。让两边都保持最新的唯一命令是 `update`:它以 `pull` 同样的方式跟随上游,然后把 manifest 所记得的内容重新交付一遍。
+
+**没有任何东西会自行移动。** 你所取回的是治理你的代理行为的文本,因此在整合之前,会先展示传入的提交标题。上游有差异时,每天只告知一次——而不是替你更新。
+
+你全局安装的那条命令只是一层很薄的入口:它找到 corpus(没有就先克隆一个),然后把事情交给它。实现与规则都住在 corpus 里,所以无需重新安装这条命令本身,只靠 `update` 就能跟上最新。
 
 ## 安装程序会触碰什么、不会触碰什么
 

@@ -14,14 +14,15 @@
 ## Instalar un módulo
 
 ```sh
-npx @hiroiku/dotagents clone      # una vez — en ~/.dotagents/corpus, un repo git que posees
-cd ~/.dotagents/corpus
+bun add -g @hiroiku/dotagents      # una vez — o: npm i -g @hiroiku/dotagents
 
-bin/agents-setup list                     # lo que puedes instalar
-bin/agents-setup install harness          # en el proyecto actual
-bin/agents-setup install harness -g       # para todos los proyectos de esta máquina
-bin/agents-setup install harness -C ~/x   # en un proyecto concreto
+dotagents list                     # lo que puedes instalar
+dotagents install harness          # en el proyecto actual
+dotagents install harness -g       # para todos los proyectos de esta máquina
+dotagents install harness -C ~/x   # en un proyecto concreto
 ```
+
+No hay un paso de preparación aparte. El primer comando clona el corpus — el repositorio git de reglas que posees — en `~/.dotagents/corpus` y sigue adelante, así que el comando que escribes es el mismo el primer día y todos los demás.
 
 El destino por defecto es este proyecto — el menor radio de impacto — y el alcance más amplio siempre requiere un flag. Lo que entra nunca tiene valor por defecto: nombra un módulo o elígelo de forma interactiva. Un shell no interactivo se detiene en lugar de elegir por ti.
 
@@ -66,14 +67,18 @@ Tus propios módulos van en `~/.dotagents/modules/`. Se instalan con los mismos 
 ## Comandos
 
 ```sh
-bin/agents-setup pull                 # seguir el upstream: muestra lo que viene, hace rebase de tus commits, ejecuta las pruebas
-bin/agents-setup update               # volver a entregar aquí — sin argumentos, recuerda qué módulos elegiste
-bin/agents-setup uninstall <module>   # quitar un módulo, conservar el resto; sin nombrar ninguno, elimina todo
-bin/agents-setup status               # verificar cada archivo entregado — exit 1 si hay deriva
-bin/agents-setup --help               # todos los comandos, opciones, ejemplos
+dotagents update               # seguir el upstream y luego volver a entregar — sin argumentos, recuerda tu elección
+dotagents uninstall <module>   # quitar un módulo, conservar el resto; sin nombrar ninguno, elimina todo
+dotagents status               # verificar cada archivo entregado — exit 1 si hay deriva
+dotagents pull                 # seguir el upstream solamente, sin volver a entregar
+dotagents --help               # todos los comandos, opciones, ejemplos
 ```
 
-`install` es aditivo y `uninstall`, sustractivo, así que el conjunto de módulos de un despliegue se construye y se desmonta módulo a módulo. `pull` es el único comando que cambia los módulos mismos, y nunca toca un despliegue: lo que traes con `pull` son los textos que gobiernan tus agentes, así que muestra los títulos de los commits entrantes antes de integrarlos, y nada se actualiza automáticamente.
+`install` es aditivo y `uninstall`, sustractivo, así que el conjunto de módulos de un despliegue se construye y se desmonta módulo a módulo. El único comando que mantiene al día ambas mitades es `update`: sigue el upstream igual que `pull` y después vuelve a entregar lo que el manifiesto recuerda.
+
+**Nada se mueve por su cuenta.** Lo que llega son los textos que gobiernan tus agentes, así que los títulos de los commits entrantes se muestran antes de integrar nada. Cuando hay algo en el upstream, se te avisa una vez al día — no se te actualiza.
+
+El comando que instalaste globalmente es solo una entrada delgada: encuentra el corpus, clonando uno si no lo hay, y le cede el trabajo. La implementación y las reglas viven ambas en el corpus, de modo que `update` te mantiene al día sin reinstalar nunca el comando en sí.
 
 ## Qué toca el instalador y qué no
 
