@@ -25,6 +25,8 @@ bin/agents-setup install harness -C ~/x   # en un proyecto concreto
 
 El destino por defecto es este proyecto — el menor radio de impacto — y el alcance más amplio siempre requiere un flag. Lo que entra nunca tiene valor por defecto: nombra un módulo o elígelo de forma interactiva. Un shell no interactivo se detiene en lugar de elegir por ti.
 
+Node o Bun, el que tenga la máquina: `bunx` llega al mismo paquete, y la propia CLI elige el runtime que esté presente.
+
 ## Qué es un módulo
 
 Un directorio con un `module.json`. Todo lo demás es opcional, y cada tipo tiene un único destino:
@@ -83,7 +85,7 @@ Los plugins de alcance de proyecto solo se cargan cuando Claude Code arranca en 
 
 ```
 bin/agents-setup      la CLI (clone / pull / list / install / update / uninstall / status)
-test/                 pruebas de contrato del instalador (npm test)
+test/                 pruebas de contrato del instalador (npm test · bun test)
 modules/              los módulos que ofrece este corpus
 ├── harness/          agentes de revisión, convenciones de git · testing · prompting
 └── architecture/     una regla de dependencias que impone la compilación

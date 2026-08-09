@@ -1,5 +1,10 @@
-#!/usr/bin/env node
+#!/bin/sh
+':' //# ; exec "$(command -v node || command -v bun)" "$0" "$@"
 'use strict';
+
+// 1–2 行目は sh と JS のどちらとしても読める。node があれば node、無ければ bun で
+// 自分自身を exec し直す — bun しか無い機械でも、この 1 ファイルがそのまま入口になる。
+// (sh では `:` が何もしない組み込み、JS では文字列リテラルと行コメント)
 
 // dotagents installer — modules/ から選んだ物を各ツールが読む場所へ実ファイルで配り、
 // manifest(~/.dotagents/)で所有権を管理する。
@@ -1121,7 +1126,7 @@ function list() {
 // ---------------------------------------------------------------- 正本(取得と追従)
 
 // この実行ファイルが編集可能な正本(git リポジトリ)の中にいるか。
-// npx のキャッシュや tarball 展開は正本ではない — そこから黙って配備しない。
+// npx や bunx のキャッシュ、tarball 展開は正本ではない — そこから黙って配備しない。
 function isCorpus() {
   return Boolean(lstatOrNull(path.join(REPO_ROOT, '.git')));
 }
@@ -1163,6 +1168,15 @@ async function clone(opts) {
   console.log(`${ui.dim('  follow upstream later with:')} ${homePath(path.join(dir, 'bin', 'agents-setup'))} pull`);
 }
 
+// 検証を走らせる道具は、このファイルを走らせているランタイムから決める。npm は node の
+// 付属物で、bun しか無い機械には無い — そこでは bun 自身がテストランナーである。
+// どちらも test/ の node:test をそのまま走らせる。
+function testRunner() {
+  return process.versions.bun
+    ? { cmd: process.execPath, args: ['test'], name: 'bun test' }
+    : { cmd: 'npm', args: ['test'], name: 'npm test' };
+}
+
 function pull() {
   if (corpusGit(['status', '--porcelain']).trim()) {
     throw new Error('the corpus has uncommitted changes. Commit or stash them first —\n' +
@@ -1189,11 +1203,18 @@ function pull() {
   } catch {
     throw new Error('integration stopped (see git output above). Resolve, `git rebase --continue`, then re-run pull.');
   }
+  // corpus がテストを持つと宣言しているかだけを見る。走らせ方はランタイムが決める。
   if (pkg().scripts?.test) {
-    console.log(`${ui.dim('verifying the merged corpus…')}`);
+    const runner = testRunner();
+    console.log(`${ui.dim(`verifying the merged corpus with ${runner.name}…`)}`);
     try {
-      execFileSync('npm', ['test'], { cwd: REPO_ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
-    } catch {
+      execFileSync(runner.cmd, runner.args, { cwd: REPO_ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
+    } catch (e) {
+      // 走らせられなかったのと、走って落ちたのを混ぜない — 前者は赤ではなく未検証である。
+      if (e.code === 'ENOENT') {
+        throw new Error(`pulled, but ${runner.name} could not be run here, so the corpus is unverified.\n` +
+          '       Run its tests yourself before deploying.');
+      }
       throw new Error('pulled, but the corpus fails its own tests. Fix before deploying —\n' +
         '       do not run `update` from a red corpus.');
     }
@@ -1203,7 +1224,7 @@ function pull() {
   console.log(`${ui.dim('  deployments resync per install:')} agents-setup update ${ui.dim('… (status detects drift)')}`);
 }
 
-// 正本の外(npx キャッシュ等)から配備系コマンドが呼ばれたら、既知の正本へ委譲する。
+// 正本の外(npx / bunx のキャッシュ等)から配備系コマンドが呼ばれたら、既知の正本へ委譲する。
 // 使い捨てコピーを source として manifest に記録する経路を作らない。
 // 正本の在処は ~/.dotagents/ の記録から引く(旧レイアウトの ~/.agents/.dotagents.json も読む)。
 function knownCorpusSource() {
@@ -1227,9 +1248,9 @@ function delegateToCorpus(argv) {
     process.exitCode = r.status ?? 1;
     return;
   }
-  throw new Error('this copy is disposable (npx cache or tarball), not an editable corpus.\n' +
+  throw new Error('this copy is disposable (an npx or bunx cache, or a tarball), not an editable corpus.\n' +
     '       Get one first, then deploy from it:\n' +
-    '         npx @hiroiku/dotagents clone <dir>\n' +
+    '         npx @hiroiku/dotagents clone <dir>          (bunx works the same)\n' +
     `         <dir>/bin/agents-setup install <module> [-g | -C <dir>]`);
 }
 
@@ -1328,9 +1349,13 @@ const CMD_HELP = {
       'directory to put it somewhere else.',
     ],
     options: [['--from <url|path>', 'clone from an explicit source instead of the published repository']],
-    notes: ['A clone is for editing and following. `npx @hiroiku/dotagents clone` is the one command that works outside a corpus.'],
+    notes: [
+      'A clone is for editing and following. `npx @hiroiku/dotagents clone` is the one command that works outside a corpus.',
+      'Node or Bun, whichever the machine has: `bunx` reaches the same package, and the CLI runs on either runtime.',
+    ],
     examples: [
       ['npx @hiroiku/dotagents clone', 'into the home this tool keeps'],
+      ['bunx @hiroiku/dotagents clone', 'the same, on a machine with Bun'],
       ['dotagents clone ~/work/rules', 'somewhere of your choosing'],
       ['dotagents clone x --from /path/to/repo', 'clone a local fork'],
     ],
@@ -1488,7 +1513,7 @@ async function main() {
   }
   migrateStateDir();
   // clone はどこからでも実行できる。それ以外は編集可能な正本からだけ —
-  // 正本の外(npx キャッシュ等)では既知の正本へ委譲するか、clone への案内で止まる。
+  // 正本の外(npx / bunx のキャッシュ等)では既知の正本へ委譲するか、clone への案内で止まる。
   if (cmd !== 'clone' && !isCorpus()) return delegateToCorpus(process.argv.slice(2));
   switch (cmd) {
     case 'clone': return clone(opts);

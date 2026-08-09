@@ -25,6 +25,8 @@ bin/agents-setup install harness -C ~/x   # 安裝進指定的專案
 
 目標預設為目前這個專案——影響範圍最小的那一個——而更廣的範圍一律需要旗標。至於要放入什麼,則從不預設:指名一個 module,或以互動方式挑選。非互動式 shell 會直接停止,而不替你做選擇。
 
+Node 或 Bun,這台機器上有哪個都行:`bunx` 取到的是同一個套件,而 CLI 本身會挑選那台機器上真正存在的 runtime。
+
 ## 何謂 module
 
 一個帶有 `module.json` 的目錄。其餘一切皆為可選,而每個種類各有一個落腳位置:
@@ -83,7 +85,7 @@ bin/agents-setup --help               # 全部指令、選項、範例
 
 ```
 bin/agents-setup      CLI 本體(clone / pull / list / install / update / uninstall / status)
-test/                 安裝程式的契約測試(npm test)
+test/                 安裝程式的契約測試(npm test · bun test)
 modules/              這份文庫提供的 module
 ├── harness/          審查代理,以及 git · testing · prompting 的慣例
 └── architecture/     由建置強制的依賴規則

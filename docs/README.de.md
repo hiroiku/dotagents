@@ -25,6 +25,8 @@ bin/agents-setup install harness -C ~/x   # in ein bestimmtes Projekt
 
 Das Ziel ist standardmäßig dieses Projekt — der kleinste Wirkungsradius — und der weitere Geltungsbereich verlangt immer ein Flag. Was hineinkommt, hat nie einen Standardwert: Benenne ein Modul oder wähle interaktiv. Eine nicht-interaktive Shell stoppt, statt für dich zu entscheiden.
 
+Node oder Bun, je nachdem, was die Maschine hat: `bunx` erreicht dasselbe Paket, und die CLI wählt selbst die Runtime, die dort vorhanden ist.
+
 ## Was ein Modul ist
 
 Ein Verzeichnis mit einer `module.json`. Alles Weitere ist optional, und jede Art hat genau ein Ziel:
@@ -83,7 +85,7 @@ Plugins im Projekt-Geltungsbereich werden nur geladen, wenn Claude Code in der R
 
 ```
 bin/agents-setup      die CLI (clone / pull / list / install / update / uninstall / status)
-test/                 Vertragstests für den Installer (npm test)
+test/                 Vertragstests für den Installer (npm test · bun test)
 modules/              die Module, die dieser Korpus anbietet
 ├── harness/          Review-Agenten, Konventionen für git · testing · prompting
 └── architecture/     eine Abhängigkeitsregel, die der Build erzwingt

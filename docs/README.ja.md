@@ -25,6 +25,8 @@ bin/agents-setup install harness -C ~/x   # 指定したプロジェクトへ
 
 対象の既定はこのプロジェクトである — 影響範囲が最小だからだ。より広い範囲には必ず flag が要る。何を入れるかに既定値は無い: module を名指しするか、対話で選ぶ。非対話シェルでは、代わりに選ぶのではなく停止する。
 
+node と bun のどちらでもよい — `bunx` は同じパッケージに届き、CLI 自身がその機械に在る runtime を選ぶ。
+
 ## module とは何か
 
 `module.json` を持つディレクトリである。それ以外はすべて任意で、種別ごとに届く先は 1 つ:
@@ -83,7 +85,7 @@ bin/agents-setup --help               # 全コマンド・オプション・例
 
 ```
 bin/agents-setup      CLI(clone / pull / list / install / update / uninstall / status)
-test/                 installer の契約テスト(npm test)
+test/                 installer の契約テスト(npm test · bun test)
 modules/              この正本が提供する module 群
 ├── harness/          レビューエージェントと、git・testing・prompting の慣習
 └── architecture/     ビルドが強制する依存規則

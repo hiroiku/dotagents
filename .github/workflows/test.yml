@@ -3,7 +3,7 @@ on:
   push:
   pull_request:
 jobs:
-  test:
+  node:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -11,3 +11,11 @@ jobs:
         with:
           node-version: 24
       - run: npm test
+  # 同じテストを bun のランナーでも走らせる。CLI は node と bun のどちらからでも
+  # 入口になるので、どちらか一方でしか通らない変更を通さない。
+  bun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun test

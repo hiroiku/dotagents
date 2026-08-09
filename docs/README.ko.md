@@ -25,6 +25,8 @@ bin/agents-setup install harness -C ~/x   # 특정 프로젝트에
 
 대상의 기본값은 현재 프로젝트다 — 영향 범위가 가장 작은 곳 — 이고, 더 넓은 범위에는 언제나 플래그가 필요하다. 무엇을 넣을지에는 기본값이 없다: module을 지명하거나 대화형으로 고른다. 비대화형 셸은 대신 골라 주지 않고 멈춘다.
 
+Node든 Bun이든, 그 기계에 있는 쪽이면 된다: `bunx`는 같은 패키지에 닿고, CLI 자신이 그 자리에 있는 런타임을 고른다.
+
 ## module이란 무엇인가
 
 `module.json`을 가진 디렉터리다. 그 밖의 모든 것은 선택이며, 종류마다 도착지는 하나다:
@@ -83,7 +85,7 @@ bin/agents-setup --help               # 모든 명령, 옵션, 예시
 
 ```
 bin/agents-setup      CLI (clone / pull / list / install / update / uninstall / status)
-test/                 installer의 계약 테스트 (npm test)
+test/                 installer의 계약 테스트 (npm test · bun test)
 modules/              이 정본이 제공하는 module들
 ├── harness/          리뷰 에이전트, git · testing · prompting 관례
 └── architecture/     빌드가 강제하는 의존성 규칙

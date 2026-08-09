@@ -25,6 +25,8 @@ bin/agents-setup install harness -C ~/x   # into a specific project
 
 The target defaults to this project — the smallest blast radius — and the wider scope always takes a flag. What goes in never defaults: name a module, or pick interactively. A non-interactive shell stops rather than choosing for you.
 
+Node or Bun, whichever the machine has: `bunx` reaches the same package, and the CLI itself picks the runtime that is there.
+
 ## What a module is
 
 A directory with a `module.json`. Everything else is optional, and each kind has one destination:
@@ -83,7 +85,7 @@ Project-scope plugins load only when Claude Code starts at the repository root, 
 
 ```
 bin/agents-setup      the CLI (clone / pull / list / install / update / uninstall / status)
-test/                 contract tests for the installer (npm test)
+test/                 contract tests for the installer (npm test · bun test)
 modules/              the modules this corpus offers
 ├── harness/          review agents, git · testing · prompting conventions
 └── architecture/     a dependency rule the build can enforce

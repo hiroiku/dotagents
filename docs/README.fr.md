@@ -25,6 +25,8 @@ bin/agents-setup install harness -C ~/x   # dans un projet précis
 
 La cible par défaut est ce projet — le plus petit rayon d'impact — et la portée plus large demande toujours un flag. Ce qui est installé n'a jamais de valeur par défaut : nomme un module, ou choisis de façon interactive. Un shell non interactif s'arrête plutôt que de choisir à ta place.
 
+Node ou Bun, selon ce que la machine possède : `bunx` atteint le même paquet, et la CLI choisit elle-même le runtime présent.
+
 ## Ce qu'est un module
 
 Un répertoire doté d'un `module.json`. Tout le reste est optionnel, et chaque catégorie a une unique destination :
@@ -83,7 +85,7 @@ Les plugins de portée projet ne se chargent que si Claude Code démarre à la r
 
 ```
 bin/agents-setup      la CLI (clone / pull / list / install / update / uninstall / status)
-test/                 tests de contrat de l'installeur (npm test)
+test/                 tests de contrat de l'installeur (npm test · bun test)
 modules/              les modules que ce corpus propose
 ├── harness/          agents de revue, conventions git · testing · prompting
 └── architecture/     une règle de dépendance imposée par le build
