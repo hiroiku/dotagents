@@ -1,0 +1,26 @@
+name: publish
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # trusted publishing (OIDC) は npm 11.5.1 以降でのみ効く。
+      - run: npm install -g npm@latest
+      - name: the tag is the version being published
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          test "${GITHUB_REF#refs/tags/}" = "v$version"
+      - run: npm test
+      - run: npm publish
