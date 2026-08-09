@@ -10,6 +10,10 @@ import path from 'node:path';
 const REPO = path.resolve(new URL('..', import.meta.url).pathname);
 const CLI = path.join(REPO, 'bin', 'agents-setup');
 
+// テストは本拠地を HOME から導くので、走らせる人の DOTAGENTS_HOME に引きずられない
+// (pull は corpus の中でテストを走らせる — そこで機械の設定が混ざると偽の赤になる)。
+delete process.env.DOTAGENTS_HOME;
+
 function run(home, args, opts = {}) {
   try {
     const out = execFileSync(process.execPath, [opts.cli ?? CLI, ...args], {

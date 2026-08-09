@@ -11,6 +11,10 @@ const CLI = path.join(REPO, 'bin', 'agents-setup');
 
 const tmp = (prefix) => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 
+// テストは本拠地を HOME か明示の DOTAGENTS_HOME から導くので、走らせる人の設定に
+// 引きずられない(pull は corpus の中でテストを走らせる — 混ざると偽の赤になる)。
+delete process.env.DOTAGENTS_HOME;
+
 function run(bin, args, { cwd = REPO, env = {} } = {}) {
   try {
     return { code: 0, out: execFileSync(process.execPath, [bin, ...args], { cwd, env: { ...process.env, ...env }, encoding: 'utf8' }) };
