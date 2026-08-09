@@ -11,12 +11,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      # trusted publishing (OIDC) は npm 11.5.1 以降でのみ効く。同梱の npm で足りる版を使う。
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
-      # trusted publishing (OIDC) は npm 11.5.1 以降でのみ効く。
-      - run: npm install -g npm@latest
       - name: the tag is the version being published
         if: startsWith(github.ref, 'refs/tags/')
         run: |
