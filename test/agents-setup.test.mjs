@@ -185,6 +185,23 @@ test('外科的 uninstall: 自前スキルとユーザーの設定に触れず�
   assert.ok(!fs.existsSync(stateDir(home)), '記録が尽きたら state も残さない');
 });
 
+test('配達先までの経路に切れたリンクが挟まっていても、配り直せる', () => {
+  const home = freshHome();
+  run(home, ['install', 'harness', '-g']);
+
+  // 配達単位そのものではなく、その 1 段下を切れたリンクにする(旧レイアウトの置き土産)。
+  // recursive な mkdir でもこの先は作れないので、掃除が届かなければ install ごと落ちる。
+  const inner = path.join(home, PLUGIN, 'skills');
+  fs.rmSync(inner, { recursive: true });
+  fs.symlinkSync(path.join(home, '.agents', 'skills'), inner);
+  assert.ok(!fs.existsSync(inner), '行き先の無いリンクになっている');
+
+  const again = run(home, ['install', 'harness', '-g'], { allowFail: true });
+  assert.equal(again.code, 0, again.out);
+  assert.ok(fs.existsSync(path.join(home, PLUGIN, 'skills/prompting/SKILL.md')), '配達は届く');
+  assert.ok(!fs.lstatSync(inner).isSymbolicLink(), '切れたリンクは実体に置き換わる');
+});
+
 test('外科的 uninstall: 改変された配布ファイルは残す', () => {
   const home = freshHome();
   run(home, ['install', 'harness', '-g']);

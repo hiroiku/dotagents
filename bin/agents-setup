@@ -340,14 +340,24 @@ function clearStaleSymlink(ctx, p, log) {
   }
 }
 
-// 掃除の対象 = これから配達する場所すべて(規則ファイルと、各配達単位)。
+// 掃除の対象 = これから配達する場所と、そこへ至る経路すべて(規則ファイル・各配達単位・
+// 配達先までの各段)。経路の途中に行き先の無いリンクが 1 つ挟まるだけで、その先は
+// ディレクトリを作ることさえできない — 配達単位だけを見ていては届かない。
+// 上の段から順に外す(浅い順)ので、先に外れた段の下は素直に作れる。
 function staleSymlinkCandidates(ctx, entries) {
   const out = new Set([path.join(ctx.claudeDir, 'CLAUDE.md')]);
   if (ctx.kind === 'user' && lstatOrNull(ctx.codexDir)?.isDirectory()) {
     out.add(path.join(ctx.codexDir, 'AGENTS.md'));
   }
-  for (const e of entries) out.add(e.unit);
-  return [...out];
+  for (const e of entries) {
+    out.add(e.unit);
+    let cur = ctx.base;
+    for (const part of path.relative(ctx.base, path.dirname(e.dst)).split(path.sep)) {
+      cur = path.join(cur, part);
+      out.add(cur);
+    }
+  }
+  return [...out].sort((a, b) => a.length - b.length);
 }
 
 // ---------------------------------------------------------------- ~/.zshenv(刈り込み専用)
@@ -1181,7 +1191,15 @@ async function clone(opts, { next = true } = {}) {
   }
   const src = cloneSource(opts);
   console.log(`${ui.dim('clone')} ${src} ${ui.dim('→')} ${homePath(dir)}`);
-  execFileSync('git', ['clone', src, dir], { stdio: 'inherit' });
+  try {
+    execFileSync('git', ['clone', src, dir], { stdio: 'inherit' });
+  } catch {
+    // 途中まで作られた行き先は次の試みを塞ぐので、自分が作った場合だけ片づける。
+    if (!st) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 残っても次が言う */ } }
+    throw new Error(`could not clone ${src} — see git's message above.\n` +
+      `       If the network is the problem, retry when it is back;\n` +
+      `       \`--from <url|path>\` takes it from somewhere you can reach.`);
+  }
   if (!next) return;
   console.log(`\n${ui.green('✔')} corpus cloned. It is yours to edit — rules live in git, deployments follow it.`);
   console.log(`${ui.dim('  next:')} ${ui.cyan('dotagents list')} ${ui.dim('· then')} ${ui.cyan('dotagents install <module>')} ${ui.dim('[-g | -C <dir>]')}`);
