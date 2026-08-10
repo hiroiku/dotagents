@@ -57,10 +57,12 @@ Tes propres modules vont dans `~/.dotagents/modules/`. Ils s'installent avec les
 
 ```
 ~/.dotagents/         tout ce que cet outil conserve, au même endroit
-├── corpus/           le clone que tu modifies et que tu mets à jour par pull
+├── corpus/           tes règles, un dépôt git que tu modifies et que tu suis
 ├── modules/          tes propres modules
 └── state/            le relevé de ce qui a été placé, et où
 ```
+
+Aucun installeur ne vit ici, seulement des règles. L'installeur vient de npm et c'est là qu'il est remplacé.
 
 `DOTAGENTS_HOME` déplace l'ensemble ; rien d'autre n'a besoin d'être prévenu. Une seule racine, et chaque chemin en dérive — `status` et `--help` affichent celle qui est en vigueur, si bien qu'une machine ne cache jamais d'où viennent ses règles.
 
@@ -78,7 +80,16 @@ dotagents --help               # toutes les commandes, options, exemples
 
 **Rien ne bouge tout seul.** Ce qui arrive, ce sont les textes qui gouvernent tes agents, donc les titres des commits entrants sont montrés avant toute intégration. Quand il y a quelque chose en amont, on te le dit une fois par jour — on ne te met pas à jour.
 
-La commande installée globalement n'est qu'un point d'entrée mince : elle trouve le corpus, en clone un s'il n'y en a pas, et passe la main. L'implémentation comme les règles vivent dans le corpus, si bien qu'`update` te garde à jour sans jamais réinstaller la commande elle-même.
+## Deux choses, mises à jour séparément
+
+L'installeur et tes règles ne sont pas de même nature, et ils ne voyagent pas ensemble.
+
+| | D'où cela vient | Comment cela bouge |
+|---|---|---|
+| **L'installeur** | npm — `bun add -g` / `npm i -g` | comme tout autre outil que tu installes |
+| **Tes règles** | git — `~/.dotagents/corpus` | `pull` / `update`, à ton signal |
+
+Le corpus ne contient que des règles. C'est cette séparation qui fait qu'un correctif t'atteint : **le code qui migre tes règles n'est jamais à l'intérieur de ce qui est migré**. Quel que soit l'âge de ton corpus, l'installeur qui agit dessus est l'actuel. Mets la commande à jour et le correctif est là ; tu n'as rien à suivre au préalable.
 
 ## Ce que l'installeur touche et ne touche pas
 
@@ -95,3 +106,5 @@ modules/              les modules que ce corpus propose
 ├── harness/          agents de revue, conventions git · testing · prompting
 └── architecture/     une règle de dépendance imposée par le build
 ```
+
+Ce dépôt est l'upstream des deux moitiés, mais elles sont distribuées séparément : npm ne transporte que `bin/`, et un clone n'apporte que les règles.

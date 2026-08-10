@@ -24,10 +24,15 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const readline = require('node:readline');
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 
-const REPO_ROOT = path.resolve(__dirname, '..');
-const MODULES_DIR = path.join(REPO_ROOT, 'modules');
+// 実装が住む場所(このパッケージ)。規則の在処とは別である。
+//
+// 実装は npm から常に新しい物が来て、規則は corpus の側で使う人が持つ。この 2 つを
+// 同じ git に同居させると、直した実装が相手の追従を待つことになり、移行を担うコードが
+// 移行される側に閉じ込められる。分けておけば、規則がどれだけ古くても、移行は常に
+// 新しい実装の手で行われる。
+const PKG_ROOT = path.resolve(__dirname, '..');
 // Claude へ配る plugin の名前 = スキルとエージェントの名前空間(/dotagents:git など)。
 const PLUGIN = 'dotagents';
 // マシン固有の記録(manifest)の集約先。
@@ -38,6 +43,23 @@ const DOTAGENTS_HOME = () => (process.env.DOTAGENTS_HOME
 const CORPUS_DIR = () => path.join(DOTAGENTS_HOME(), 'corpus');
 const PERSONAL_MODULES_DIR = () => path.join(DOTAGENTS_HOME(), 'modules');
 const STATE_DIR = () => path.join(DOTAGENTS_HOME(), 'state');
+
+// 名指しで別の場所へ置いた正本の在処。既定(本拠地の corpus/)なら記録は要らない。
+const corpusPointer = () => path.join(STATE_DIR(), 'corpus.json');
+
+// 規則が住む場所。開発中(このパッケージ自身が modules/ を持つ git リポジトリ)ならそこを、
+// 配布物として動いているなら本拠地の corpus/ を使う。名指しで別の場所へ置いた人のために、
+// 記録からも引く。
+function corpusRoot() {
+  if (lstatOrNull(path.join(PKG_ROOT, 'modules')) && lstatOrNull(path.join(PKG_ROOT, '.git'))) return PKG_ROOT;
+  if (lstatOrNull(path.join(CORPUS_DIR(), 'modules'))) return CORPUS_DIR();
+  for (const p of [readJson(corpusPointer(), null)?.path, knownCorpusSource()]) {
+    if (p && lstatOrNull(path.join(p, 'modules'))) return p;
+  }
+  return CORPUS_DIR();
+}
+const MODULES_DIR = () => path.join(corpusRoot(), 'modules');
+const hasCorpus = () => Boolean(lstatOrNull(path.join(corpusRoot(), 'modules')));
 // 旧レイアウト(<base>/.agents)の manifest 名と zshenv 管理行 — 刈り込み(移行)専用。
 const LEGACY_MANIFEST_NAME = '.dotagents.json';
 const MARKER = '# agents-harness';
@@ -90,13 +112,13 @@ function lstatOrNull(p) {
 
 function gitCommit() {
   try {
-    return execFileSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'],
+    return execFileSync('git', ['-C', corpusRoot(), 'rev-parse', 'HEAD'],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch { return null; }
 }
 
 function pkg() {
-  return readJson(path.join(REPO_ROOT, 'package.json'), { version: '0.0.0' });
+  return readJson(path.join(PKG_ROOT, 'package.json'), { version: '0.0.0' });
 }
 
 function removeEmptyDirsUpTo(from, stopAt) {
@@ -180,7 +202,7 @@ function settingsPath(ctx) {
 // ディレクトリが module で、名前はディレクトリ名 — 同一性の出どころを 2 つにしない。
 function moduleSources() {
   return [
-    { root: MODULES_DIR, personal: false },
+    { root: MODULES_DIR(), personal: false },
     { root: PERSONAL_MODULES_DIR(), personal: true },
   ];
 }
@@ -967,7 +989,7 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     base: ctx.base,
     modules,
     version: pkg().version,
-    source: REPO_ROOT,
+    source: corpusRoot(),
     commit: gitCommit(),
     installedAt: new Date().toISOString(),
     files,
@@ -1125,7 +1147,7 @@ function status(opts) {
 function list() {
   const index = moduleIndex();
   if (!index.size) {
-    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} nothing in ${homePath(MODULES_DIR)}`);
+    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} nothing in ${homePath(MODULES_DIR())}`);
     process.exitCode = 1;
     return;
   }
@@ -1152,26 +1174,34 @@ function list() {
 
 // ---------------------------------------------------------------- 正本(取得と追従)
 
-// この実行ファイルが編集可能な正本(git リポジトリ)の中にいるか。
-// npx や bunx のキャッシュ、tarball 展開は正本ではない — そこから黙って配備しない。
-function isCorpus() {
-  return Boolean(lstatOrNull(path.join(REPO_ROOT, '.git')));
+// 規則が git として在るか(追従できる形か)。素のコピーでも配備はできるが、追従はできない。
+function corpusIsGit() {
+  return Boolean(lstatOrNull(path.join(corpusRoot(), '.git')));
 }
 
 function corpusGit(args, opts = {}) {
-  return execFileSync('git', ['-C', REPO_ROOT, ...args], { encoding: 'utf8', ...opts });
+  return execFileSync('git', ['-C', corpusRoot(), ...args], { encoding: 'utf8', ...opts });
 }
 
-// clone 元の解決: 明示(--from)→ package.json の repository → 実行元リポジトリの origin。
+// clone 元の解決: 明示(--from)→ package.json の repository → 手元の正本の origin。
 function cloneSource(opts) {
   if (opts.from) return opts.from;
   const repo = pkg().repository;
   const url = typeof repo === 'string' ? repo : repo?.url;
   if (url) return url.replace(/^git\+/, '');
-  if (isCorpus()) {
+  if (corpusIsGit()) {
     try { return corpusGit(['remote', 'get-url', 'origin']).trim(); } catch { /* origin 無し */ }
   }
   throw new Error('clone source unknown: pass --from <url|path>.');
+}
+
+// 規則がまだ無ければ取ってくる。実装はここに在るので、渡す相手はいない —
+// 初回だけ別の手順、という段差を作らないためだけの一手である。
+async function ensureCorpus(opts) {
+  if (hasCorpus()) return;
+  console.log(`${ui.dim('no rules on this machine yet — getting them first')}`);
+  await clone(opts, { next: false });
+  console.log('');
 }
 
 function question(title) {
@@ -1181,7 +1211,7 @@ function question(title) {
   });
 }
 
-// next は「取得だけで終わる」ときの案内。入口が配備の途中で取ってくる場合は、
+// next は「取得だけで終わる」ときの案内。配備の途中で取ってくる場合は、
 // そのまま続きをやるので出さない。
 async function clone(opts, { next = true } = {}) {
   const dir = path.resolve(opts.cloneDir ?? CORPUS_DIR());
@@ -1200,6 +1230,8 @@ async function clone(opts, { next = true } = {}) {
       `       If the network is the problem, retry when it is back;\n` +
       `       \`--from <url|path>\` takes it from somewhere you can reach.`);
   }
+  // 既定の場所なら探せば見つかる。名指しで別の場所へ置いたときだけ、在処を憶える。
+  if (dir !== path.resolve(CORPUS_DIR())) writeJson(corpusPointer(), { path: dir });
   if (!next) return;
   console.log(`\n${ui.green('✔')} corpus cloned. It is yours to edit — rules live in git, deployments follow it.`);
   console.log(`${ui.dim('  next:')} ${ui.cyan('dotagents list')} ${ui.dim('· then')} ${ui.cyan('dotagents install <module>')} ${ui.dim('[-g | -C <dir>]')}`);
@@ -1228,7 +1260,7 @@ const hard = (msg) => Object.assign(new Error(msg), { hard: true });
 // キャッシュであって、何をどこへ置いたかの記録(state/)ではない。正本を捨てれば一緒に
 // 消え、配備の記録が尽きたときに state/ が畳めなくなることもない。
 const UPSTREAM_TTL = 24 * 60 * 60 * 1000;
-const upstreamFile = () => path.join(REPO_ROOT, '.git', 'dotagents-upstream.json');
+const upstreamFile = () => path.join(corpusRoot(), '.git', 'dotagents-upstream.json');
 const rememberUpstream = (behind) => writeJson(upstreamFile(), { checkedAt: Date.now(), behind });
 
 // 上流が無い・オフライン・fetch が返らないときは黙る。知らせは付加物であって、
@@ -1242,7 +1274,7 @@ function countBehind() {
 }
 
 function noticeUpstream() {
-  if (!isCorpus()) return;
+  if (!corpusIsGit()) return;
   const last = readJson(upstreamFile(), null);
   let behind = last?.behind ?? 0;
   if (!last || Date.now() - last.checkedAt >= UPSTREAM_TTL) {
@@ -1280,16 +1312,17 @@ function pull({ quiet = false } = {}) {
   for (const line of incoming.split('\n')) console.log(`  ${line}`);
   console.log('');
   try {
-    execFileSync('git', ['-C', REPO_ROOT, 'pull', '--rebase'], { stdio: 'inherit' });
+    execFileSync('git', ['-C', corpusRoot(), 'pull', '--rebase'], { stdio: 'inherit' });
   } catch {
     throw hard('integration stopped (see git output above). Resolve, `git rebase --continue`, then re-run pull.');
   }
-  // corpus がテストを持つと宣言しているかだけを見る。走らせ方はランタイムが決める。
-  if (pkg().scripts?.test) {
+  // 検証するのは取り込んだ側(規則)であって、この実装ではない。テストを持つと
+  // 宣言しているかだけを見て、走らせ方はランタイムが決める。
+  if (readJson(path.join(corpusRoot(), 'package.json'), {}).scripts?.test) {
     const runner = testRunner();
     console.log(`${ui.dim(`verifying the merged corpus with ${runner.name}…`)}`);
     try {
-      execFileSync(runner.cmd, runner.args, { cwd: REPO_ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
+      execFileSync(runner.cmd, runner.args, { cwd: corpusRoot(), stdio: ['ignore', 'ignore', 'inherit'] });
     } catch (e) {
       // 走らせられなかったのと、走って落ちたのを混ぜない — 前者は赤ではなく未検証である。
       if (e.code === 'ENOENT') {
@@ -1305,11 +1338,9 @@ function pull({ quiet = false } = {}) {
   if (!quiet) console.log(`${ui.dim('  deliver it with:')} ${ui.cyan('dotagents update')}`);
 }
 
-// 正本の外(npx / bunx のキャッシュ等)から配備系コマンドが呼ばれたら、既知の正本へ委譲する。
-// 使い捨てコピーを source として manifest に記録する経路を作らない。
-// 正本の在処は ~/.dotagents/ の記録から引く(旧レイアウトの ~/.agents/.dotagents.json も読む)。
+// 名指しで別の場所へ clone した人のために、記録からも正本を引く
+// (旧レイアウトの ~/.agents/.dotagents.json も読む)。
 function knownCorpusSource() {
-  if (lstatOrNull(path.join(CORPUS_DIR(), '.git'))) return CORPUS_DIR();
   const user = readJson(path.join(STATE_DIR(), 'user.json'), null);
   if (user?.source) return user.source;
   const projectsDir = path.join(STATE_DIR(), 'projects');
@@ -1318,32 +1349,6 @@ function knownCorpusSource() {
     if (m?.source) return m.source;
   }
   return readJson(path.join(os.homedir(), '.agents', LEGACY_MANIFEST_NAME), null)?.source ?? null;
-}
-
-// この使い捨てコピー(npm でグローバルに入れた物・npx / bunx のキャッシュ)は入口であって
-// 実装ではない。実装も規則も正本の側にあり、ここは正本を見つけて渡すだけの層である。
-//
-// 入口は行き止まりにならない。正本がまだ無ければ取ってきてから渡す — 使う人が
-// 覚えるコマンドを 1 つに保つには、初回だけ別の手順、という段差を作らない。
-//
-// この薄さが版ずれへの備えでもある。入口の仕事が「探す・取る・渡す」だけなら、
-// 手元の入口が古くても、動く実装は常に正本の側の最新である。
-async function delegateToCorpus(argv, opts) {
-  let source = knownCorpusSource();
-  let bin = source && source !== REPO_ROOT ? path.join(source, 'bin', 'agents-setup') : null;
-
-  if (!bin || !lstatOrNull(bin)) {
-    console.log(`${ui.dim('no corpus on this machine yet — getting one first')}`);
-    await clone({ ...opts, cloneDir: null }, { next: false });
-    console.log('');
-    source = CORPUS_DIR();
-    bin = path.join(source, 'bin', 'agents-setup');
-    if (!lstatOrNull(bin)) throw new Error(`the clone left no ${homePath(bin)} to hand over to.`);
-  }
-
-  console.log(`${ui.dim('delegating to')} ${homePath(source)}`);
-  const r = spawnSync(process.execPath, [bin, ...argv], { stdio: 'inherit' });
-  process.exitCode = r.status ?? 1;
 }
 
 const COMMANDS = new Set(['clone', 'pull', 'list', 'install', 'update', 'uninstall', 'status']);
@@ -1444,8 +1449,8 @@ const CMD_HELP = {
     ],
     options: [['--from <url|path>', 'clone from an explicit source instead of the published repository']],
     notes: [
-      'You rarely need this by hand: run any command outside a corpus and it clones one first, then hands over to it.',
-      'Reach for it when you want the corpus somewhere of your own choosing, or from a fork.',
+      'You rarely need this by hand: any command run before the rules are here clones them first, then carries on.',
+      'Reach for it when you want them somewhere of your own choosing, or from a fork.',
     ],
     examples: [
       ['dotagents clone', 'into the home this tool keeps'],
@@ -1612,9 +1617,9 @@ async function main() {
     throw new Error(`unknown command: ${cmd}\n       Run \`agents-setup --help\` to see what is available.`);
   }
   migrateStateDir();
-  // 実装が住むのは正本の中だけである。外から呼ばれた入口は、正本を見つけ(無ければ
-  // 取ってき)てそこへ渡す — 使う人から見れば、同じ 1 つのコマンドで済み続ける。
-  if (cmd !== 'clone' && !isCorpus()) return delegateToCorpus(process.argv.slice(2), opts);
+  // 実装はこの 1 ファイルで完結する。足りないのは規則の方だけなので、無ければ取ってくる。
+  // 移行を担うのは常にこの新しい実装であって、取ってきた側ではない。
+  if (cmd !== 'clone') await ensureCorpus(opts);
   switch (cmd) {
     case 'clone': return clone(opts);
     case 'pull': return pull();

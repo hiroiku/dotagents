@@ -64,24 +64,32 @@ if (!process.versions.bun && NODE && GIT) {
     const g = (...args) =>
       execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: upstream, encoding: 'utf8' });
     g('init', '-q', '-b', 'main');
-    fs.mkdirSync(path.join(upstream, 'bin'));
-    fs.copyFileSync(CLI, path.join(upstream, 'bin', 'agents-setup'));
-    fs.chmodSync(path.join(upstream, 'bin', 'agents-setup'), 0o755);
-    // テストを持つと宣言する corpus — pull はこの宣言を見て検証に入る。
+    fs.mkdirSync(path.join(upstream, 'modules'), { recursive: true });
+    fs.writeFileSync(path.join(upstream, 'modules', '.keep'), '');
+    // テストを持つと宣言する規則 — pull はこの宣言を見て検証に入る。
     fs.writeFileSync(path.join(upstream, 'package.json'),
       JSON.stringify({ name: 'x', version: '0.0.1', scripts: { test: 'node --test' } }) + '\n');
     g('add', '.');
     g('commit', '-q', '-m', 'init');
 
-    const work = path.join(tmp('dotagents-work-'), 'corpus');
+    const home = tmp('dotagents-home-');
+    const work = path.join(home, 'corpus');
     execFileSync('git', ['clone', '-q', upstream, work]);
     fs.appendFileSync(path.join(upstream, 'RULES.md'), 'change\n');
     g('add', '.');
     g('commit', '-q', '-m', '上流の変更');
 
+    // 配布物として動く実装(modules を持たない)。規則は本拠地から引く。
+    const pkgDir = tmp('dotagents-pkg-');
+    fs.mkdirSync(path.join(pkgDir, 'bin'));
+    const cli = path.join(pkgDir, 'bin', 'agents-setup');
+    fs.copyFileSync(CLI, cli);
+    fs.chmodSync(cli, 0o755);
+    fs.copyFileSync(path.join(REPO, 'package.json'), path.join(pkgDir, 'package.json'));
+
     // git と node は在るが npm は無い機械。取り込みは通り、検証だけが立たない。
-    const r = launch(path.join(work, 'bin', 'agents-setup'), ['pull'],
-      { PATH: pathWith(GIT, NODE), HOME: tmp('dotagents-home-') });
+    const r = launch(cli, ['pull'],
+      { PATH: pathWith(GIT, NODE), HOME: tmp('dotagents-home2-'), DOTAGENTS_HOME: home });
     assert.equal(r.code, 1);
     assert.match(r.out, /unverified/, '走らせられなかったことを、そのまま言う');
     assert.doesNotMatch(r.out, /fails its own tests/, 'テストが落ちたとは言わない');

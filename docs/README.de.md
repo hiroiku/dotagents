@@ -57,10 +57,12 @@ Deine eigenen Module liegen in `~/.dotagents/modules/`. Sie werden von denselben
 
 ```
 ~/.dotagents/         alles, was dieses Werkzeug aufbewahrt, an einem Ort
-├── corpus/           der Klon, den du bearbeitest und pullst
+├── corpus/           deine Regeln, als Git-Repository, das du bearbeitest und verfolgst
 ├── modules/          deine eigenen Module
 └── state/            die Aufzeichnung, was wohin platziert wurde
 ```
+
+Hier wohnt kein Installer, nur Regeln. Der Installer kommt von npm und wird dort ersetzt.
 
 `DOTAGENTS_HOME` verschiebt das Ganze; nichts sonst muss davon erfahren. Ein Home, und jeder Pfad leitet sich daraus ab — `status` und `--help` geben das jeweils wirksame Home aus, damit eine Maschine nie verbirgt, woher ihre Regeln stammen.
 
@@ -78,7 +80,16 @@ dotagents --help               # jeder Befehl, jede Option, jedes Beispiel
 
 **Nichts bewegt sich von selbst.** Was ankommt, sind die Texte, die deine Agenten regieren, daher werden die eingehenden Commit-Titel gezeigt, bevor irgendetwas integriert wird. Gibt es etwas im Upstream, wirst du einmal am Tag darauf hingewiesen — nicht aktualisiert.
 
-Der global installierte Befehl ist nur ein dünner Einstiegspunkt: Er findet den Corpus, klont einen, falls keiner da ist, und übergibt. Implementierung und Regeln wohnen beide im Corpus, deshalb hält `update` dich aktuell, ohne dass du den Befehl selbst je neu installieren musst.
+## Zwei Dinge, getrennt aktualisiert
+
+Der Installer und deine Regeln sind nicht dieselbe Art von Sache, und sie reisen nicht zusammen.
+
+| | Woher es kommt | Wie es sich bewegt |
+|---|---|---|
+| **Der Installer** | npm — `bun add -g` / `npm i -g` | wie jedes andere Werkzeug, das du installierst |
+| **Deine Regeln** | git — `~/.dotagents/corpus` | `pull` / `update`, auf dein Wort hin |
+
+Der Corpus enthält Regeln und sonst nichts. Genau diese Trennung lässt eine Korrektur bei dir ankommen: **Der Code, der deine Regeln migriert, steckt nie in dem, was migriert wird**. Wie alt dein Corpus auch ist — der Installer, der daran arbeitet, ist der aktuelle. Aktualisiere den Befehl, und die Korrektur ist da; du musst nichts vorher verfolgen.
 
 ## Was der Installer anrührt — und was nicht
 
@@ -95,3 +106,5 @@ modules/              die Module, die dieser Korpus anbietet
 ├── harness/          Review-Agenten, Konventionen für git · testing · prompting
 └── architecture/     eine Abhängigkeitsregel, die der Build erzwingt
 ```
+
+Dieses Repository ist der Upstream beider Hälften, aber sie werden getrennt ausgeliefert: npm trägt nur `bin/`, ein Klon bringt nur die Regeln.

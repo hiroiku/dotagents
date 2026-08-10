@@ -57,10 +57,12 @@ Tus propios módulos van en `~/.dotagents/modules/`. Se instalan con los mismos 
 
 ```
 ~/.dotagents/         todo lo que guarda esta herramienta, en un solo lugar
-├── corpus/           el clon que editas y del que haces pull
+├── corpus/           tus reglas, como un repo git que editas y sigues
 ├── modules/          tus propios módulos
 └── state/            el registro de qué se colocó y dónde
 ```
+
+Aquí no vive ningún instalador, solo reglas. El instalador viene de npm y allí se reemplaza.
 
 `DOTAGENTS_HOME` mueve el conjunto entero; no hay que avisar a nada más. Una única raíz, y todas las rutas derivan de ella — `status` y `--help` imprimen la que está en vigor, así que una máquina nunca esconde de dónde vinieron sus reglas.
 
@@ -78,7 +80,16 @@ dotagents --help               # todos los comandos, opciones, ejemplos
 
 **Nada se mueve por su cuenta.** Lo que llega son los textos que gobiernan tus agentes, así que los títulos de los commits entrantes se muestran antes de integrar nada. Cuando hay algo en el upstream, se te avisa una vez al día — no se te actualiza.
 
-El comando que instalaste globalmente es solo una entrada delgada: encuentra el corpus, clonando uno si no lo hay, y le cede el trabajo. La implementación y las reglas viven ambas en el corpus, de modo que `update` te mantiene al día sin reinstalar nunca el comando en sí.
+## Dos cosas, actualizadas por separado
+
+El instalador y tus reglas no son la misma clase de cosa, y no viajan juntas.
+
+| | De dónde viene | Cómo se mueve |
+|---|---|---|
+| **El instalador** | npm — `bun add -g` / `npm i -g` | como cualquier otra herramienta que instalas |
+| **Tus reglas** | git — `~/.dotagents/corpus` | `pull` / `update`, cuando tú lo digas |
+
+El corpus contiene reglas y nada más. Esa separación es lo que hace que una corrección te llegue: **el código que migra tus reglas nunca está dentro de aquello que se migra**. Por viejo que sea tu corpus, el instalador que actúa sobre él es el actual. Actualiza el comando y ya tienes la corrección; no hace falta seguir nada primero.
 
 ## Qué toca el instalador y qué no
 
@@ -95,3 +106,5 @@ modules/              los módulos que ofrece este corpus
 ├── harness/          agentes de revisión, convenciones de git · testing · prompting
 └── architecture/     una regla de dependencias que impone la compilación
 ```
+
+Este repositorio es el upstream de ambas mitades, pero se distribuyen por separado: npm lleva solo `bin/`, y un clon trae solo las reglas.

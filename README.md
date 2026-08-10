@@ -57,10 +57,12 @@ Modules of your own go in `~/.dotagents/modules/`. They are installed by the sam
 
 ```
 ~/.dotagents/         everything this tool keeps, in one place
-├── corpus/           the clone you edit and pull
+├── corpus/           your rules, as a git repository you edit and follow
 ├── modules/          modules of your own
 └── state/            the record of what was placed where
 ```
+
+No installer lives here — only rules. The installer comes from npm and is replaced there.
 
 `DOTAGENTS_HOME` moves the whole thing; nothing else needs to be told. One root, and every path derives from it — `status` and `--help` print the one in effect, so a machine never hides where its rules came from.
 
@@ -78,7 +80,16 @@ dotagents --help               # every command, option, example
 
 **Nothing moves on its own.** What arrives are the texts that govern your agents, so the incoming commit titles are shown before anything is integrated. When there is something upstream, you are told once a day — not updated.
 
-The command you installed globally is a thin entry point: it finds the corpus, cloning one if there is none, and hands over. Both the implementation and the rules live in the corpus, so `update` keeps you current without ever reinstalling the command itself.
+## Two things, updated separately
+
+The installer and your rules are not the same kind of thing, and they do not travel together.
+
+| | Where it comes from | How it moves |
+|---|---|---|
+| **The installer** | npm — `bun add -g` / `npm i -g` | like any other tool you install |
+| **Your rules** | git — `~/.dotagents/corpus` | `pull` / `update`, on your say-so |
+
+The corpus holds rules and nothing else. That separation is what makes a fix reach you: **the code that migrates your rules is never inside the thing being migrated**, so however old your corpus is, the installer acting on it is the current one. Update the command and you have the fix — you do not have to follow anything first.
 
 ## What the installer will and will not touch
 
@@ -95,3 +106,5 @@ modules/              the modules this corpus offers
 ├── harness/          review agents, git · testing · prompting conventions
 └── architecture/     a dependency rule the build can enforce
 ```
+
+This repository is the upstream of both halves, but they ship apart: npm carries only `bin/`, and a clone brings only the rules.
