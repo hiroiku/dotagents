@@ -55,6 +55,8 @@ Qu'une chose ait une place unique et qu'un nom dise son rôle sert la même fin 
 
 Les points des règles qui admettaient une autre réponse, et la raison de celle qui a été retenue.
 
+**`app-kernel` n'est pas un noyau partagé.** Le shared kernel du DDD, c'est du domaine que deux contextes conviennent de tenir en commun ; il ne s'agit pas de cela. Ici vit la machinerie sur laquelle tourne l'architecture elle-même — `Result`, le type d'erreur de base — et rien qui existe à cause de ce que ce produit fait. Être l'unique feuille que tout le monde peut importer en fait l'endroit le moins coûteux où déposer ce qui est partagé : c'est donc la couche où s'accumulent en premier les concepts propres au produit, et celle qu'il faut définir par ce qu'elle exclut. L'intérieur du métier, c'est `domain`. `app-kernel` est sous le diagramme tout entier.
+
 **`interface` ne voit pas `domain`.** Dès qu'un contrôleur touche une entité, la forme du domaine fuit dans la forme du câblage : refactorer le domaine se met à casser le contrat vers l'extérieur, et revient précisément ce que la CA voulait empêcher. Le prix, c'est qu'un cas d'usage porte ses propres types d'entrée et de sortie et que le presenter écrive la conversion ; mais cette conversion est justement la traduction de la frontière.
 
 **`frameworks` ne voit pas `application`.** Avec deux entrées, le travail transverse placé dans le contrôleur — authentification, validation, traduction des erreurs — **saute en silence** sur l'autre chemin. Rien n'échoue ; cela passe, simplement. C'est la manière la plus dangereuse de casser, donc l'entrée reste unique.

@@ -55,6 +55,8 @@ Que cada cosa tenga un único lugar y que el nombre diga su papel sirve al mismo
 
 Los puntos de las reglas que admitían otra respuesta, y por qué se tomó esta.
 
+**`app-kernel` no es un núcleo compartido.** El shared kernel de DDD es dominio que dos contextos acuerdan sostener en común; esto no es eso. Aquí vive la maquinaria sobre la que corre la arquitectura misma — `Result`, el tipo base de error — y nada que exista por lo que este producto hace. Ser la única hoja que todos pueden importar lo convierte en el sitio más barato para dejar cualquier cosa compartida: es la capa donde primero se acumulan los conceptos propios del producto, y por eso la única que hay que definir por lo que excluye. El interior del negocio es `domain`. `app-kernel` está debajo de todo el diagrama.
+
 **`interface` no ve `domain`.** Cuando un controlador toca una entidad, la forma del dominio se filtra en la forma del cableado: refactorizar el dominio empieza a romper el contrato con el exterior, y vuelve justo aquello que la CA quería evitar. El precio es que un caso de uso lleve sus propios tipos de entrada y salida y que el presenter escriba la conversión; pero esa conversión es precisamente la traducción de la frontera.
 
 **`frameworks` no ve `application`.** Con dos entradas, el trabajo transversal colocado en el controlador —autenticación, validación, traducción de errores— **se salta en silencio** por el otro camino. Nada falla; simplemente pasa. Es la forma más peligrosa de romperse, así que la entrada es una sola.

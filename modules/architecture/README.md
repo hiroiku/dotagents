@@ -55,6 +55,8 @@ A single, predictable place for everything, with a name that states its role, se
 
 The places in the rules that admitted another answer, and why this one was taken.
 
+**`app-kernel` is not a shared kernel.** DDD's shared kernel is domain that two contexts agree to hold in common; this is not that. It holds the machinery the architecture runs on — `Result`, the base error type — and nothing that exists because of what the product does. Being the one leaf everyone may import makes it the cheapest place to put anything shared, so it is the layer where a product's own concepts collect first, and the one that has to be defined by what it excludes. `domain` is the inside of the business; `app-kernel` is underneath the whole diagram.
+
 **`interface` does not see `domain`.** When a controller touches an entity, the shape of the domain leaks into the shape of the wiring: refactoring the domain starts breaking the contract with the outside world, and the very thing CA was built to prevent comes back. The price is that a use-case carries its own input and output types and a presenter has to convert — but that conversion is exactly what a boundary is for.
 
 **`frameworks` does not see `application`.** With two entrances, the cross-cutting work placed in the controller — authentication, validation, error translation — is **silently skipped** on the other path. Nothing errors; it simply goes through. That is the most dangerous way for this to break, so there is one entrance.

@@ -55,6 +55,8 @@ Dass jede Sache genau einen Ort hat und der Name die Rolle nennt, dient demselbe
 
 Die Stellen der Regeln, die eine andere Antwort zugelassen hätten, und warum diese gewählt wurde.
 
+**`app-kernel` ist kein Shared Kernel.** Der Shared Kernel des DDD ist Domäne, die zwei Kontexte einvernehmlich gemeinsam halten; dies ist etwas anderes. Hier wohnt die Maschinerie, auf der die Architektur selbst läuft — `Result`, der Basis-Fehlertyp —, und nichts, was existiert, weil dieses Produkt etwas Bestimmtes tut. Dass es das eine Blatt ist, das jeder importieren darf, macht es zum billigsten Ablageort für alles Geteilte: Genau hier sammeln sich zuerst die produkteigenen Begriffe, und genau darum lässt sich diese Schicht nur darüber definieren, was sie nicht enthält. Das Innere des Geschäfts ist `domain`. `app-kernel` liegt unter dem ganzen Diagramm.
+
 **`interface` sieht `domain` nicht.** Berührt ein Controller eine Entität, sickert die Form der Domäne in die Form der Verdrahtung. Ein Refactoring der Domäne beginnt, den Vertrag nach außen zu brechen — genau das kehrt zurück, was die CA verhindern wollte. Der Preis ist, dass ein Use-Case eigene Ein- und Ausgabetypen trägt und ein Presenter die Umwandlung schreibt; doch diese Umwandlung ist gerade die Übersetzung an der Grenze.
 
 **`frameworks` sieht `application` nicht.** Bei zwei Eingängen fällt die querschnittliche Arbeit im Controller — Authentifizierung, Validierung, Fehlerübersetzung — auf dem anderen Weg **stillschweigend aus**. Nichts schlägt fehl, es geht einfach durch. Das ist die gefährlichste Art zu brechen, also bleibt es bei einem Eingang.

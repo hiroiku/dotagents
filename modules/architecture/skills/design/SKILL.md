@@ -24,6 +24,14 @@ The layers are fixed at six: `app-kernel` `domain` `application` `interface` `in
 - Bounded contexts are declared in one place. Every directory named for a context, in every layer, belongs to that set.
 - Inside `frameworks/<framework>/`, follow that framework's own conventions.
 
+## `app-kernel`
+
+The machinery this architecture itself runs on — `Result`, the base error type, the primitives every layer is written with. Being the one leaf everyone may import makes it the cheapest place to put anything shared, and that is exactly what makes it the layer to watch.
+
+- Nothing here exists because of what this product does. No entity, no business rule, no word from a bounded context — not even one that every context happens to share.
+- The test is reuse: if a file would have to be renamed to drop it into an unrelated product, it is not kernel. What two contexts share is still `domain`; coordinating them is `application`'s work.
+- It is the innermost layer of the dependency graph, not the innermost layer of the business. `domain` is the inside. `app-kernel` is underneath.
+
 ## Dependencies
 
 ```mermaid
@@ -52,6 +60,7 @@ flowchart LR
 ## Words
 
 - The inside is written in the language of the business. Technology and vendor names (GoogleDrive, WorkOS, Prisma, S3, HTTP) may appear only in `infrastructure` and `frameworks`.
+- `app-kernel` sits off this axis: neither business nor vendor, only the vocabulary of the architecture.
 - The constraint reaches identifiers, type names, filenames, comments, and error messages.
 - A port names a capability in business terms (`storage.integration.ts`). An adapter prefixes the technology to the port's name (`google-drive-storage.integration.ts`), even when there is only one implementation.
 - One adapter implements exactly one port.
