@@ -49,7 +49,7 @@ modules/<name>/
 
 module は `PATH` に期待する物を宣言してよい。要件は**検出されるだけで、決して install されない**: `list` と `install` は欠けている物を報告するが、何も妨げない。だから後からツールを足しても、再 install は要らない。
 
-[modules/](../modules/) が配布物の正本の定義である — installer 側にファイルの列挙は存在しないので、同期のずれで古びる物が無い。同梱の 2 つの module は既定であると同時に見本でもあり、丸ごと受け取るべき一式ではない: [harness](../modules/harness/docs/README.ja.md) はレビューエージェントと、モデルには推測できない慣習を携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を携える。
+[modules/](../modules/) が配布物の正本の定義である — installer 側にファイルの列挙は存在しないので、同期のずれで古びる物が無い。同梱の module は既定であると同時に見本でもあり、丸ごと受け取るべき一式ではない: [harness](../modules/harness/docs/README.ja.md) はレビューエージェントと、モデルには推測できない慣習を携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を、[github](../modules/github/docs/README.ja.md) は issue のどの仕組みがどの意味を担うかを携える。
 
 自分の module は、同じ形のまま `~/.dotagents/modules/` に置く。同じコマンドで install され、自分のマシンに留まる — リポジトリにも、公開されるパッケージにも決して入らない。`list` は両方の出所を見せる。同じ名前が二度主張されたときは、黙って上書きするのではなくエラーになる。
 
@@ -107,7 +107,8 @@ bin/agents-setup      CLI(list / install / update / uninstall / status)
 test/                 installer の契約テスト(npm test · bun test)
 modules/              パッケージに同梱される module 群
 ├── harness/          レビューエージェントと、git・testing・prompting の慣習
-└── architecture/     ビルドが強制する依存規則
+├── architecture/     ビルドが強制する依存規則
+└── github/           issue が何を担えるか、どの軸に載せるか
 ```
 
 このリポジトリは両方の上流であり、npm は両方を運ぶ: `bin/` と `modules/` は、1 つのバージョンとして一緒に公開される。

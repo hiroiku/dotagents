@@ -49,7 +49,7 @@ modules/<name>/
 
 一個 module 可以宣告它期望 `PATH` 上有什麼。這些要求是**被偵測,而非被安裝**的:`list` 與 `install` 會回報缺少了什麼,但不阻擋任何事,因此日後才補上工具也無須重新安裝。
 
-[modules/](../modules/) 是這份分發內容的權威定義——安裝程式並不持有檔案的清單,因此沒有任何東西會無聲地失去同步。隨套件附上的兩個 module 既是預設,也同樣是範例,而非一組要你整套照收的東西:[harness](../modules/harness/docs/README.zh-TW.md) 承載審查代理,以及模型無法猜出的慣例;[architecture](../modules/architecture/docs/README.zh-TW.md) 則承載一條對某些專案適切、對另一些則否的依賴規則。
+[modules/](../modules/) 是這份分發內容的權威定義——安裝程式並不持有檔案的清單,因此沒有任何東西會無聲地失去同步。隨套件附上的 module 既是預設,也同樣是範例,而非一組要你整套照收的東西:[harness](../modules/harness/docs/README.zh-TW.md) 承載審查代理,以及模型無法猜出的慣例;[architecture](../modules/architecture/docs/README.zh-TW.md) 則承載一條對某些專案適切、對另一些則否的依賴規則;[github](../modules/github/docs/README.zh-TW.md) 承載 issue 的哪種機制承載哪種意義。
 
 你自己的 module 以同樣的形狀放進 `~/.dotagents/modules/`。它們由完全相同的指令安裝,並留在你的機器上——永不進入任何儲存庫,也永不進入任何已發布的套件。`list` 會同時顯示這兩個來源;同一個名稱被佔用兩次是一個錯誤,而非一次無聲的覆寫。
 
@@ -107,7 +107,8 @@ bin/agents-setup      CLI 本體(list / install / update / uninstall / status)
 test/                 安裝程式的契約測試(npm test · bun test)
 modules/              隨套件一起發布的 module
 ├── harness/          審查代理,以及 git · testing · prompting 的慣例
-└── architecture/     由建置強制的依賴規則
+├── architecture/     由建置強制的依賴規則
+└── github/           issue 能承載什麼,該放在哪條軸上
 ```
 
 本儲存庫是兩者的上游,而 npm 同時攜帶兩者:`bin/` 與 `modules/` 作為同一個版本一起發布。

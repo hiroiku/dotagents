@@ -49,7 +49,7 @@ modules/<name>/
 
 A module may declare what it expects on `PATH`. Requirements are **detected, never installed**: `list` and `install` report what is missing and block nothing, so adding the tool later needs no reinstall.
 
-[modules/](./modules/) is the canonical definition of the distribution — the installer holds no list of the files, so nothing rots out of sync. The two modules that ship here are examples as much as defaults, not a set you are meant to take whole: [harness](./modules/harness/README.md) carries review agents and the conventions a model cannot guess, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others.
+[modules/](./modules/) is the canonical definition of the distribution — the installer holds no list of the files, so nothing rots out of sync. The modules that ship here are examples as much as defaults, not a set you are meant to take whole: [harness](./modules/harness/README.md) carries review agents and the conventions a model cannot guess, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others, [github](./modules/github/README.md) which mechanism of an issue carries which meaning.
 
 Modules of your own go in `~/.dotagents/modules/`, in the same shape. They are installed by the same commands and stay on your machine — never in a repository, never in a published package. `list` shows both sources; a name claimed twice is an error rather than a silent override.
 
@@ -107,7 +107,8 @@ bin/agents-setup      the CLI (list / install / update / uninstall / status)
 test/                 contract tests for the installer (npm test · bun test)
 modules/              the modules that ship with the package
 ├── harness/          review agents, git · testing · prompting conventions
-└── architecture/     a dependency rule the build can enforce
+├── architecture/     a dependency rule the build can enforce
+└── github/           what an issue can carry, and on which axis
 ```
 
 This repository is the upstream of both, and npm carries both: `bin/` and `modules/` are published together, as one version.

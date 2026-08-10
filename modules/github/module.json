@@ -1,0 +1,4 @@
+{
+  "description": "What GitHub issues can carry, and which mechanism carries which meaning: types, milestones, labels, sub-issues, blocking. Install it where the tracker is GitHub.",
+  "requires": ["gh"]
+}

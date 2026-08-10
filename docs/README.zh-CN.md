@@ -49,7 +49,7 @@ modules/<name>/
 
 一个 module 可以声明它期望 `PATH` 上存在什么。这些依赖**只被检测,绝不被安装**:`list` 与 `install` 会报告缺少了什么,但不会阻断任何事情,因此日后再补上该工具也无需重新安装。
 
-[modules/](../modules/) 是分发内容的权威定义——安装程序并不持有文件清单,因此不会有任何东西因失去同步而腐坏。随包附带的两个 module 既是默认项,也同样是范例,而不是一套要你整份照单全收的集合:[harness](../modules/harness/docs/README.zh-CN.md) 承载审查代理,以及模型无法自行猜出的约定;[architecture](../modules/architecture/docs/README.zh-CN.md) 则是一条依赖规则——它对某些项目而言是对的,对另一些则不然。
+[modules/](../modules/) 是分发内容的权威定义——安装程序并不持有文件清单,因此不会有任何东西因失去同步而腐坏。随包附带的 module 既是默认项,也同样是范例,而不是一套要你整份照单全收的集合:[harness](../modules/harness/docs/README.zh-CN.md) 承载审查代理,以及模型无法自行猜出的约定;[architecture](../modules/architecture/docs/README.zh-CN.md) 则是一条依赖规则——它对某些项目而言是对的,对另一些则不然;[github](../modules/github/docs/README.zh-CN.md) 承载 issue 的哪种机制承载哪种含义。
 
 你自己的 module 以同样的形状放在 `~/.dotagents/modules/`。它们由同样的命令安装,并留在你的机器上——绝不进入任何仓库,也绝不进入任何已发布的包。`list` 会同时展示这两个来源;同一个名字被占用两次会被视为错误,而不是无声的覆盖。
 
@@ -107,7 +107,8 @@ bin/agents-setup      CLI(list / install / update / uninstall / status)
 test/                 安装程序的契约测试(npm test · bun test)
 modules/              随包一起发布的各个 module
 ├── harness/          审查代理,以及 git · testing · prompting 方面的约定
-└── architecture/     由构建强制的依赖规则
+├── architecture/     由构建强制的依赖规则
+└── github/           issue 能承载什么,该放在哪条轴上
 ```
 
 本仓库是两者的上游,而 npm 同时携带两者:`bin/` 与 `modules/` 作为同一个版本一起发布。

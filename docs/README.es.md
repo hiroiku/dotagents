@@ -49,7 +49,7 @@ modules/<name>/
 
 Un módulo puede declarar qué espera en el `PATH`. Los requisitos se **detectan, nunca se instalan**: `list` e `install` informan de lo que falta y no bloquean nada, así que añadir la herramienta más tarde no requiere reinstalar.
 
-[modules/](../modules/) es la definición canónica de la distribución — el instalador no mantiene ninguna lista de los archivos, así que nada se pudre por quedar desincronizado. Los dos módulos que vienen incluidos son tanto ejemplos como opciones por defecto, no un conjunto que debas tomar entero: [harness](../modules/harness/docs/README.es.md) lleva agentes de revisión y las convenciones que un modelo no puede adivinar; [architecture](../modules/architecture/docs/README.es.md), una regla de dependencias que es acertada para unos proyectos y no para otros.
+[modules/](../modules/) es la definición canónica de la distribución — el instalador no mantiene ninguna lista de los archivos, así que nada se pudre por quedar desincronizado. Los módulos que vienen incluidos son tanto ejemplos como opciones por defecto, no un conjunto que debas tomar entero: [harness](../modules/harness/docs/README.es.md) lleva agentes de revisión y las convenciones que un modelo no puede adivinar; [architecture](../modules/architecture/docs/README.es.md), una regla de dependencias que es acertada para unos proyectos y no para otros; [github](../modules/github/docs/README.es.md), qué mecanismo de un issue carga cada significado.
 
 Tus propios módulos van en `~/.dotagents/modules/`, con la misma forma. Se instalan con los mismos comandos y se quedan en tu máquina — nunca en un repositorio, nunca en un paquete publicado. `list` muestra ambas fuentes; un nombre reclamado dos veces es un error, no una sobrescritura silenciosa.
 
@@ -107,7 +107,8 @@ bin/agents-setup      la CLI (list / install / update / uninstall / status)
 test/                 pruebas de contrato del instalador (npm test · bun test)
 modules/              los módulos que vienen con el paquete
 ├── harness/          agentes de revisión, convenciones de git · testing · prompting
-└── architecture/     una regla de dependencias que impone la compilación
+├── architecture/     una regla de dependencias que impone la compilación
+└── github/           qué puede cargar un issue, y en qué eje
 ```
 
 Este repositorio es el upstream de ambos, y npm lleva ambos: `bin/` y `modules/` se publican juntos, como una sola versión.

@@ -49,7 +49,7 @@ modules/<name>/
 
 module은 `PATH`에 무엇을 기대하는지 선언할 수 있다. 요구 사항은 **감지될 뿐, 절대 설치되지 않는다**: `list`와 `install`은 빠진 것을 보고할 뿐 아무것도 막지 않으므로, 나중에 도구를 추가하더라도 재설치는 필요 없다.
 
-[modules/](../modules/)가 배포물의 정본 정의다 — installer 쪽에는 파일 목록이 따로 존재하지 않으므로, 어긋난 채 낡아가는 것도 없다. 함께 실려 오는 두 module은 기본값인 동시에 본보기이지, 통째로 가져가라고 놓아둔 집합이 아니다: [harness](../modules/harness/docs/README.ko.md)는 리뷰 에이전트와 모델이 추측할 수 없는 관례를 담고, [architecture](../modules/architecture/docs/README.ko.md)는 어떤 프로젝트에는 맞고 어떤 프로젝트에는 맞지 않는 의존성 규칙을 담는다.
+[modules/](../modules/)가 배포물의 정본 정의다 — installer 쪽에는 파일 목록이 따로 존재하지 않으므로, 어긋난 채 낡아가는 것도 없다. 함께 실려 오는 module은 기본값인 동시에 본보기이지, 통째로 가져가라고 놓아둔 집합이 아니다: [harness](../modules/harness/docs/README.ko.md)는 리뷰 에이전트와 모델이 추측할 수 없는 관례를 담고, [architecture](../modules/architecture/docs/README.ko.md)는 어떤 프로젝트에는 맞고 어떤 프로젝트에는 맞지 않는 의존성 규칙을, [github](../modules/github/docs/README.ko.md)는 issue의 어떤 장치가 어떤 의미를 담는지를 담는다.
 
 직접 만든 module은 같은 모양으로 `~/.dotagents/modules/`에 둔다. 같은 명령으로 설치되며 이 머신 안에 머문다 — 저장소에도, 공개된 패키지에도 절대 들어가지 않는다. `list`는 두 출처를 모두 보여주며, 한 이름을 둘이 주장하면 조용한 덮어쓰기가 아니라 오류가 된다.
 
@@ -107,7 +107,8 @@ bin/agents-setup      CLI (list / install / update / uninstall / status)
 test/                 installer의 계약 테스트 (npm test · bun test)
 modules/              패키지와 함께 실려 오는 module들
 ├── harness/          리뷰 에이전트, git · testing · prompting 관례
-└── architecture/     빌드가 강제하는 의존성 규칙
+├── architecture/     빌드가 강제하는 의존성 규칙
+└── github/           issue가 무엇을 담을 수 있는지, 어느 축에 얹을지
 ```
 
 이 저장소는 양쪽의 upstream이고, npm은 양쪽을 함께 실어 나른다: `bin/`과 `modules/`는 하나의 버전으로 함께 공개된다.

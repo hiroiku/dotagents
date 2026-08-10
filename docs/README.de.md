@@ -49,7 +49,7 @@ modules/<name>/
 
 Ein Modul darf deklarieren, was es auf `PATH` erwartet. Voraussetzungen werden **erkannt, nie installiert**: `list` und `install` melden, was fehlt, und blockieren nichts — das Werkzeug später hinzuzufügen, erfordert also keine Neuinstallation.
 
-[modules/](../modules/) ist die kanonische Definition der Distribution — der Installer hält keine Liste der Dateien, also kann nichts still auseinanderdriften. Die beiden mitgelieferten Module sind ebenso Beispiele wie Voreinstellungen, kein Satz, den du als Ganzes übernehmen sollst: [harness](../modules/harness/docs/README.de.md) trägt Review-Agenten und die Konventionen, die ein Modell nicht erraten kann, [architecture](../modules/architecture/docs/README.de.md) eine Abhängigkeitsregel, die für manche Projekte richtig ist und für andere nicht.
+[modules/](../modules/) ist die kanonische Definition der Distribution — der Installer hält keine Liste der Dateien, also kann nichts still auseinanderdriften. Die mitgelieferten Module sind ebenso Beispiele wie Voreinstellungen, kein Satz, den du als Ganzes übernehmen sollst: [harness](../modules/harness/docs/README.de.md) trägt Review-Agenten und die Konventionen, die ein Modell nicht erraten kann, [architecture](../modules/architecture/docs/README.de.md) eine Abhängigkeitsregel, die für manche Projekte richtig ist und für andere nicht, [github](../modules/github/docs/README.de.md) die Zuordnung, welcher Mechanismus eines Issues welche Bedeutung trägt.
 
 Deine eigenen Module liegen in derselben Form in `~/.dotagents/modules/`. Sie werden von denselben Befehlen installiert und bleiben auf deiner Maschine — nie in einem Repository, nie in einem veröffentlichten Paket. `list` zeigt beide Quellen; ein doppelt vergebener Name ist ein Fehler statt einer stillen Überschreibung.
 
@@ -107,7 +107,8 @@ bin/agents-setup      die CLI (list / install / update / uninstall / status)
 test/                 Vertragstests für den Installer (npm test · bun test)
 modules/              die Module, die mit dem Paket ausgeliefert werden
 ├── harness/          Review-Agenten, Konventionen für git · testing · prompting
-└── architecture/     eine Abhängigkeitsregel, die der Build erzwingt
+├── architecture/     eine Abhängigkeitsregel, die der Build erzwingt
+└── github/           was ein Issue tragen kann, und auf welcher Achse
 ```
 
 Dieses Repository ist der Upstream von beidem, und npm trägt beides: `bin/` und `modules/` werden gemeinsam veröffentlicht, als eine Version.
