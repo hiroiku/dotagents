@@ -22,11 +22,11 @@ dotagents install harness -g       # このマシンの全プロジェクトへ
 dotagents install harness -C ~/x   # 指定したプロジェクトへ
 ```
 
-別途の準備手順は無い。最初のコマンドが、自分の所有する規則の git リポジトリ(corpus)を `~/.dotagents/corpus` へ取ってきてから続きを行う。打つコマンドは初日も、その後も同じである。
+準備手順は無い。module はパッケージの中に同梱されているので、最初のコマンドがそのまま install になる — clone する物も、取ってくる物も、作業を始める前に移行しておくべき状態も無い。グローバルに入れずに済ませるなら `bunx @hiroiku/dotagents install harness` でも同じことができる。
 
 対象の既定はこのプロジェクトである — 影響範囲が最小だからだ。より広い範囲には必ず flag が要る。何を入れるかに既定値は無い: module を名指しするか、対話で選ぶ。非対話シェルでは、代わりに選ぶのではなく停止する。
 
-node と bun のどちらでもよい — `bunx` は同じパッケージに届き、CLI 自身がその機械に在る runtime を選ぶ。
+node と bun のどちらでもよい — CLI 自身がその機械に在る runtime を選ぶ。
 
 ## module とは何か
 
@@ -49,47 +49,50 @@ modules/<name>/
 
 module は `PATH` に期待する物を宣言してよい。要件は**検出されるだけで、決して install されない**: `list` と `install` は欠けている物を報告するが、何も妨げない。だから後からツールを足しても、再 install は要らない。
 
-[modules/](../modules/) が配布物の正本の定義である — installer 側にファイルの列挙は存在しないので、同期のずれで古びる物が無い。ここにある 2 つの module は、この正本が提供する物であって、丸ごと受け取るべき一式ではない: [harness](../modules/harness/docs/README.ja.md) はレビューエージェントと、モデルには推測できない慣習を携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を携える。
+[modules/](../modules/) が配布物の正本の定義である — installer 側にファイルの列挙は存在しないので、同期のずれで古びる物が無い。同梱の 2 つの module は既定であると同時に見本でもあり、丸ごと受け取るべき一式ではない: [harness](../modules/harness/docs/README.ja.md) はレビューエージェントと、モデルには推測できない慣習を携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を携える。
 
-自分の module は `~/.dotagents/modules/` に置く。同じコマンドで install され、自分のマシンに留まる — リポジトリにも、公開されるパッケージにも決して入らない。`list` は両方の出所を見せる。同じ名前が二度主張されたときは、黙って上書きするのではなくエラーになる。
+自分の module は、同じ形のまま `~/.dotagents/modules/` に置く。同じコマンドで install され、自分のマシンに留まる — リポジトリにも、公開されるパッケージにも決して入らない。`list` は両方の出所を見せる。同じ名前が二度主張されたときは、黙って上書きするのではなくエラーになる。
 
 ## どこに住むか
 
 ```
-~/.dotagents/         このツールが保つすべてが、1 箇所に
-├── corpus/           自分の規則。編集し、追従する git リポジトリ
+~/.dotagents/         あなたの物すべてが、1 箇所に
 ├── modules/          自分の module
 └── state/            何がどこへ置かれたかの記録
 ```
 
-ここに installer は住まない。規則だけである。installer は npm から来て、そこで入れ替わる。
+npm から来た物はここに住まない — installer も、同梱の module もである。どちらも、来た場所で入れ替わる。
 
 `DOTAGENTS_HOME` を移せば全体が移る。他に知らせるべき物は無い。本拠地は 1 つで、あらゆるパスがそこから導かれる — `status` と `--help` は現に効いている本拠地を表示するので、マシンが規則の出所を隠すことは無い。
 
 ## コマンド
 
 ```sh
-dotagents update               # 上流に追従してから再配備する — 引数は不要、選んだ module を記憶している
+dotagents update               # 記録されている物を配り直す — 引数は不要、選んだ module を憶えている
 dotagents uninstall <module>   # module を 1 つ外し、残りは保つ。名指ししなければすべてを除去する
 dotagents status               # 配備された全ファイルを検査 — 乖離があれば exit 1
-dotagents pull                 # 追従だけを行い、再配備はしない
 dotagents --help               # 全コマンド・オプション・例
 ```
 
-`install` は加算、`uninstall` は減算であり、配備先が保持する集合は module 1 つずつ積み上げられ、取り崩される。両側を揃えておく唯一のコマンドが `update` である: `pull` と同じ形で上流に追従し、そのうえで manifest が憶えている物を配り直す。
+`install` は加算、`uninstall` は減算であり、配備先が保持する集合は module 1 つずつ積み上げられ、取り崩される。`update` は manifest が憶えている物を起点に働く: その集合を配り直し、記録に残るが既に配られていない物を除き、見つけた旧レイアウトを刈り取る。
 
-**勝手には動かない。** 取り込むのはエージェントを支配する文書なので、統合の前に入ってくるコミットタイトルを見せる。上流に差分があるときは 1 日 1 回伝えるだけで、更新はしない。
+**勝手には動かない。** 配るのはエージェントを支配する文書なので、配備が自動で起きることも、黙って起きることも無い。どのコマンドも、置いた物・残した物・除いた物をそのつど示す。
 
-## 別々に更新される 2 つ
+## 更新の経路は 1 本
 
-installer とあなたの規則は種類の違うものであり、一緒には動かない。
+新しい規則は、コマンドを走らせて来るのではなく、パッケージを更新することで来る。入れたときと同じやり方で更新し、そのうえで配り直す:
+
+```sh
+bun add -g @hiroiku/dotagents   # もしくは npm i -g @hiroiku/dotagents
+dotagents update -g             # と dotagents update -C <project>
+```
 
 | | どこから来るか | どう動くか |
 |---|---|---|
-| **installer** | npm — `bun add -g` / `npm i -g` | 他の道具と同じように入れ替える |
-| **あなたの規則** | git — `~/.dotagents/corpus` | `pull` / `update` で、あなたの合図で |
+| **installer と、同梱の module** | npm | 他の道具と同じように入れ替える |
+| **自分の module** | `~/.dotagents/modules/` | あなたの物である。他の誰もそこへ書かない |
 
-corpus が持つのは規則だけである。この分離こそが修正を届かせる: **規則を移行するコードが、移行される側の中に無い**。だから corpus がどれだけ古くても、それに働きかける installer は常に最新である。コマンドを更新すれば、その時点で修正は手元にある — 先に何かへ追従する必要は無い。
+経路は 2 本ではなく 1 本である。2 本あれば必ず片方が古くなり、**設定を移行するコードが、移行される側の中に閉じ込められる** — 自分が届けるはずの更新を、自分が待つことになる。1 本なら、修正と、その修正が直す規則とが、名前の付いた 1 つのバージョンとして一緒に届く。
 
 ## installer が触れる物、触れない物
 
@@ -100,11 +103,11 @@ corpus が持つのは規則だけである。この分離こそが修正を届�
 ## 構成
 
 ```
-bin/agents-setup      CLI(clone / pull / list / install / update / uninstall / status)
+bin/agents-setup      CLI(list / install / update / uninstall / status)
 test/                 installer の契約テスト(npm test · bun test)
-modules/              この正本が提供する module 群
+modules/              パッケージに同梱される module 群
 ├── harness/          レビューエージェントと、git・testing・prompting の慣習
 └── architecture/     ビルドが強制する依存規則
 ```
 
-このリポジトリは両方の上流だが、配られ方は別である: npm が運ぶのは `bin/` だけ、clone が持ってくるのは規則だけである。
+このリポジトリは両方の上流であり、npm は両方を運ぶ: `bin/` と `modules/` は、1 つのバージョンとして一緒に公開される。

@@ -22,11 +22,11 @@ dotagents install harness -g       # 이 머신의 모든 프로젝트에
 dotagents install harness -C ~/x   # 특정 프로젝트에
 ```
 
-따로 준비하는 단계는 없다. 첫 명령이 직접 소유하는 규칙의 git 저장소(corpus)를 `~/.dotagents/corpus`로 가져온 뒤 하던 일을 이어서 한다. 입력하는 명령은 첫날에도, 그 뒤로도 같다.
+준비 단계는 없다. module은 패키지 안에 함께 들어 있으므로 첫 명령이 곧바로 설치가 된다 — 클론할 것도, 받아올 것도, 일을 시작하기 전에 먼저 이행시켜 둘 상태도 없다. 전역으로 깔지 않겠다면 `bunx @hiroiku/dotagents install harness`가 같은 일을 한다.
 
 대상의 기본값은 현재 프로젝트다 — 영향 범위가 가장 작은 곳 — 이고, 더 넓은 범위에는 언제나 플래그가 필요하다. 무엇을 넣을지에는 기본값이 없다: module을 지명하거나 대화형으로 고른다. 비대화형 셸은 대신 골라 주지 않고 멈춘다.
 
-Node든 Bun이든, 그 기계에 있는 쪽이면 된다: `bunx`는 같은 패키지에 닿고, CLI 자신이 그 자리에 있는 런타임을 고른다.
+Node든 Bun이든, 그 기계에 있는 쪽이면 된다 — CLI 자신이 그 자리에 있는 런타임을 고른다.
 
 ## module이란 무엇인가
 
@@ -49,47 +49,50 @@ modules/<name>/
 
 module은 `PATH`에 무엇을 기대하는지 선언할 수 있다. 요구 사항은 **감지될 뿐, 절대 설치되지 않는다**: `list`와 `install`은 빠진 것을 보고할 뿐 아무것도 막지 않으므로, 나중에 도구를 추가하더라도 재설치는 필요 없다.
 
-[modules/](../modules/)가 배포물의 정본 정의다 — installer 쪽에는 파일 목록이 따로 존재하지 않으므로, 어긋난 채 낡아가는 것도 없다. 여기 있는 두 module은 이 정본이 제공하는 것이지, 통째로 가져가라고 놓아둔 집합이 아니다: [harness](../modules/harness/docs/README.ko.md)는 리뷰 에이전트와 모델이 추측할 수 없는 관례를 담고, [architecture](../modules/architecture/docs/README.ko.md)는 어떤 프로젝트에는 맞고 어떤 프로젝트에는 맞지 않는 의존성 규칙을 담는다.
+[modules/](../modules/)가 배포물의 정본 정의다 — installer 쪽에는 파일 목록이 따로 존재하지 않으므로, 어긋난 채 낡아가는 것도 없다. 함께 실려 오는 두 module은 기본값인 동시에 본보기이지, 통째로 가져가라고 놓아둔 집합이 아니다: [harness](../modules/harness/docs/README.ko.md)는 리뷰 에이전트와 모델이 추측할 수 없는 관례를 담고, [architecture](../modules/architecture/docs/README.ko.md)는 어떤 프로젝트에는 맞고 어떤 프로젝트에는 맞지 않는 의존성 규칙을 담는다.
 
-직접 만든 module은 `~/.dotagents/modules/`에 둔다. 같은 명령으로 설치되며 이 머신 안에 머문다 — 저장소에도, 공개된 패키지에도 절대 들어가지 않는다. `list`는 두 출처를 모두 보여주며, 한 이름을 둘이 주장하면 조용한 덮어쓰기가 아니라 오류가 된다.
+직접 만든 module은 같은 모양으로 `~/.dotagents/modules/`에 둔다. 같은 명령으로 설치되며 이 머신 안에 머문다 — 저장소에도, 공개된 패키지에도 절대 들어가지 않는다. `list`는 두 출처를 모두 보여주며, 한 이름을 둘이 주장하면 조용한 덮어쓰기가 아니라 오류가 된다.
 
 ## 어디에 사는가
 
 ```
-~/.dotagents/         이 도구가 간직하는 모든 것이 한자리에
-├── corpus/           당신의 규칙. 편집하고 추종하는 git 저장소
+~/.dotagents/         당신의 것이 한자리에
 ├── modules/          직접 만든 module
 └── state/            무엇이 어디에 놓였는지의 기록
 ```
 
-여기에 installer는 살지 않는다. 규칙뿐이다. installer는 npm에서 오고, 거기서 교체된다.
+npm에서 온 것은 여기 살지 않는다 — installer도, 함께 실려 온 module도 그렇다. 둘 다 자기가 온 곳에서 교체된다.
 
 `DOTAGENTS_HOME`이 이 홈 전체를 통째로 옮긴다; 그 밖에는 아무것에도 알려 줄 필요가 없다. 홈은 하나이고 모든 경로가 거기서 파생된다 — `status`와 `--help`는 지금 유효한 홈을 출력하므로, 머신이 자기 규칙이 어디서 왔는지 감추는 일은 없다.
 
 ## 명령
 
 ```sh
-dotagents update               # upstream을 추종한 뒤 재전달 — 인자 없이, 어떤 module을 골랐는지 기억한다
+dotagents update               # 기록된 것을 다시 전달 — 인자 없이, 어떤 module을 골랐는지 기억한다
 dotagents uninstall <module>   # module 하나만 빼고 나머지는 남긴다; 이름 없이 쓰면 전부 제거
 dotagents status               # 전달된 모든 파일을 검증 — 표류가 있으면 exit 1
-dotagents pull                 # 추종만 하고 재전달은 하지 않는다
 dotagents --help               # 모든 명령, 옵션, 예시
 ```
 
-`install`은 더하고(additive) `uninstall`은 빼는(subtractive) 명령이므로, 배포가 담는 집합은 module 하나씩 쌓이고 허물어진다. 양쪽을 함께 최신으로 두는 명령은 `update` 하나다: `pull`과 같은 방식으로 upstream을 추종한 뒤, manifest가 기억하는 것을 다시 전달한다.
+`install`은 더하고(additive) `uninstall`은 빼는(subtractive) 명령이므로, 배포가 담는 집합은 module 하나씩 쌓이고 허물어진다. `update`는 manifest가 기억하는 것에서 출발한다: 그 집합을 다시 전달하고, 기록에는 남았지만 더는 전달되지 않는 것을 걷어내며, 눈에 띄는 옛 레이아웃을 정리한다.
 
-**스스로 움직이는 것은 없다.** 받아오는 것은 에이전트를 지배하는 문서이므로, 통합하기 전에 들어오는 커밋 제목을 보여준다. upstream에 차이가 있으면 하루 한 번 알릴 뿐, 대신 업데이트하지 않는다.
+**스스로 움직이는 것은 없다.** 전달하는 것은 에이전트를 지배하는 문서이므로, 전달이 저절로 일어나지도, 소리 없이 일어나지도 않는다. 어떤 명령이든 무엇을 놓았고, 무엇을 남겼고, 무엇을 지웠는지 그때마다 밝힌다.
 
-## 따로 갱신되는 두 가지
+## 갱신 경로는 하나
 
-installer와 당신의 규칙은 다른 종류의 것이고, 함께 움직이지 않는다.
+새 규칙은 명령을 실행해서가 아니라 패키지를 갱신해서 온다. 설치했던 방식 그대로 갱신하고, 그다음 다시 전달한다:
+
+```sh
+bun add -g @hiroiku/dotagents   # 또는 npm i -g @hiroiku/dotagents
+dotagents update -g             # 그리고 dotagents update -C <프로젝트>
+```
 
 | | 어디서 오는가 | 어떻게 움직이는가 |
 |---|---|---|
-| **installer** | npm — `bun add -g` / `npm i -g` | 설치하는 다른 도구와 똑같이 |
-| **당신의 규칙** | git — `~/.dotagents/corpus` | `pull` / `update`, 당신의 신호로 |
+| **installer, 그리고 함께 실려 오는 module** | npm | 설치하는 다른 도구와 똑같이 |
+| **직접 만든 module** | `~/.dotagents/modules/` | 당신의 것이다; 다른 무엇도 그곳에 쓰지 않는다 |
 
-corpus가 담는 것은 규칙뿐이다. 이 분리가 고침을 도달하게 한다: **규칙을 이행시키는 코드는 이행되는 쪽 안에 결코 있지 않다**. 그러니 corpus가 아무리 낡았어도, 그것에 손대는 installer는 언제나 최신이다. 명령을 갱신하면 그 순간 고침은 손안에 있다 — 무언가를 먼저 추종할 필요가 없다.
+경로는 둘이 아니라 하나다. 둘이면 반드시 한쪽이 낡고, **당신의 설정을 이행시키는 코드가 이행되는 쪽 안에 갇힌다** — 자기가 전해야 할 바로 그 갱신을 자기가 기다리게 된다. 하나면 고침과, 그 고침이 고치는 규칙이 이름 붙일 수 있는 하나의 버전으로 함께 도착한다.
 
 ## installer가 건드리는 것과 건드리지 않는 것
 
@@ -100,11 +103,11 @@ corpus가 담는 것은 규칙뿐이다. 이 분리가 고침을 도달하게 �
 ## 레이아웃
 
 ```
-bin/agents-setup      CLI (clone / pull / list / install / update / uninstall / status)
+bin/agents-setup      CLI (list / install / update / uninstall / status)
 test/                 installer의 계약 테스트 (npm test · bun test)
-modules/              이 정본이 제공하는 module들
+modules/              패키지와 함께 실려 오는 module들
 ├── harness/          리뷰 에이전트, git · testing · prompting 관례
 └── architecture/     빌드가 강제하는 의존성 규칙
 ```
 
-이 저장소는 양쪽의 upstream이지만, 배포는 따로다: npm이 실어 나르는 것은 `bin/`뿐이고, 클론이 가져오는 것은 규칙뿐이다.
+이 저장소는 양쪽의 upstream이고, npm은 양쪽을 함께 실어 나른다: `bin/`과 `modules/`는 하나의 버전으로 함께 공개된다.

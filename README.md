@@ -22,7 +22,7 @@ dotagents install harness -g       # for every project on this machine
 dotagents install harness -C ~/x   # into a specific project
 ```
 
-There is no separate setup step. The first command clones the corpus — the git repository of rules you own — into `~/.dotagents/corpus` and carries on, so the command you type is the same on the first day and every day after.
+There is no setup step. The modules ship inside the package, so the first command installs straight away — nothing to clone, nothing to fetch, and no state to migrate before you can work. `bunx @hiroiku/dotagents install harness` does the same without installing anything globally.
 
 The target defaults to this project — the smallest blast radius — and the wider scope always takes a flag. What goes in never defaults: name a module, or pick interactively. A non-interactive shell stops rather than choosing for you.
 
@@ -49,47 +49,50 @@ modules/<name>/
 
 A module may declare what it expects on `PATH`. Requirements are **detected, never installed**: `list` and `install` report what is missing and block nothing, so adding the tool later needs no reinstall.
 
-[modules/](./modules/) is the canonical definition of the distribution — the installer holds no list of the files, so nothing rots out of sync. The two modules here are the ones this corpus offers, not a set you are meant to take whole: [harness](./modules/harness/README.md) carries review agents and the conventions a model cannot guess, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others.
+[modules/](./modules/) is the canonical definition of the distribution — the installer holds no list of the files, so nothing rots out of sync. The two modules that ship here are examples as much as defaults, not a set you are meant to take whole: [harness](./modules/harness/README.md) carries review agents and the conventions a model cannot guess, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others.
 
-Modules of your own go in `~/.dotagents/modules/`. They are installed by the same commands and stay on your machine — never in a repository, never in a published package. `list` shows both sources; a name claimed twice is an error rather than a silent override.
+Modules of your own go in `~/.dotagents/modules/`, in the same shape. They are installed by the same commands and stay on your machine — never in a repository, never in a published package. `list` shows both sources; a name claimed twice is an error rather than a silent override.
 
 ## Where it lives
 
 ```
-~/.dotagents/         everything this tool keeps, in one place
-├── corpus/           your rules, as a git repository you edit and follow
+~/.dotagents/         everything that is yours, in one place
 ├── modules/          modules of your own
 └── state/            the record of what was placed where
 ```
 
-No installer lives here — only rules. The installer comes from npm and is replaced there.
+Nothing that came from npm lives here — no installer, no shipped module. Both are replaced where they came from.
 
 `DOTAGENTS_HOME` moves the whole thing; nothing else needs to be told. One root, and every path derives from it — `status` and `--help` print the one in effect, so a machine never hides where its rules came from.
 
 ## Commands
 
 ```sh
-dotagents update               # follow upstream, then redeliver — no arguments, it remembers what you chose
+dotagents update               # redeliver what is recorded — no arguments, it remembers what you chose
 dotagents uninstall <module>   # drop one module, keep the rest; name none to remove everything
 dotagents status               # verify every delivered file — exit 1 on drift
-dotagents pull                 # follow upstream only, without redelivering
 dotagents --help               # every command, option, example
 ```
 
-`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. `update` is the one command that keeps both halves current: it follows upstream the way `pull` does, then redelivers what the manifest remembers.
+`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. `update` works from what the manifest remembers: it redelivers that set, removes what is recorded but no longer delivered, and prunes any legacy layout it finds.
 
-**Nothing moves on its own.** What arrives are the texts that govern your agents, so the incoming commit titles are shown before anything is integrated. When there is something upstream, you are told once a day — not updated.
+**Nothing moves on its own.** What arrives are the texts that govern your agents, so the delivery is never automatic and never silent: every command prints what it placed, kept and removed.
 
-## Two things, updated separately
+## One update path
 
-The installer and your rules are not the same kind of thing, and they do not travel together.
+New rules arrive by updating the package, not by running a command. Update it the way you installed it, then redeliver:
+
+```sh
+bun add -g @hiroiku/dotagents   # or: npm i -g @hiroiku/dotagents
+dotagents update -g             # and: dotagents update -C <project>
+```
 
 | | Where it comes from | How it moves |
 |---|---|---|
-| **The installer** | npm — `bun add -g` / `npm i -g` | like any other tool you install |
-| **Your rules** | git — `~/.dotagents/corpus` | `pull` / `update`, on your say-so |
+| **The installer, and the modules it ships** | npm | like any other tool you install |
+| **Modules of your own** | `~/.dotagents/modules/` | they are yours; nothing else writes there |
 
-The corpus holds rules and nothing else. That separation is what makes a fix reach you: **the code that migrates your rules is never inside the thing being migrated**, so however old your corpus is, the installer acting on it is the current one. Update the command and you have the fix — you do not have to follow anything first.
+One path, not two. Two would mean one of them going stale — and the code that migrates your setup would be trapped inside the thing being migrated, waiting on the very update it is supposed to deliver. Here a fix and the rules it fixes arrive together, in one version you can name.
 
 ## What the installer will and will not touch
 
@@ -100,11 +103,11 @@ Project-scope plugins load only when Claude Code starts at the repository root, 
 ## Layout
 
 ```
-bin/agents-setup      the CLI (clone / pull / list / install / update / uninstall / status)
+bin/agents-setup      the CLI (list / install / update / uninstall / status)
 test/                 contract tests for the installer (npm test · bun test)
-modules/              the modules this corpus offers
+modules/              the modules that ship with the package
 ├── harness/          review agents, git · testing · prompting conventions
 └── architecture/     a dependency rule the build can enforce
 ```
 
-This repository is the upstream of both halves, but they ship apart: npm carries only `bin/`, and a clone brings only the rules.
+This repository is the upstream of both, and npm carries both: `bin/` and `modules/` are published together, as one version.

@@ -22,11 +22,11 @@ dotagents install harness -g       # 面向本机上的每一个项目
 dotagents install harness -C ~/x   # 安装进指定的项目
 ```
 
-没有单独的准备步骤。第一条命令会先把 corpus——那个你所拥有的规则 git 仓库——克隆到 `~/.dotagents/corpus`,然后继续做该做的事。你敲下的命令,第一天与此后的每一天都一样。
+没有准备步骤。各个 module 就装在这个包里,因此第一条命令便直接安装——没有要克隆的东西,没有要取回的东西,也没有必须先迁移才能开工的状态。若不想全局安装,`bunx @hiroiku/dotagents install harness` 做的是同一件事。
 
 目标默认是当前项目——影响范围最小的那一个——而更广的作用域始终需要显式加上标志。装入什么则从不取默认值:要么指名一个 module,要么交互式挑选。非交互式 shell 会直接停止,而不会替你做出选择。
 
-Node 或 Bun,这台机器上有哪个都行:`bunx` 取到的是同一个包,而 CLI 自身会挑选那台机器上真正存在的 runtime。
+Node 或 Bun,这台机器上有哪个都行——CLI 自身会挑选那台机器上真正存在的 runtime。
 
 ## module 是什么
 
@@ -49,47 +49,50 @@ modules/<name>/
 
 一个 module 可以声明它期望 `PATH` 上存在什么。这些依赖**只被检测,绝不被安装**:`list` 与 `install` 会报告缺少了什么,但不会阻断任何事情,因此日后再补上该工具也无需重新安装。
 
-[modules/](../modules/) 是分发内容的权威定义——安装程序并不持有文件清单,因此不会有任何东西因失去同步而腐坏。这里的两个 module 是这份文库所提供的东西,而不是一套要你整份照单全收的集合:[harness](../modules/harness/docs/README.zh-CN.md) 承载审查代理,以及模型无法自行猜出的约定;[architecture](../modules/architecture/docs/README.zh-CN.md) 则是一条依赖规则——它对某些项目而言是对的,对另一些则不然。
+[modules/](../modules/) 是分发内容的权威定义——安装程序并不持有文件清单,因此不会有任何东西因失去同步而腐坏。随包附带的两个 module 既是默认项,也同样是范例,而不是一套要你整份照单全收的集合:[harness](../modules/harness/docs/README.zh-CN.md) 承载审查代理,以及模型无法自行猜出的约定;[architecture](../modules/architecture/docs/README.zh-CN.md) 则是一条依赖规则——它对某些项目而言是对的,对另一些则不然。
 
-你自己的 module 放在 `~/.dotagents/modules/`。它们由同样的命令安装,并留在你的机器上——绝不进入任何仓库,也绝不进入任何已发布的包。`list` 会同时展示这两个来源;同一个名字被占用两次会被视为错误,而不是无声的覆盖。
+你自己的 module 以同样的形状放在 `~/.dotagents/modules/`。它们由同样的命令安装,并留在你的机器上——绝不进入任何仓库,也绝不进入任何已发布的包。`list` 会同时展示这两个来源;同一个名字被占用两次会被视为错误,而不是无声的覆盖。
 
 ## 它存放在哪里
 
 ```
-~/.dotagents/         这个工具所保存的一切,尽在一处
-├── corpus/           你的规则,一个你编辑并跟随的 git 仓库
+~/.dotagents/         属于你的一切,尽在一处
 ├── modules/          你自己的 module
 └── state/            关于什么被放到了哪里的记录
 ```
 
-这里不住着安装程序,只有规则。安装程序来自 npm,也在那里被替换。
+凡是来自 npm 的东西都不住在这里——安装程序不在,随包附带的 module 也不在。两者都在它们各自的来处被替换。
 
 `DOTAGENTS_HOME` 可以整体迁移这个主目录;除此之外无需再告知任何地方。只有一个根,而每一条路径都由它派生——`status` 与 `--help` 会打印当前生效的那一个,因此一台机器绝不会隐瞒它的规则从何而来。
 
 ## 命令
 
 ```sh
-dotagents update               # 先跟随上游,再重新交付——无需参数,它记得你选择了哪些 module
+dotagents update               # 把记录在案的内容重新交付一遍——无需参数,它记得你选择了哪些 module
 dotagents uninstall <module>   # 移除一个 module,其余保持不变;不指名则移除全部
 dotagents status               # 校验每一个已交付的文件——存在漂移时以退出码 1 结束
-dotagents pull                 # 只跟随上游,不重新交付
 dotagents --help               # 全部命令、选项、示例
 ```
 
-`install` 是增量式的,`uninstall` 是削减式的,因此一次部署所持有的集合是逐个 module 地建立与拆除的。让两边都保持最新的唯一命令是 `update`:它以 `pull` 同样的方式跟随上游,然后把 manifest 所记得的内容重新交付一遍。
+`install` 是增量式的,`uninstall` 是削减式的,因此一次部署所持有的集合是逐个 module 地建立与拆除的。`update` 以 manifest 所记得的内容为准:重新交付那一组,移除仍在记录中但已不再交付的东西,并清理它所发现的任何旧布局。
 
-**没有任何东西会自行移动。** 你所取回的是治理你的代理行为的文本,因此在整合之前,会先展示传入的提交标题。上游有差异时,每天只告知一次——而不是替你更新。
+**没有任何东西会自行移动。** 交付的是治理你的代理行为的文本,因此交付既不会自动发生,也不会悄无声息:每条命令都会说明它放置了什么、保留了什么、移除了什么。
 
-## 分开更新的两样东西
+## 只有一条更新路径
 
-安装程序与你的规则不是同一类东西,它们也不一起移动。
+新的规则靠更新这个包而来,而不是靠运行某条命令。用你当初安装它的方式更新它,然后重新交付:
+
+```sh
+bun add -g @hiroiku/dotagents   # 或 npm i -g @hiroiku/dotagents
+dotagents update -g             # 以及 dotagents update -C <项目>
+```
 
 | | 从哪里来 | 如何更新 |
 |---|---|---|
-| **安装程序** | npm——`bun add -g` / `npm i -g` | 与你安装的任何工具一样 |
-| **你的规则** | git——`~/.dotagents/corpus` | `pull` / `update`,由你发话 |
+| **安装程序,以及随它一起发布的 module** | npm | 与你安装的任何工具一样 |
+| **你自己的 module** | `~/.dotagents/modules/` | 它们属于你;不会有别的东西往那里写 |
 
-corpus 只装规则,别无其他。正是这种分离让修复得以抵达:**迁移规则的代码,从不待在被迁移的那一侧**。因此无论你的 corpus 有多旧,对它动手的安装程序始终是最新的。更新命令,修复此刻就在你手上——你不必先去跟随任何东西。
+一条路径,而不是两条。两条就意味着必有一条会陈旧下去——而**迁移你这套配置的代码,会被困在被迁移的那一侧**,眼巴巴等着它本该送达的那次更新。只有一条时,修复与它所修复的规则会一同抵达,成为一个你叫得出名字的版本。
 
 ## 安装程序会触碰什么、不会触碰什么
 
@@ -100,11 +103,11 @@ corpus 只装规则,别无其他。正是这种分离让修复得以抵达:**迁
 ## 布局
 
 ```
-bin/agents-setup      CLI(clone / pull / list / install / update / uninstall / status)
+bin/agents-setup      CLI(list / install / update / uninstall / status)
 test/                 安装程序的契约测试(npm test · bun test)
-modules/              这份文库提供的各个 module
+modules/              随包一起发布的各个 module
 ├── harness/          审查代理,以及 git · testing · prompting 方面的约定
 └── architecture/     由构建强制的依赖规则
 ```
 
-本仓库是两者的上游,但它们分开发布:npm 只携带 `bin/`,而克隆只带来规则。
+本仓库是两者的上游,而 npm 同时携带两者:`bin/` 与 `modules/` 作为同一个版本一起发布。

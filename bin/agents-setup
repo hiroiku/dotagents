@@ -26,12 +26,11 @@ const crypto = require('node:crypto');
 const readline = require('node:readline');
 const { execFileSync } = require('node:child_process');
 
-// 実装が住む場所(このパッケージ)。規則の在処とは別である。
+// 実装と、同梱の module が住む場所。どちらも npm から来て、一緒に新しくなる。
 //
-// 実装は npm から常に新しい物が来て、規則は corpus の側で使う人が持つ。この 2 つを
-// 同じ git に同居させると、直した実装が相手の追従を待つことになり、移行を担うコードが
-// 移行される側に閉じ込められる。分けておけば、規則がどれだけ古くても、移行は常に
-// 新しい実装の手で行われる。
+// 更新の経路は 1 本しかない。2 本あると必ず片方が古くなり、直した実装がもう一方の
+// 追従を待つ羽目になる — 移行を担うコードが、移行される側に閉じ込められる。
+// 使う人が自分で持つ物(~/.dotagents/modules/)だけが、この経路の外にある。
 const PKG_ROOT = path.resolve(__dirname, '..');
 // Claude へ配る plugin の名前 = スキルとエージェントの名前空間(/dotagents:git など)。
 const PLUGIN = 'dotagents';
@@ -44,22 +43,8 @@ const CORPUS_DIR = () => path.join(DOTAGENTS_HOME(), 'corpus');
 const PERSONAL_MODULES_DIR = () => path.join(DOTAGENTS_HOME(), 'modules');
 const STATE_DIR = () => path.join(DOTAGENTS_HOME(), 'state');
 
-// 名指しで別の場所へ置いた正本の在処。既定(本拠地の corpus/)なら記録は要らない。
-const corpusPointer = () => path.join(STATE_DIR(), 'corpus.json');
-
-// 規則が住む場所。開発中(このパッケージ自身が modules/ を持つ git リポジトリ)ならそこを、
-// 配布物として動いているなら本拠地の corpus/ を使う。名指しで別の場所へ置いた人のために、
-// 記録からも引く。
-function corpusRoot() {
-  if (lstatOrNull(path.join(PKG_ROOT, 'modules')) && lstatOrNull(path.join(PKG_ROOT, '.git'))) return PKG_ROOT;
-  if (lstatOrNull(path.join(CORPUS_DIR(), 'modules'))) return CORPUS_DIR();
-  for (const p of [readJson(corpusPointer(), null)?.path, knownCorpusSource()]) {
-    if (p && lstatOrNull(path.join(p, 'modules'))) return p;
-  }
-  return CORPUS_DIR();
-}
-const MODULES_DIR = () => path.join(corpusRoot(), 'modules');
-const hasCorpus = () => Boolean(lstatOrNull(path.join(corpusRoot(), 'modules')));
+// 同梱の module。実装と一緒に来て、実装と一緒に新しくなる。
+const BUNDLED_MODULES_DIR = path.join(PKG_ROOT, 'modules');
 // 旧レイアウト(<base>/.agents)の manifest 名と zshenv 管理行 — 刈り込み(移行)専用。
 const LEGACY_MANIFEST_NAME = '.dotagents.json';
 const MARKER = '# agents-harness';
@@ -108,13 +93,6 @@ function writeJson(file, obj) {
 
 function lstatOrNull(p) {
   try { return fs.lstatSync(p); } catch { return null; }
-}
-
-function gitCommit() {
-  try {
-    return execFileSync('git', ['-C', corpusRoot(), 'rev-parse', 'HEAD'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch { return null; }
 }
 
 function pkg() {
@@ -177,7 +155,7 @@ function manifestPath(ctx) {
 
 function legacyManifestPath(ctx) { return path.join(ctx.legacyRoot, LEGACY_MANIFEST_NAME); }
 
-// 記録は本拠地の直下に置いていた。corpus/ と modules/ と並ぶようになったので state/ へ移す。
+// 記録は本拠地の直下に置いていた。modules/ と並ぶようになったので state/ へ移す。
 function migrateStateDir() {
   const home = DOTAGENTS_HOME();
   const moves = [['user.json', 'user.json'], ['projects', 'projects']];
@@ -195,14 +173,14 @@ function settingsPath(ctx) {
   return path.join(ctx.claudeDir, ctx.kind === 'project' ? 'settings.local.json' : 'settings.json');
 }
 
-// ---------------------------------------------------------------- modules(正本側の編成単位)
+// ---------------------------------------------------------------- modules(規則の編成単位)
 
-// module の供給元は 2 つ。正本の modules/ は公開され pull で追従し、
+// module の供給元は 2 つ。同梱の modules/ は実装と一緒に npm から来て、
 // ~/.dotagents/modules/ はこのマシンだけの物である。どちらも module.json を持つ
 // ディレクトリが module で、名前はディレクトリ名 — 同一性の出どころを 2 つにしない。
 function moduleSources() {
   return [
-    { root: MODULES_DIR(), personal: false },
+    { root: BUNDLED_MODULES_DIR, personal: false },
     { root: PERSONAL_MODULES_DIR(), personal: true },
   ];
 }
@@ -258,7 +236,7 @@ function assertKnownModules(names) {
   const unknown = names.filter((n) => !known.has(n));
   if (unknown.length) {
     throw new Error(`unknown module: ${unknown.join(' ')}\n` +
-      `       Run \`agents-setup list\` to see what this corpus offers.`);
+      `       Run \`agents-setup list\` to see what you can install.`);
   }
 }
 
@@ -793,7 +771,7 @@ function multiSelect({ title, options }) {
 async function resolveModules(cmd, opts) {
   if (opts.modules.length) { assertKnownModules(opts.modules); return opts; }
   const available = moduleNames();
-  if (!available.length) throw new Error(`this corpus has no modules/.`);
+  if (!available.length) throw new Error(`no modules available — none bundled, none in ${homePath(PERSONAL_MODULES_DIR())}.`);
   if (!isInteractive()) {
     throw new Error(
       `no module given for \`${cmd}\`. Name at least one:\n` +
@@ -989,8 +967,6 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     base: ctx.base,
     modules,
     version: pkg().version,
-    source: corpusRoot(),
-    commit: gitCommit(),
     installedAt: new Date().toISOString(),
     files,
     rulesBlocks: rulesRecords,
@@ -1004,7 +980,7 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     const missing = missingRequirements(m);
     if (missing.length) console.log(`  ${ui.yellow('!')} ${m} expects ${missing.join(' ')} on PATH — install it when you need it`);
   }
-  noticeUpstream();
+  noticeOldCorpus();
   // plugin の agents / hooks は次のセッションから効く(SKILL.md だけは即時に読まれる)。
   if (c.add + c.update + c.del > 0) {
     console.log(ui.dim('  run /reload-plugins in a running Claude Code session, or start a new one'));
@@ -1012,18 +988,9 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   if (c.warn > 0) process.exitCode = 1;
 }
 
-// update は「追従してから配り直す」。正本が動けば配備も動く、を 1 つのコマンドにする。
-// 追従できない事情は伝えて配り直しへ進み、正本を動かした後に信用できなくなったとき
-// (取り込みが中断した・テストが赤い・検証できなかった)だけ止まる。
+// update は「今あるもので配り直す」。規則を新しくするのはパッケージの更新であって、
+// このコマンドではない — 追従の経路は 1 本しかなく、それは npm の側にある。
 async function update(opts) {
-  if (!opts.noFollow) {
-    try {
-      pull({ quiet: true });
-    } catch (e) {
-      if (e.hard) throw e;
-      console.log(`  ${ui.yellow('!')} not following upstream: ${e.message.split('\n')[0]}`);
-    }
-  }
   return install(opts, { requireExisting: true });
 }
 
@@ -1117,7 +1084,7 @@ function status(opts) {
     if (st.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
     const h = sha256(dst);
     if (h === entryHash(e)) report(true, rel);
-    else if (h === m.files?.[rel]) report(false, `${rel} — the corpus is newer, run update`);
+    else if (h === m.files?.[rel]) report(false, `${rel} — the package is newer, run update`);
     else report(false, `${rel} — modified in place`);
   }
   const relSet = new Set(entries.map((e) => e.rel));
@@ -1139,7 +1106,7 @@ function status(opts) {
   if (ctx.kind === 'user' && zshenvHasMarker(ctx)) report(false, `legacy zshenv managed line — run update to prune`);
 
   console.log(drift === 0 ? `\n  ${ui.green('no drift')}` : `\n  ${ui.red(`drift: ${drift}`)}`);
-  noticeUpstream();
+  noticeOldCorpus();
   if (drift > 0) process.exitCode = 1;
 }
 
@@ -1147,7 +1114,7 @@ function status(opts) {
 function list() {
   const index = moduleIndex();
   if (!index.size) {
-    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} nothing in ${homePath(MODULES_DIR())}`);
+    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} nothing in ${homePath(BUNDLED_MODULES_DIR)}`);
     process.exitCode = 1;
     return;
   }
@@ -1156,7 +1123,7 @@ function list() {
   for (const src of moduleSources()) {
     const here = names.filter((n) => index.get(n).personal === src.personal);
     if (!here.length) continue;
-    console.log(`\n  ${ui.bold(src.personal ? 'personal' : 'corpus')} ${ui.dim(`— ${homePath(src.root)}`)}\n`);
+    console.log(`\n  ${ui.bold(src.personal ? 'personal' : 'bundled')} ${ui.dim(`— ${homePath(src.root)}`)}\n`);
     for (const n of here) {
       const meta = moduleMeta(n);
       const missing = missingRequirements(n);
@@ -1172,188 +1139,50 @@ function list() {
   console.log(ui.dim(`  modules of your own go in ${homePath(PERSONAL_MODULES_DIR())} — they stay on this machine`));
 }
 
-// ---------------------------------------------------------------- 正本(取得と追従)
+// ---------------------------------------------------------------- 旧 corpus(刈り取り専用)
 
-// 規則が git として在るか(追従できる形か)。素のコピーでも配備はできるが、追従はできない。
-function corpusIsGit() {
-  return Boolean(lstatOrNull(path.join(corpusRoot(), '.git')));
-}
-
-function corpusGit(args, opts = {}) {
-  return execFileSync('git', ['-C', corpusRoot(), ...args], { encoding: 'utf8', ...opts });
-}
-
-// clone 元の解決: 明示(--from)→ package.json の repository → 手元の正本の origin。
-function cloneSource(opts) {
-  if (opts.from) return opts.from;
-  const repo = pkg().repository;
-  const url = typeof repo === 'string' ? repo : repo?.url;
-  if (url) return url.replace(/^git\+/, '');
-  if (corpusIsGit()) {
-    try { return corpusGit(['remote', 'get-url', 'origin']).trim(); } catch { /* origin 無し */ }
-  }
-  throw new Error('clone source unknown: pass --from <url|path>.');
-}
-
-// 規則がまだ無ければ取ってくる。実装はここに在るので、渡す相手はいない —
-// 初回だけ別の手順、という段差を作らないためだけの一手である。
-async function ensureCorpus(opts) {
-  if (hasCorpus()) return;
-  console.log(`${ui.dim('no rules on this machine yet — getting them first')}`);
-  await clone(opts, { next: false });
-  console.log('');
-}
-
-function question(title) {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(`  ${ui.bold(title)} `, (answer) => { rl.close(); resolve(answer.trim()); });
-  });
-}
-
-// next は「取得だけで終わる」ときの案内。配備の途中で取ってくる場合は、
-// そのまま続きをやるので出さない。
-async function clone(opts, { next = true } = {}) {
-  const dir = path.resolve(opts.cloneDir ?? CORPUS_DIR());
-  const st = lstatOrNull(dir);
-  if (st && (!st.isDirectory() || fs.readdirSync(dir).length)) {
-    throw new Error(`not an empty directory: ${dir}`);
-  }
-  const src = cloneSource(opts);
-  console.log(`${ui.dim('clone')} ${src} ${ui.dim('→')} ${homePath(dir)}`);
-  try {
-    execFileSync('git', ['clone', src, dir], { stdio: 'inherit' });
-  } catch {
-    // 途中まで作られた行き先は次の試みを塞ぐので、自分が作った場合だけ片づける。
-    if (!st) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 残っても次が言う */ } }
-    throw new Error(`could not clone ${src} — see git's message above.\n` +
-      `       If the network is the problem, retry when it is back;\n` +
-      `       \`--from <url|path>\` takes it from somewhere you can reach.`);
-  }
-  // 既定の場所なら探せば見つかる。名指しで別の場所へ置いたときだけ、在処を憶える。
-  if (dir !== path.resolve(CORPUS_DIR())) writeJson(corpusPointer(), { path: dir });
-  if (!next) return;
-  console.log(`\n${ui.green('✔')} corpus cloned. It is yours to edit — rules live in git, deployments follow it.`);
-  console.log(`${ui.dim('  next:')} ${ui.cyan('dotagents list')} ${ui.dim('· then')} ${ui.cyan('dotagents install <module>')} ${ui.dim('[-g | -C <dir>]')}`);
-  console.log(`${ui.dim('  the corpus itself is at')} ${homePath(dir)}`);
-}
-
-// 検証を走らせる道具は、このファイルを走らせているランタイムから決める。npm は node の
-// 付属物で、bun しか無い機械には無い — そこでは bun 自身がテストランナーである。
-// どちらも test/ の node:test をそのまま走らせる。
-function testRunner() {
-  return process.versions.bun
-    ? { cmd: process.execPath, args: ['test'], name: 'bun test' }
-    : { cmd: 'npm', args: ['test'], name: 'npm test' };
-}
-
-// update から見れば、追従は出来ればやること(best-effort)である。手元の編集・上流未設定・
-// そもそも git ではない正本 — どれも「正本がそう在る」だけで、配備まで止める理由にはならない。
-// 止めるべきなのは、正本を動かしてしまった後に信用できなくなった場合だけなので、
-// そちらに印を付ける。数え上げるのは危険な側であって、安全な側ではない。
-const hard = (msg) => Object.assign(new Error(msg), { hard: true });
-
-// 上流の差分は 1 日 1 回だけ見て、在ることだけ伝える。取り込むかは使う人が決める —
-// 規則は勝手に変わらない、という約束をこの知らせで破らない。
+// 規則を git clone して ~/.dotagents/corpus に置いていた頃の名残。同梱と同じ名前の物は
+// もう要らないが、自作の module はその人の仕事なので個人の置き場へ写す。corpus 自体は
+// 消さない — 中身を確かめるのは持ち主であって、こちらではない。
 //
-// 置き場所は正本自身の .git/ の下。これは「いつ上流を見たか」というその正本についての
-// キャッシュであって、何をどこへ置いたかの記録(state/)ではない。正本を捨てれば一緒に
-// 消え、配備の記録が尽きたときに state/ が畳めなくなることもない。
-const UPSTREAM_TTL = 24 * 60 * 60 * 1000;
-const upstreamFile = () => path.join(corpusRoot(), '.git', 'dotagents-upstream.json');
-const rememberUpstream = (behind) => writeJson(upstreamFile(), { checkedAt: Date.now(), behind });
-
-// 上流が無い・オフライン・fetch が返らないときは黙る。知らせは付加物であって、
-// 配備の成否を左右しない。
-function countBehind() {
-  try {
-    const upstream = corpusGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).trim();
-    corpusGit(['fetch', '--quiet'], { timeout: 5000, stdio: 'ignore' });
-    return Number(corpusGit(['rev-list', '--count', `HEAD..${upstream}`]).trim()) || 0;
-  } catch { return 0; }
-}
-
-function noticeUpstream() {
-  if (!corpusIsGit()) return;
-  const last = readJson(upstreamFile(), null);
-  let behind = last?.behind ?? 0;
-  if (!last || Date.now() - last.checkedAt >= UPSTREAM_TTL) {
-    behind = countBehind();
-    rememberUpstream(behind);
+// どのコマンドより先に済ませる。写した module はその場で名前が通るようになり、
+// 移行した直後に `install <自分の module>` と打っても知らない名前にはならない。
+function migrateCorpus() {
+  const src = path.join(CORPUS_DIR(), 'modules');
+  if (!lstatOrNull(src)?.isDirectory()) return;
+  const bundled = new Set(lstatOrNull(BUNDLED_MODULES_DIR) ? fs.readdirSync(BUNDLED_MODULES_DIR) : []);
+  const moved = [];
+  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+    if (!e.isDirectory() || bundled.has(e.name)) continue;
+    if (!lstatOrNull(path.join(src, e.name, 'module.json'))) continue;
+    const dst = path.join(PERSONAL_MODULES_DIR(), e.name);
+    if (lstatOrNull(dst)) continue; // 同名が既にあるなら、そちらが持ち主の意思である
+    fs.mkdirSync(PERSONAL_MODULES_DIR(), { recursive: true });
+    fs.cpSync(path.join(src, e.name), dst, { recursive: true });
+    moved.push(e.name);
   }
-  if (behind > 0) {
-    console.log(`  ${ui.yellow('!')} ${behind} commit${behind === 1 ? '' : 's'} upstream — ` +
-      `${ui.cyan('dotagents update')} ${ui.dim('follows and redelivers')}`);
+  // 配達の数には混ぜない。ここで起きたのは本拠地の引っ越しであって、配備ではない。
+  if (moved.length) {
+    console.log(`  ${ui.green('+')} ${moved.join(' ')} → ${homePath(PERSONAL_MODULES_DIR())} ${ui.dim('(copied out of the old corpus)')}`);
   }
 }
 
-// quiet は update の中から呼ばれるとき。差分があれば見せるが、無いときまで喋らない。
-function pull({ quiet = false } = {}) {
-  if (corpusGit(['status', '--porcelain']).trim()) {
-    throw new Error('the corpus has uncommitted changes. Commit or stash them first —\n' +
-      '       pulling over local edits mixes upstream and your hand in one diff.');
-  }
-  let upstream;
-  try {
-    upstream = corpusGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).trim();
-  } catch {
-    throw new Error('no upstream branch. Set one (git branch --set-upstream-to=origin/<branch>) and retry.');
-  }
-  corpusGit(['fetch', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'] });
-  const incoming = corpusGit(['log', '--oneline', `HEAD..${upstream}`]).trim();
-  // 上流を実際に見た直後なので、知らせの記録もここで新しくする。
-  rememberUpstream(0);
-  if (!incoming) {
-    if (!quiet) console.log(`${ui.green('✔')} already following ${upstream} — nothing new upstream.`);
-    return;
-  }
-  // 取り込む前にコミットタイトルを見せる
-  console.log(`${ui.bold('incoming from')} ${upstream}:`);
-  for (const line of incoming.split('\n')) console.log(`  ${line}`);
-  console.log('');
-  try {
-    execFileSync('git', ['-C', corpusRoot(), 'pull', '--rebase'], { stdio: 'inherit' });
-  } catch {
-    throw hard('integration stopped (see git output above). Resolve, `git rebase --continue`, then re-run pull.');
-  }
-  // 検証するのは取り込んだ側(規則)であって、この実装ではない。テストを持つと
-  // 宣言しているかだけを見て、走らせ方はランタイムが決める。
-  if (readJson(path.join(corpusRoot(), 'package.json'), {}).scripts?.test) {
-    const runner = testRunner();
-    console.log(`${ui.dim(`verifying the merged corpus with ${runner.name}…`)}`);
-    try {
-      execFileSync(runner.cmd, runner.args, { cwd: corpusRoot(), stdio: ['ignore', 'ignore', 'inherit'] });
-    } catch (e) {
-      // 走らせられなかったのと、走って落ちたのを混ぜない — 前者は赤ではなく未検証である。
-      if (e.code === 'ENOENT') {
-        throw hard(`pulled, but ${runner.name} could not be run here, so the corpus is unverified.\n` +
-          '       Run its tests yourself before deploying.');
-      }
-      throw hard('pulled, but the corpus fails its own tests. Fix before deploying —\n' +
-        '       do not run `update` from a red corpus.');
-    }
-  }
-  const n = incoming.split('\n').length;
-  console.log(`${ui.green('✔')} pulled ${n} commit${n === 1 ? '' : 's'} and verified.`);
-  if (!quiet) console.log(`${ui.dim('  deliver it with:')} ${ui.cyan('dotagents update')}`);
+// corpus が残っている限り、毎回 1 行だけ言う。消すかどうかは持ち主が決める。
+function noticeOldCorpus() {
+  if (!lstatOrNull(CORPUS_DIR())) return;
+  console.log(`  ${ui.yellow('!')} ${homePath(CORPUS_DIR())} ${ui.dim('is no longer read — rules ship with the package now.')}`);
+  console.log(`    ${ui.dim('Anything of your own there was copied to')} ${homePath(PERSONAL_MODULES_DIR())}${ui.dim('; remove the old corpus when you are ready.')}`);
 }
 
-// 名指しで別の場所へ clone した人のために、記録からも正本を引く
-// (旧レイアウトの ~/.agents/.dotagents.json も読む)。
-function knownCorpusSource() {
-  const user = readJson(path.join(STATE_DIR(), 'user.json'), null);
-  if (user?.source) return user.source;
-  const projectsDir = path.join(STATE_DIR(), 'projects');
-  for (const f of (lstatOrNull(projectsDir) ? fs.readdirSync(projectsDir).sort() : [])) {
-    const m = readJson(path.join(projectsDir, f), null);
-    if (m?.source) return m.source;
-  }
-  return readJson(path.join(os.homedir(), '.agents', LEGACY_MANIFEST_NAME), null)?.source ?? null;
-}
 
-const COMMANDS = new Set(['clone', 'pull', 'list', 'install', 'update', 'uninstall', 'status']);
-// 配備先を取らないコマンド。clone は取得先ディレクトリ、pull と list は引数なし。
-const CORPUS_COMMANDS = new Set(['clone', 'pull', 'list']);
+const COMMANDS = new Set(['list', 'install', 'update', 'uninstall', 'status']);
+// 配備先を取らないコマンド。list は引数なし。
+const CORPUS_COMMANDS = new Set(['list']);
+// 規則を git で持っていた頃のコマンド。同梱になったので、行き先だけを示して退く。
+const RETIRED_COMMANDS = new Map([
+  ['clone', 'the rules ship with the package now — there is nothing to clone.'],
+  ['pull', 'the rules ship with the package now — update the package instead.'],
+]);
 // module 名を取るコマンド。update / status は憶えている選択に対して働くので取らない。
 const MODULE_COMMANDS = new Set(['install', 'uninstall']);
 // 旧インタフェース。エイリアスとしては生かさず、正しい形へ案内するためだけに覚えておく。
@@ -1365,7 +1194,7 @@ const RETIRED_FLAGS = new Set(['--keep-shell']);
 function parseArgs(argv) {
   const opts = {
     global: false, dir: null, dirExplicit: false, modules: [],
-    cloneDir: null, from: null, force: false, noFollow: false,
+    force: false,
     interactive: false, help: false, version: false,
   };
   const positional = [];
@@ -1374,16 +1203,11 @@ function parseArgs(argv) {
     if (a === '--help' || a === '-h') opts.help = true;
     else if (a === '--version' || a === '-v') opts.version = true;
     else if (a === '--force') opts.force = true;
-    else if (a === '--no-follow') opts.noFollow = true;
     else if (a === '--global' || a === '-g') opts.global = true;
     else if (a === '--directory' || a === '-C') {
       if (argv[i + 1] === undefined) throw new Error('-C takes a value: -C <dir>');
       opts.dir = argv[++i];
       opts.dirExplicit = true;
-    }
-    else if (a === '--from') {
-      if (argv[i + 1] === undefined) throw new Error('--from takes a value: --from <url|path>');
-      opts.from = argv[++i];
     }
     else if (RETIRED.has(a)) {
       throw new Error(`${a} is retired. The target is a flag now — project by default:\n` +
@@ -1402,13 +1226,9 @@ function parseArgs(argv) {
   if (opts.help || opts.version) return { cmd, opts };
   if (!COMMANDS.has(cmd)) return { cmd, opts };  // 使い方の表示へ
 
-  // clone は取得先ディレクトリを 1 つ、pull と list は位置引数を取らない
+  // list は位置引数を取らない
   if (CORPUS_COMMANDS.has(cmd)) {
-    if (cmd !== 'clone' && rest.length) throw new Error(`\`${cmd}\` takes no arguments: ${rest.join(' ')}`);
-    if (cmd === 'clone') {
-      if (rest.length > 1) throw new Error(`too many arguments: ${rest.slice(1).join(' ')}`);
-      opts.cloneDir = rest[0] ?? null;
-    }
+    if (rest.length) throw new Error(`\`${cmd}\` takes no arguments: ${rest.join(' ')}`);
     return { cmd, opts };
   }
 
@@ -1439,42 +1259,9 @@ const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— this project by default;
   ${ui.cyan('-C <dir>')}       a specific project`;
 
 const CMD_HELP = {
-  clone: {
-    usage: '[dir]',
-    line: 'get the corpus as your own editable git repository (first time)',
-    body: [
-      'Clones the rules corpus into $DOTAGENTS_HOME/corpus as a git repository you own:',
-      'edit rules there, commit them, and deploy from it with install/update. Name a',
-      'directory to put it somewhere else.',
-    ],
-    options: [['--from <url|path>', 'clone from an explicit source instead of the published repository']],
-    notes: [
-      'You rarely need this by hand: any command run before the rules are here clones them first, then carries on.',
-      'Reach for it when you want them somewhere of your own choosing, or from a fork.',
-    ],
-    examples: [
-      ['dotagents clone', 'into the home this tool keeps'],
-      ['dotagents clone ~/work/rules', 'somewhere of your choosing'],
-      ['dotagents clone x --from /path/to/repo', 'clone a local fork'],
-    ],
-  },
-  pull: {
-    usage: '',
-    line: 'follow upstream: show incoming commits, integrate, verify (repeatable)',
-    body: [
-      'Fetches upstream, lists the incoming commit titles (the commit convention makes',
-      'them a readable changelog), rebases your local commits on top, then runs the',
-      'corpus tests. Stops on uncommitted changes, conflicts, or red tests.',
-    ],
-    options: [],
-    notes: ['This moves the corpus only. `update` does the same and then redelivers — reach for that unless you want the follow alone.'],
-    examples: [
-      ['dotagents pull', 'follow the upstream corpus'],
-    ],
-  },
   list: {
     usage: '',
-    line: 'show the modules this corpus offers, and whether their tools are present',
+    line: 'show the modules you can install, and whether their tools are present',
     body: [
       'Reads modules/ and prints each module with its description and the external',
       'commands it expects. Requirements are detected, never installed: a missing one',
@@ -1497,7 +1284,7 @@ const CMD_HELP = {
       'you installed before stays. Everything is idempotent and hash-owned, so files you',
       'edited after installation are kept and reported, and your own skills are untouched.',
     ],
-    options: [['--force', 'overwrite whatever sits in the way and does not match the corpus']],
+    options: [['--force', 'overwrite whatever sits in the way and does not match what would be delivered']],
     notes: ['Name no module to pick interactively; a non-interactive shell stops instead of choosing for you.'],
     examples: [
       ['agents-setup install harness', 'into the current project'],
@@ -1508,25 +1295,23 @@ const CMD_HELP = {
   },
   update: {
     usage: '[options]',
-    line: 'follow upstream, then redeliver whatever is recorded here',
+    line: 'redeliver whatever is recorded here, and prune what is no longer delivered',
     body: [
-      'Follows the upstream corpus the way `pull` does, then redelivers. Requires an',
-      'existing installation, and works on the module set the manifest remembers — no',
-      'module names, no flags to recall. Beyond what install does, it removes files still',
-      'recorded but no longer delivered, and prunes any legacy .agents layout it finds.',
+      'Requires an existing installation, and works on the module set the manifest',
+      'remembers — no module names, no flags to recall. Beyond what install does, it',
+      'removes files still recorded but no longer delivered, and prunes any legacy',
+      '.agents layout it finds.',
       '',
-      'A corpus you have edited, or one with no upstream, cannot be followed — that is',
-      'reported and the redelivery goes ahead. A corpus that fails its own tests stops it.',
+      'New rules arrive by updating the package, not by running this. Update it the way',
+      'you installed it (bun add -g / npm i -g), then run this to redeliver.',
     ],
     options: [
-      ['--force', 'overwrite whatever sits in the way and does not match the corpus'],
-      ['--no-follow', 'redeliver what is already here, without touching the corpus'],
+      ['--force', 'overwrite whatever sits in the way and does not match what would be delivered'],
     ],
-    notes: ['Edit prompts in the corpus, never in the installed tree — update carries them over.'],
+    notes: ['Never edit prompts in the installed tree — update overwrites them. Your own rules go in ~/.dotagents/modules/.'],
     examples: [
-      ['dotagents update', 'follow, then refresh the current project'],
+      ['dotagents update', 'refresh the current project'],
       ['dotagents update -g --force', 'refresh this machine, discarding local edits'],
-      ['dotagents update --no-follow', 'redeliver the corpus as it stands'],
     ],
   },
   uninstall: {
@@ -1548,10 +1333,10 @@ const CMD_HELP = {
   },
   status: {
     usage: '[options]',
-    line: 'verify manifest, corpus, files and rules blocks (exit 1 on drift)',
+    line: 'verify the manifest, the delivered files and the rules blocks (exit 1 on drift)',
     body: [
       'Compares the installed files against both the manifest and the modules recorded',
-      'here, and reports every difference: missing files, edits made in place, corpus',
+      'here, and reports every difference: missing files, edits made in place, package',
       'changes not yet applied, and leftover legacy layouts. Exits 1 when anything differs.',
     ],
     options: [],
@@ -1572,20 +1357,20 @@ function printHelp(cmd) {
   if (!cmd) {
     console.log(`${ui.bold('agents-setup')} ${ui.dim('<command> [module...] [options]')}\n`);
     // 対象ごとに語彙を分けて示す。
-    console.log(`${ui.bold('The corpus')} ${ui.dim('— the git repository of rules you own')}`);
-    console.log(pad2(['clone', 'pull', 'list'].map((k) => [k, CMD_HELP[k].line])).join('\n'));
+    console.log(`${ui.bold('The rules')} ${ui.dim('— shipped with this package; yours go in ~/.dotagents/modules/')}`);
+    console.log(pad2([['list', CMD_HELP.list.line]]).join('\n'));
     console.log(`\n${ui.bold('Deployments')} ${ui.dim('— what a tool actually reads')}`);
     console.log(pad2(['install', 'update', 'uninstall', 'status'].map((k) => [k, CMD_HELP[k].line])).join('\n'));
     console.log(`\n${TARGET_HELP}`);
     console.log(`\n${ui.bold('Options')}`);
     console.log(pad2([
-      ['--force', 'overwrite whatever sits in the way and does not match the corpus'],
+      ['--force', 'overwrite whatever sits in the way and does not match what would be delivered'],
       ['--help, -h', 'show this help, or the help for a command'],
       ['--version, -v', 'print the version'],
     ]).join('\n'));
-    console.log(`\n${ui.bold('Home')} ${ui.dim('— corpus, your own modules, and the record of what was placed')}`);
+    console.log(`\n${ui.bold('Home')} ${ui.dim('— your own modules, and the record of what was placed')}`);
     console.log(`  ${ui.cyan(pad(homePath(DOTAGENTS_HOME()), 14))}  ${ui.dim(process.env.DOTAGENTS_HOME ? 'from DOTAGENTS_HOME' : 'set DOTAGENTS_HOME to move it')}`);
-    console.log(`\n${ui.dim('Deployments are plain copies — edit rules in the corpus, deliver with update.')}`);
+    console.log(`\n${ui.dim('Deployments are plain copies. Update the package for new rules, then `update` to redeliver.')}`);
     console.log(`\n${ui.dim(`Run \`agents-setup <command> --help\` for what a single command does.`)}`);
     return;
   }
@@ -1613,16 +1398,18 @@ async function main() {
   const { cmd, opts } = parseArgs(process.argv.slice(2));
   if (opts.version) return void console.log(pkg().version);
   if (opts.help || !cmd) return void printHelp(COMMANDS.has(cmd) ? cmd : null);
+  if (RETIRED_COMMANDS.has(cmd)) {
+    throw new Error(`\`${cmd}\` is retired: ${RETIRED_COMMANDS.get(cmd)}\n` +
+      `       Update it the way you installed it:\n` +
+      `         bun add -g @hiroiku/dotagents   ${ui.dim('(or npm i -g)')}\n` +
+      `       Then \`agents-setup update\` redelivers what is recorded here.`);
+  }
   if (!COMMANDS.has(cmd)) {
     throw new Error(`unknown command: ${cmd}\n       Run \`agents-setup --help\` to see what is available.`);
   }
   migrateStateDir();
-  // 実装はこの 1 ファイルで完結する。足りないのは規則の方だけなので、無ければ取ってくる。
-  // 移行を担うのは常にこの新しい実装であって、取ってきた側ではない。
-  if (cmd !== 'clone') await ensureCorpus(opts);
+  migrateCorpus();
   switch (cmd) {
-    case 'clone': return clone(opts);
-    case 'pull': return pull();
     case 'list': return list();
     case 'install':
       await confirmLooseTarget(opts);

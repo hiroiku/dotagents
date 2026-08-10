@@ -22,11 +22,11 @@ dotagents install harness -g       # 為本機上的每一個專案安裝
 dotagents install harness -C ~/x   # 安裝進指定的專案
 ```
 
-沒有另外的準備步驟。第一道指令會先把 corpus——那個你所擁有的規則 git 儲存庫——複製進 `~/.dotagents/corpus`,然後繼續把事情做完。你敲下的指令,第一天與之後的每一天都相同。
+沒有準備步驟。各個 module 就裝在這個套件裡,因此第一道指令便直接安裝——沒有要複製的東西、沒有要取回的東西,也沒有必須先遷移才能開工的狀態。若不想全域安裝,`bunx @hiroiku/dotagents install harness` 做的是同一件事。
 
 目標預設為目前這個專案——影響範圍最小的那一個——而更廣的範圍一律需要旗標。至於要放入什麼,則從不預設:指名一個 module,或以互動方式挑選。非互動式 shell 會直接停止,而不替你做選擇。
 
-Node 或 Bun,這台機器上有哪個都行:`bunx` 取到的是同一個套件,而 CLI 本身會挑選那台機器上真正存在的 runtime。
+Node 或 Bun,這台機器上有哪個都行——CLI 本身會挑選那台機器上真正存在的 runtime。
 
 ## 何謂 module
 
@@ -49,47 +49,50 @@ modules/<name>/
 
 一個 module 可以宣告它期望 `PATH` 上有什麼。這些要求是**被偵測,而非被安裝**的:`list` 與 `install` 會回報缺少了什麼,但不阻擋任何事,因此日後才補上工具也無須重新安裝。
 
-[modules/](../modules/) 是這份分發內容的權威定義——安裝程式並不持有檔案的清單,因此沒有任何東西會無聲地失去同步。這裡的兩個 module 是這份文庫所提供的,而非一組要你整套照收的東西:[harness](../modules/harness/docs/README.zh-TW.md) 承載審查代理,以及模型無法猜出的慣例;[architecture](../modules/architecture/docs/README.zh-TW.md) 則承載一條對某些專案適切、對另一些則否的依賴規則。
+[modules/](../modules/) 是這份分發內容的權威定義——安裝程式並不持有檔案的清單,因此沒有任何東西會無聲地失去同步。隨套件附上的兩個 module 既是預設,也同樣是範例,而非一組要你整套照收的東西:[harness](../modules/harness/docs/README.zh-TW.md) 承載審查代理,以及模型無法猜出的慣例;[architecture](../modules/architecture/docs/README.zh-TW.md) 則承載一條對某些專案適切、對另一些則否的依賴規則。
 
-你自己的 module 放進 `~/.dotagents/modules/`。它們由完全相同的指令安裝,並留在你的機器上——永不進入任何儲存庫,也永不進入任何已發布的套件。`list` 會同時顯示這兩個來源;同一個名稱被佔用兩次是一個錯誤,而非一次無聲的覆寫。
+你自己的 module 以同樣的形狀放進 `~/.dotagents/modules/`。它們由完全相同的指令安裝,並留在你的機器上——永不進入任何儲存庫,也永不進入任何已發布的套件。`list` 會同時顯示這兩個來源;同一個名稱被佔用兩次是一個錯誤,而非一次無聲的覆寫。
 
 ## 它存放在哪裡
 
 ```
-~/.dotagents/         這個工具所保存的一切,集中於一處
-├── corpus/           你的規則,一個你編輯並跟隨的 git 儲存庫
+~/.dotagents/         屬於你的一切,集中於一處
 ├── modules/          你自己的 module
 └── state/            何物被放置於何處的紀錄
 ```
 
-這裡不住著安裝程式,只有規則。安裝程式來自 npm,也在那裡被替換。
+凡是來自 npm 的東西都不住在這裡——安裝程式不在,隨套件附上的 module 也不在。兩者都在它們各自的來處被替換。
 
 `DOTAGENTS_HOME` 能把這一整套搬走;其餘一切都無須被告知。只有一個家目錄,而每一條路徑都由它衍生——`status` 與 `--help` 會印出當前生效的那一個,因此一台機器絕不會隱瞞它的規則從何而來。
 
 ## 指令
 
 ```sh
-dotagents update               # 先跟隨上游,再重新交付——不需引數,它記得你選了哪些 module
+dotagents update               # 把紀錄在案的內容重新交付一次——不需引數,它記得你選了哪些 module
 dotagents uninstall <module>   # 移除一個 module,其餘保留;不指名則全部移除
 dotagents status               # 驗證每一個已交付的檔案——出現漂移時以結束碼 1 回報
-dotagents pull                 # 只跟隨上游,不重新交付
 dotagents --help               # 全部指令、選項、範例
 ```
 
-`install` 是累加的,`uninstall` 是遞減的,因此一次部署所持有的集合是一個 module 一個 module 地累積與拆卸的。讓兩邊都保持最新的唯一指令是 `update`:它以 `pull` 相同的方式跟隨上游,然後把 manifest 所記得的內容重新交付一次。
+`install` 是累加的,`uninstall` 是遞減的,因此一次部署所持有的集合是一個 module 一個 module 地累積與拆卸的。`update` 以 manifest 所記得的內容為準:重新交付那一組,移除仍在紀錄中但已不再交付的東西,並清理它所發現的任何舊佈局。
 
-**沒有任何東西會自行移動。** 你所取回的是治理你的代理的文本,因此在整合之前,會先顯示傳入的提交標題。上游有差異時,每天只告知一次——而不是替你更新。
+**沒有任何東西會自行移動。** 交付的是治理你的代理的文本,因此交付既不會自動發生,也不會悄無聲息:每一道指令都會說明它放置了什麼、保留了什麼、移除了什麼。
 
-## 分開更新的兩樣東西
+## 只有一條更新路徑
 
-安裝程式與你的規則不是同一類東西,它們也不一起移動。
+新的規則靠更新這個套件而來,而不是靠執行某道指令。用你當初安裝它的方式更新它,然後重新交付:
+
+```sh
+bun add -g @hiroiku/dotagents   # 或 npm i -g @hiroiku/dotagents
+dotagents update -g             # 以及 dotagents update -C <專案>
+```
 
 | | 從哪裡來 | 如何更新 |
 |---|---|---|
-| **安裝程式** | npm——`bun add -g` / `npm i -g` | 與你安裝的任何工具一樣 |
-| **你的規則** | git——`~/.dotagents/corpus` | `pull` / `update`,由你發話 |
+| **安裝程式,以及隨它一起發布的 module** | npm | 與你安裝的任何工具一樣 |
+| **你自己的 module** | `~/.dotagents/modules/` | 它們屬於你;不會有別的東西往那裡寫 |
 
-corpus 只裝規則,別無其他。正是這種分離讓修復得以抵達:**遷移規則的程式碼,從不待在被遷移的那一側**。因此無論你的 corpus 有多舊,對它動手的安裝程式始終是最新的。更新指令,修復此刻就在你手上——你不必先去跟隨任何東西。
+一條路徑,而非兩條。兩條就意味著必有一條會陳舊下去——而**遷移你這套配置的程式碼,會被困在被遷移的那一側**,乾等著它本該送達的那次更新。只有一條時,修復與它所修復的規則會一同抵達,成為一個你叫得出名字的版本。
 
 ## 安裝程式會觸碰什麼、不會觸碰什麼
 
@@ -100,11 +103,11 @@ corpus 只裝規則,別無其他。正是這種分離讓修復得以抵達:**遷
 ## 佈局
 
 ```
-bin/agents-setup      CLI 本體(clone / pull / list / install / update / uninstall / status)
+bin/agents-setup      CLI 本體(list / install / update / uninstall / status)
 test/                 安裝程式的契約測試(npm test · bun test)
-modules/              這份文庫提供的 module
+modules/              隨套件一起發布的 module
 ├── harness/          審查代理,以及 git · testing · prompting 的慣例
 └── architecture/     由建置強制的依賴規則
 ```
 
-本儲存庫是兩者的上游,但它們分開發布:npm 只攜帶 `bin/`,而複本只帶來規則。
+本儲存庫是兩者的上游,而 npm 同時攜帶兩者:`bin/` 與 `modules/` 作為同一個版本一起發布。

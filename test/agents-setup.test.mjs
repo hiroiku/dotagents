@@ -10,8 +10,7 @@ import path from 'node:path';
 const REPO = path.resolve(new URL('..', import.meta.url).pathname);
 const CLI = path.join(REPO, 'bin', 'agents-setup');
 
-// テストは本拠地を HOME から導くので、走らせる人の DOTAGENTS_HOME に引きずられない
-// (pull は corpus の中でテストを走らせる — そこで機械の設定が混ざると偽の赤になる)。
+// テストは本拠地を HOME から導くので、走らせる人の DOTAGENTS_HOME に引きずられない。
 delete process.env.DOTAGENTS_HOME;
 
 function run(home, args, opts = {}) {
@@ -597,12 +596,14 @@ test('help: 対象ごとに語彙を分けて示し、コマンドごとの説�
   const home = freshHome();
   const overall = run(home, ['--help']);
   assert.match(overall.out, /agents-setup <command> \[module\.\.\.\] \[options\]/);
-  assert.match(overall.out, /The corpus/, '正本の語彙(clone / pull / list)を束ねて示す');
+  assert.match(overall.out, /The rules/, '規則の出どころを束ねて示す');
   assert.match(overall.out, /Deployments/, '配備の語彙を分けて示す');
-  for (const cmd of ['clone', 'pull', 'list', 'install', 'update', 'uninstall', 'status']) {
+  for (const cmd of ['list', 'install', 'update', 'uninstall', 'status']) {
     assert.match(overall.out, new RegExp(`^  ${cmd}\\b`, 'm'), `${cmd} が一覧に出る`);
   }
-  assert.ok(!overall.out.includes('--keep-shell'), '廃止した shell 層の語彙は出ない');
+  for (const gone of ['--keep-shell', 'clone', 'pull']) {
+    assert.ok(!overall.out.includes(gone), `退役した ${gone} の語彙は出ない`);
+  }
 
   for (const args of [['install', '--help'], ['install', '-h']]) {
     const r = run(home, args);

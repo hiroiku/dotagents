@@ -22,11 +22,11 @@ dotagents install harness -g       # für jedes Projekt auf dieser Maschine
 dotagents install harness -C ~/x   # in ein bestimmtes Projekt
 ```
 
-Es gibt keinen separaten Einrichtungsschritt. Der erste Befehl klont den Corpus — das Git-Repository der Regeln, das dir gehört — nach `~/.dotagents/corpus` und macht dann weiter. Der Befehl, den du tippst, ist am ersten Tag derselbe wie an jedem weiteren.
+Es gibt keinen Einrichtungsschritt. Die Module stecken im Paket selbst, daher installiert der erste Befehl sofort — nichts zu klonen, nichts zu holen, und kein Zustand, der erst migriert werden müsste, bevor du arbeiten kannst. `bunx @hiroiku/dotagents install harness` tut dasselbe, ohne global etwas zu installieren.
 
 Das Ziel ist standardmäßig dieses Projekt — der kleinste Wirkungsradius — und der weitere Geltungsbereich verlangt immer ein Flag. Was hineinkommt, hat nie einen Standardwert: Benenne ein Modul oder wähle interaktiv. Eine nicht-interaktive Shell stoppt, statt für dich zu entscheiden.
 
-Node oder Bun, je nachdem, was die Maschine hat: `bunx` erreicht dasselbe Paket, und die CLI wählt selbst die Runtime, die dort vorhanden ist.
+Node oder Bun, je nachdem, was die Maschine hat — die CLI wählt selbst die Runtime, die dort vorhanden ist.
 
 ## Was ein Modul ist
 
@@ -49,47 +49,50 @@ modules/<name>/
 
 Ein Modul darf deklarieren, was es auf `PATH` erwartet. Voraussetzungen werden **erkannt, nie installiert**: `list` und `install` melden, was fehlt, und blockieren nichts — das Werkzeug später hinzuzufügen, erfordert also keine Neuinstallation.
 
-[modules/](../modules/) ist die kanonische Definition der Distribution — der Installer hält keine Liste der Dateien, also kann nichts still auseinanderdriften. Die beiden Module hier sind die, die dieser Korpus anbietet, kein Satz, den du als Ganzes übernehmen sollst: [harness](../modules/harness/docs/README.de.md) trägt Review-Agenten und die Konventionen, die ein Modell nicht erraten kann, [architecture](../modules/architecture/docs/README.de.md) eine Abhängigkeitsregel, die für manche Projekte richtig ist und für andere nicht.
+[modules/](../modules/) ist die kanonische Definition der Distribution — der Installer hält keine Liste der Dateien, also kann nichts still auseinanderdriften. Die beiden mitgelieferten Module sind ebenso Beispiele wie Voreinstellungen, kein Satz, den du als Ganzes übernehmen sollst: [harness](../modules/harness/docs/README.de.md) trägt Review-Agenten und die Konventionen, die ein Modell nicht erraten kann, [architecture](../modules/architecture/docs/README.de.md) eine Abhängigkeitsregel, die für manche Projekte richtig ist und für andere nicht.
 
-Deine eigenen Module liegen in `~/.dotagents/modules/`. Sie werden von denselben Befehlen installiert und bleiben auf deiner Maschine — nie in einem Repository, nie in einem veröffentlichten Paket. `list` zeigt beide Quellen; ein doppelt vergebener Name ist ein Fehler statt einer stillen Überschreibung.
+Deine eigenen Module liegen in derselben Form in `~/.dotagents/modules/`. Sie werden von denselben Befehlen installiert und bleiben auf deiner Maschine — nie in einem Repository, nie in einem veröffentlichten Paket. `list` zeigt beide Quellen; ein doppelt vergebener Name ist ein Fehler statt einer stillen Überschreibung.
 
 ## Wo es liegt
 
 ```
-~/.dotagents/         alles, was dieses Werkzeug aufbewahrt, an einem Ort
-├── corpus/           deine Regeln, als Git-Repository, das du bearbeitest und verfolgst
+~/.dotagents/         alles, was dir gehört, an einem Ort
 ├── modules/          deine eigenen Module
 └── state/            die Aufzeichnung, was wohin platziert wurde
 ```
 
-Hier wohnt kein Installer, nur Regeln. Der Installer kommt von npm und wird dort ersetzt.
+Nichts, was von npm kam, wohnt hier — weder der Installer noch ein mitgeliefertes Modul. Beide werden dort ersetzt, wo sie herkamen.
 
 `DOTAGENTS_HOME` verschiebt das Ganze; nichts sonst muss davon erfahren. Ein Home, und jeder Pfad leitet sich daraus ab — `status` und `--help` geben das jeweils wirksame Home aus, damit eine Maschine nie verbirgt, woher ihre Regeln stammen.
 
 ## Befehle
 
 ```sh
-dotagents update               # dem Upstream folgen, dann neu ausliefern — keine Argumente, es merkt sich deine Wahl
+dotagents update               # neu ausliefern, was verzeichnet ist — keine Argumente, es merkt sich deine Wahl
 dotagents uninstall <module>   # ein Modul entfernen, den Rest behalten; ohne Namen wird alles entfernt
 dotagents status               # jede ausgelieferte Datei prüfen — exit 1 bei Drift
-dotagents pull                 # nur dem Upstream folgen, ohne neu auszuliefern
 dotagents --help               # jeder Befehl, jede Option, jedes Beispiel
 ```
 
-`install` ist additiv und `uninstall` subtraktiv, daher wird die Menge, die eine Bereitstellung hält, Modul für Modul auf- und abgebaut. Der eine Befehl, der beide Hälften aktuell hält, ist `update`: Er folgt dem Upstream so, wie `pull` es tut, und liefert dann neu aus, woran sich das Manifest erinnert.
+`install` ist additiv und `uninstall` subtraktiv, daher wird die Menge, die eine Bereitstellung hält, Modul für Modul auf- und abgebaut. `update` arbeitet mit dem, woran sich das Manifest erinnert: Es liefert diese Menge neu aus, entfernt, was verzeichnet, aber nicht mehr ausgeliefert ist, und beschneidet jedes alte Layout, das es findet.
 
-**Nichts bewegt sich von selbst.** Was ankommt, sind die Texte, die deine Agenten regieren, daher werden die eingehenden Commit-Titel gezeigt, bevor irgendetwas integriert wird. Gibt es etwas im Upstream, wirst du einmal am Tag darauf hingewiesen — nicht aktualisiert.
+**Nichts bewegt sich von selbst.** Ausgeliefert werden die Texte, die deine Agenten regieren, also geschieht die Auslieferung nie automatisch und nie stillschweigend: Jeder Befehl zeigt, was er platziert, behalten und entfernt hat.
 
-## Zwei Dinge, getrennt aktualisiert
+## Ein einziger Aktualisierungsweg
 
-Der Installer und deine Regeln sind nicht dieselbe Art von Sache, und sie reisen nicht zusammen.
+Neue Regeln kommen, indem du das Paket aktualisierst, nicht indem du einen Befehl ausführst. Aktualisiere es so, wie du es installiert hast, und liefere dann neu aus:
+
+```sh
+bun add -g @hiroiku/dotagents   # oder: npm i -g @hiroiku/dotagents
+dotagents update -g             # und: dotagents update -C <projekt>
+```
 
 | | Woher es kommt | Wie es sich bewegt |
 |---|---|---|
-| **Der Installer** | npm — `bun add -g` / `npm i -g` | wie jedes andere Werkzeug, das du installierst |
-| **Deine Regeln** | git — `~/.dotagents/corpus` | `pull` / `update`, auf dein Wort hin |
+| **Der Installer und die mitgelieferten Module** | npm | wie jedes andere Werkzeug, das du installierst |
+| **Deine eigenen Module** | `~/.dotagents/modules/` | sie gehören dir; nichts anderes schreibt dorthin |
 
-Der Corpus enthält Regeln und sonst nichts. Genau diese Trennung lässt eine Korrektur bei dir ankommen: **Der Code, der deine Regeln migriert, steckt nie in dem, was migriert wird**. Wie alt dein Corpus auch ist — der Installer, der daran arbeitet, ist der aktuelle. Aktualisiere den Befehl, und die Korrektur ist da; du musst nichts vorher verfolgen.
+Ein Weg, nicht zwei. Zwei hieße, dass einer von beiden veraltet — und **der Code, der deine Einrichtung migriert, wäre in dem eingesperrt, was migriert wird**, wartend auf genau das Update, das er liefern soll. So kommen eine Korrektur und die Regeln, die sie korrigiert, gemeinsam an, in einer Version, die du benennen kannst.
 
 ## Was der Installer anrührt — und was nicht
 
@@ -100,11 +103,11 @@ Plugins im Projekt-Geltungsbereich werden nur geladen, wenn Claude Code in der R
 ## Layout
 
 ```
-bin/agents-setup      die CLI (clone / pull / list / install / update / uninstall / status)
+bin/agents-setup      die CLI (list / install / update / uninstall / status)
 test/                 Vertragstests für den Installer (npm test · bun test)
-modules/              die Module, die dieser Korpus anbietet
+modules/              die Module, die mit dem Paket ausgeliefert werden
 ├── harness/          Review-Agenten, Konventionen für git · testing · prompting
 └── architecture/     eine Abhängigkeitsregel, die der Build erzwingt
 ```
 
-Dieses Repository ist der Upstream beider Hälften, aber sie werden getrennt ausgeliefert: npm trägt nur `bin/`, ein Klon bringt nur die Regeln.
+Dieses Repository ist der Upstream von beidem, und npm trägt beides: `bin/` und `modules/` werden gemeinsam veröffentlicht, als eine Version.
