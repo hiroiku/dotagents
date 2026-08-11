@@ -10,23 +10,23 @@ Las etiquetas son el único mecanismo que todo modelo ya conoce. Así que absorb
 
 Lo que se pierde es la consulta. Si la versión se escribe como etiqueta, `is:open no:milestone` no encuentra el trabajo sin versión asignada. Si los hijos solo se mencionan en prosa, el avance del padre no se puede contar. **Un tracker se escribe una vez y se lee cientos**, y cada significado puesto en el eje equivocado se resta de todas las lecturas posteriores.
 
-Por eso este skill no es un recorrido por `gh issue`. Es el mapa del significado al eje, y es corto, porque el resto está en `--help`.
+Por eso este skill no es un recorrido por `gh issue`. Trata de qué compra cada función: qué pregunta posterior deja contestable. No hay otra razón para recurrir a una.
 
-## Lo que el modelo no puede derivar
+## Contestable, o no
 
-Un agente puede leer `gh issue create --help` cuando quiera. Lo que ahí no obtiene:
+La línea que decide si valió la pena usar una función:
 
 | | |
 | --- | --- |
-| Las relaciones ya son nativas | `--parent`, `--add-sub-issue` y `--add-blocked-by` llegaron a `gh` hace poco. Un modelo que aprendió un `gh` anterior recurre a una extensión de la comunidad o a GraphQL escrito a mano, y consigue una versión peor de algo que ya viene incorporado. |
-| El hueco es el hito | Todos los demás ejes son flags; solo el hito en sí es REST. Saber exactamente dónde está el hueco evita las dos mitades del error: inventar una llamada a la API para la asignación, y buscar un `gh milestone` que no existe. |
-| Los tipos no son etiquetas | Los tipos de issue se definen para la organización y los comparte cada repositorio. Son recientes, fáciles de pasar por alto, y la razón por la que una etiqueta llamada `bug` normalmente no debería existir. |
-| Los sub-issues no son casillas | Una lista de tareas en el cuerpo se ve igual y no lleva estado. Nada puede consultarla, y ningún padre puede contarse a partir de ella. |
+| Una casilla no es un sub-issue | Se ven igual. Uno es un objeto con estado propio que un padre puede contar; la otra es texto. Todo el rédito de descomponer cae de un solo lado de esa línea. |
+| El bloqueo no se puede buscar | `is:blocked` parece un filtro y no lo es: nada expone la relación a una consulta. El orden sigue mereciendo un lugar en el tracker, pero solo donde alguien vaya a calcular la cola con él. |
+| Un hito que no puede cerrarse no contesta nada | El burn-down y la lectura de «¿llegamos?» salen de un conjunto que termina en una fecha. `backlog` y `someday` no dan ninguna de las dos, y en silencio le quitan esa lectura a todo lo que guardan. |
+| Un tipo cruza repositorios; una etiqueta, no | Los tipos son de la organización, así que una pregunta puede cruzar todos los repositorios a la vez. Dos etiquetas llamadas `bug` no se garantizan nada entre sí. |
 
 ## Donde la decisión pudo haber sido otra
 
 **Ninguna convención para los nombres de etiqueta.** Un esquema que encaja con el flujo de un equipo es erróneo para el siguiente, y una regla que nadie sigue cuesta atención sin comprar nada. El módulo fija en qué eje va cada significado; qué etiquetas viven en ese eje es del equipo.
 
-**Ninguna plantilla para el cuerpo del issue.** Qué contiene un buen informe es cuestión de juicio, y un modelo capaz ya lo tiene. El único hecho mecánico que vale la pena decir —pasar el cuerpo por stdin, porque el entrecomillado del shell destroza el markdown— se dice, y lo demás se deja en paz.
+**Ninguna plantilla para el cuerpo del issue.** Qué contiene un buen informe es cuestión de juicio, y un modelo capaz ya lo tiene. El módulo fija adónde va un significado, nunca cómo redactarlo.
 
 **Nombrado por el host, no por los issues.** Los pull requests, las releases y Actions corren sobre la misma plataforma y tienen la misma forma de problema. El módulo se llama `github` para que el siguiente skill tenga dónde aterrizar.

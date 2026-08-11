@@ -10,23 +10,23 @@ Labels are the one mechanism every model already knows. So they absorb what belo
 
 What is lost is the query. `is:open no:milestone` cannot find work that has no release when the release is written as a label. A parent's progress cannot be counted when the children are only mentioned in prose. **The tracker is written once and read hundreds of times**, and every meaning put on the wrong axis is subtracted from every later reading.
 
-So the skill is not a tour of `gh issue`. It is the map from meaning to axis, and it is short, because the rest is in `--help`.
+So the skill is not a tour of `gh issue`. It is about what each feature buys — which later question it makes answerable — because that is the only reason to reach for one.
 
-## What the model cannot derive
+## Answerable, or not
 
-An agent can read `gh issue create --help` any time. What it cannot get from there:
+The line that decides whether a feature was worth using:
 
 | | |
 | --- | --- |
-| Relationships are native now | `--parent`, `--add-sub-issue`, `--add-blocked-by` came to `gh` recently. A model that learned an older `gh` reaches for a community extension or hand-written GraphQL, and gets a worse version of something already built in. |
-| Milestones are the hole | Every other axis is a flag; the milestone itself is REST. Knowing exactly where the gap is prevents both halves of the mistake — inventing an API call for the assignment, and hunting for a `gh milestone` that does not exist. |
-| Types are not labels | Issue types are defined for the organization and shared by every repository. They are recent, easy to miss, and the reason a label named `bug` should usually not exist. |
-| Sub-issues are not checkboxes | A task list in the body renders the same and carries no state. Nothing can query it, and no parent can be counted from it. |
+| A checkbox is not a sub-issue | They render identically. One is an object with its own state that a parent can count; the other is text. The entire payoff of decomposition sits on one side of that line. |
+| Blocking cannot be searched | `is:blocked` looks like a filter and is not one — nothing exposes the relationship to a query. Order still belongs in the tracker, but only where someone will compute the queue from it. |
+| A milestone that cannot close answers nothing | The burn-down and the "will we make it" reading come from a set that finishes on a date. `backlog` and `someday` produce neither, and quietly cost the reading for everything they hold. |
+| A type spans repositories, a label does not | Types belong to the organization, so one question can cross every repository at once. Two labels both named `bug` guarantee nothing about each other. |
 
 ## Where the call could have gone otherwise
 
 **No conventions for label names.** A scheme that fits one team's workflow is wrong for the next, and a rule nobody follows costs attention without buying anything. The module binds which axis a meaning belongs on; which labels exist on that axis is the team's.
 
-**No template for the issue body.** What a good report contains is judgment, and a capable model already has it. The one mechanical fact worth stating — pass the body through stdin, because shell quoting mangles markdown — is stated, and the rest is left alone.
+**No template for the issue body.** What a good report contains is judgment, and a capable model already has it. The module settles where a meaning goes, never how to word it.
 
 **Named for the host, not for issues.** Pull requests, releases and Actions run on the same platform and have the same shape of problem. The module is `github` so the next skill has a place to land.

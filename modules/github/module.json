@@ -1,4 +1,4 @@
 {
-  "description": "What GitHub issues can carry, and which mechanism carries which meaning: types, milestones, labels, sub-issues, blocking. Install it where the tracker is GitHub.",
+  "description": "How to put GitHub issues to work: decomposition into sub-issues, milestones that can close, labels a query actually runs, types that span repositories. Install it where the tracker is GitHub.",
   "requires": ["gh"]
 }
