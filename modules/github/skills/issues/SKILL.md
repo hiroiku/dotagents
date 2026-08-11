@@ -18,7 +18,7 @@ Break work into sub-issues, not into checkboxes in the body. A checkbox looks th
 
 Blocking says what has to land first. Hierarchy says what something is part of. They are unrelated: blocking crosses parents, milestones and repositories freely, and most issues have one without the other.
 
-Record it only where it changes what someone picks up next. There is no search for it — `is:blocked` looks like a filter and is not one, and no qualifier exposes the relationship. The ready queue has to be computed from each issue's blockers, so a blocking edge nobody will compute is a note nobody will read.
+Record it only where it changes what someone picks up next. Unlike every other axis here, blocking cannot be filtered on: the ready queue has to be assembled by reading each issue's blockers. An edge nobody will assemble is a note nobody will read.
 
 ## Milestones
 
@@ -46,8 +46,4 @@ Link a branch to the issue before the first commit, and the code, the review and
 
 ## Closing
 
-The reason for closing is data; a farewell comment is not. `completed` and `not planned` are two different histories — one becomes the release note, the other is the record of a decision to stop, and only the first should be read as done. Point duplicates at the survivor so the trail can be followed from either end.
-
-## What the platform will not answer
-
-Hierarchy is searchable (issues with no parent) and blocking is not. Assigning a milestone is a flag on the issue; creating or closing the milestone itself is the one thing `gh` leaves to the REST API. Everything else, including all the relationships, is native to `gh` — no extension, no GraphQL.
+The reason for closing is data; a farewell comment is not. Completed and not planned are two different histories — one becomes the release note, the other is the record of a decision to stop, and only the first should be read as done. Point duplicates at the survivor so the trail can be followed from either end.

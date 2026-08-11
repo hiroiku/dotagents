@@ -19,7 +19,7 @@ La línea que decide si valió la pena usar una función:
 | | |
 | --- | --- |
 | Una casilla no es un sub-issue | Se ven igual. Uno es un objeto con estado propio que un padre puede contar; la otra es texto. Todo el rédito de descomponer cae de un solo lado de esa línea. |
-| El bloqueo no se puede buscar | `is:blocked` parece un filtro y no lo es: nada expone la relación a una consulta. El orden sigue mereciendo un lugar en el tracker, pero solo donde alguien vaya a calcular la cola con él. |
+| Por el bloqueo no se puede filtrar | Cualquier otro eje estrecha una lista; este no. El orden sigue mereciendo un lugar en el tracker, pero solo donde alguien vaya a montar la cola a mano. |
 | Un hito que no puede cerrarse no contesta nada | El burn-down y la lectura de «¿llegamos?» salen de un conjunto que termina en una fecha. `backlog` y `someday` no dan ninguna de las dos, y en silencio le quitan esa lectura a todo lo que guardan. |
 | Un tipo cruza repositorios; una etiqueta, no | Los tipos son de la organización, así que una pregunta puede cruzar todos los repositorios a la vez. Dos etiquetas llamadas `bug` no se garantizan nada entre sí. |
 

@@ -19,7 +19,7 @@ The line that decides whether a feature was worth using:
 | | |
 | --- | --- |
 | A checkbox is not a sub-issue | They render identically. One is an object with its own state that a parent can count; the other is text. The entire payoff of decomposition sits on one side of that line. |
-| Blocking cannot be searched | `is:blocked` looks like a filter and is not one — nothing exposes the relationship to a query. Order still belongs in the tracker, but only where someone will compute the queue from it. |
+| Blocking cannot be filtered on | Every other axis narrows a list; this one does not. Order still belongs in the tracker, but only where someone will assemble the queue by hand. |
 | A milestone that cannot close answers nothing | The burn-down and the "will we make it" reading come from a set that finishes on a date. `backlog` and `someday` produce neither, and quietly cost the reading for everything they hold. |
 | A type spans repositories, a label does not | Types belong to the organization, so one question can cross every repository at once. Two labels both named `bug` guarantee nothing about each other. |
 

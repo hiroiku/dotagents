@@ -19,7 +19,7 @@ Die Linie, an der sich entscheidet, ob der Einsatz einer Funktion etwas wert war
 | | |
 | --- | --- |
 | Eine Checkbox ist kein Sub-Issue | Beide sehen gleich aus. Das eine ist ein Objekt mit eigenem Zustand, das ein Elternteil zählen kann; das andere ist Text. Der gesamte Ertrag der Zerlegung liegt auf einer Seite dieser Linie. |
-| Blockierung ist nicht durchsuchbar | `is:blocked` sieht aus wie ein Filter und ist keiner — nichts legt die Beziehung einer Abfrage offen. Die Reihenfolge gehört weiterhin in den Tracker, aber nur dort, wo jemand daraus die Warteschlange berechnen wird. |
+| Nach Blockierung lässt sich nicht filtern | Jede andere Achse verengt eine Liste; diese eine nicht. Die Reihenfolge gehört weiterhin in den Tracker, aber nur dort, wo jemand die Warteschlange von Hand zusammensetzen wird. |
 | Ein Milestone, der nicht schließen kann, beantwortet nichts | Burn-down und die Lesart „schaffen wir es?" entstehen aus einer Menge, die an einem Datum endet. `backlog` und `someday` liefern beides nicht und nehmen still allem, was sie enthalten, diese Lesart. |
 | Ein Typ überspannt Repositories, ein Label nicht | Typen gehören der Organisation, also kann eine Frage alle Repositories auf einmal durchqueren. Zwei Labels namens `bug` garantieren einander gar nichts. |
 

@@ -19,7 +19,7 @@ La ligne qui décide si l'emploi d'une fonctionnalité valait quelque chose :
 | | |
 | --- | --- |
 | Une case à cocher n'est pas une sous-issue | Les deux ont la même apparence. L'une est un objet doté de son propre état, qu'un parent peut compter ; l'autre est du texte. Tout le bénéfice de la décomposition tient d'un seul côté de cette ligne. |
-| Le blocage n'est pas cherchable | `is:blocked` ressemble à un filtre et n'en est pas un : rien n'expose la relation à une requête. L'ordre mérite toujours sa place dans le tracker, mais seulement là où quelqu'un en calculera la file. |
+| On ne peut pas filtrer sur le blocage | Tout autre axe resserre une liste ; celui-ci non. L'ordre mérite toujours sa place dans le tracker, mais seulement là où quelqu'un montera la file à la main. |
 | Un jalon qui ne peut pas se fermer ne répond à rien | Le burn-down et la lecture « va-t-on y arriver ? » naissent d'un ensemble qui s'achève à une date. `backlog` et `someday` n'en produisent aucun, et retirent en silence cette lecture à tout ce qu'ils contiennent. |
 | Un type traverse les dépôts, un label non | Les types appartiennent à l'organisation : une question peut donc traverser tous les dépôts d'un coup. Deux labels nommés `bug` ne se garantissent rien l'un l'autre. |
 
