@@ -62,7 +62,7 @@ for (const [name, runtime] of [['node', NODE], ['bun', BUN]]) {
   test(`${name} だけの機械で、git も npm も無しに配れる`, () => {
     const home = tmp('dotagents-home-');
     const proj = tmp('dotagents-proj-');
-    const r = launch(CLI, ['install', 'harness', '-C', proj],
+    const r = launch(CLI, ['install', 'review', '-C', proj],
       { PATH: pathWith(runtime), HOME: home, DOTAGENTS_HOME: path.join(home, '.dotagents') });
     assert.equal(r.code, 0, r.out);
     assert.ok(

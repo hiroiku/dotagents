@@ -1,0 +1,6 @@
+{
+  "description": "What to read before editing a prompt or an agent definition: the calibration guides for the current generation of models, each carrying its date.",
+  "replaces": [
+    "harness"
+  ]
+}

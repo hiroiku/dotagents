@@ -43,8 +43,12 @@ const CORPUS_DIR = () => path.join(DOTAGENTS_HOME(), 'corpus');
 const PERSONAL_MODULES_DIR = () => path.join(DOTAGENTS_HOME(), 'modules');
 const STATE_DIR = () => path.join(DOTAGENTS_HOME(), 'state');
 
-// 同梱の module。実装と一緒に来て、実装と一緒に新しくなる。
-const BUNDLED_MODULES_DIR = path.join(PKG_ROOT, 'modules');
+// 見本の module の在処。ここは「読みに行く場所」ではなく「置いてくる元」である
+// (seedModules を見よ) — 置き場は ~/.dotagents/modules/ の 1 つだけだからだ。
+const SEED_MODULES_DIR = path.join(PKG_ROOT, 'modules');
+// 見本の配布元の名。誰の意見かを言えるようにするためだけに在る — 出どころを名乗らない
+// 規則は、消してよいのか直してよいのかが分からない。
+const VENDOR = 'hiroiku';
 // 旧レイアウト(<base>/.agents)の manifest 名と zshenv 管理行 — 刈り込み(移行)専用。
 const LEGACY_MANIFEST_NAME = '.dotagents.json';
 const MARKER = '# agents-harness';
@@ -86,9 +90,30 @@ function readJson(file, fallback) {
   }
 }
 
+// 書き込みは同じディレクトリの一時ファイルへ行い、rename(2) で入れ替える。POSIX の rename は
+// 原子的なので、途中で死んでも半分書けたファイルが残らない。配布物より、ユーザー自身の記述と
+// 同居する CLAUDE.md が切り詰められる方が重い — どちらも同じ経路を通す。
+function writeFileAtomic(file, data, mode) {
+  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.dotagents-${process.pid}`);
+  try {
+    fs.writeFileSync(tmp, data);
+    if (mode !== undefined) fs.chmodSync(tmp, mode);
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* 後始末の失敗で、元の失敗を隠さない */ }
+    throw e;
+  }
+}
+
+// 記録は「置いた物」だけでなく「どの module が置いたか」も持つ。持たないと、供給元を失った
+// module のファイルと、外された module のファイルを区別できない — 前者は残し、後者は刈る。
+// schema 3 までは値がハッシュ文字列だったので、読む側が両方を受ける。
+const fileHash = (v) => (typeof v === 'string' ? v : v?.hash);
+const fileOwner = (v) => (typeof v === 'string' ? null : v?.module ?? null);
+
 function writeJson(file, obj) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n');
+  writeFileAtomic(file, JSON.stringify(obj, null, 2) + '\n');
 }
 
 function lstatOrNull(p) {
@@ -175,32 +200,137 @@ function settingsPath(ctx) {
 
 // ---------------------------------------------------------------- modules(規則の編成単位)
 
-// module の供給元は 2 つ。同梱の modules/ は実装と一緒に npm から来て、
-// ~/.dotagents/modules/ はこのマシンだけの物である。どちらも module.json を持つ
-// ディレクトリが module で、名前はディレクトリ名 — 同一性の出どころを 2 つにしない。
-function moduleSources() {
-  return [
-    { root: BUNDLED_MODULES_DIR, personal: false },
-    { root: PERSONAL_MODULES_DIR(), personal: true },
-  ];
+// module の概念を持たない記録(旧レイアウトを含む)が指していた、当時の唯一の配布物。
+// これは記録の書式についての知識であって、正本の中身についての知識ではない。
+const SOLE_MODULE_THEN = 'harness';
+
+// 退役した名前 → それを受け継いだ module。憶えている名前が正本から無くなったとき、それが
+// 消滅なのか、改名や分割なのかは記録の側からは判らない。知っているのは受け継いだ側だけ
+// なので、宣言するのは module.json の replaces である — installer は対応表を持たない。
+// 正本が変われば対応も一緒に変わり、同期のずれで古びる物が無い。
+function renameMap() {
+  const index = moduleIndex();
+  const heirs = new Map();
+  for (const name of index.keys()) {
+    for (const old of moduleMeta(name).replaces) {
+      // まだ在る名前は誰にも受け継がれていない。生きている module を横取りさせない。
+      if (index.has(old)) continue;
+      heirs.set(old, [...(heirs.get(old) ?? []), name].sort());
+    }
+  }
+  return heirs;
 }
 
-// 名前 → { dir, personal }。同じ名前が 2 箇所にあれば、どちらが効くかを黙って決めない。
+// 記録が憶えている module 名を、今の正本の語彙へ直す。
+function followRenames(names, heirs = renameMap()) {
+  return [...new Set(names.flatMap((n) => heirs.get(n) ?? [n]))].sort();
+}
+
+// ---------------------------------------------------------------- 見本を置く(seed)
+
+// 見本は読みに行く場所ではなく、置いてくる物である。置いた後はその人の物として扱う:
+// 触っていない写しだけを新しくし、編集した物は残し、消した物は二度と作らない。
+// 配布物に対して既に効いている所有ハッシュの規則を、そのまま自分の置き場へ広げている。
+const seedRecordPath = () => path.join(STATE_DIR(), 'seed.json');
+
+// 名前 → 'sample'(置いたまま) / 'edited'(手が入っている) / 'yours'(見本ではない)。
+// 出どころを分ける唯一の軸がこれである — 置き場は 1 つで、違いは中身にしかない。
+function seedStates() {
+  const rec = readJson(seedRecordPath(), null);
+  const states = new Map();
+  for (const [name, known] of Object.entries(rec?.modules ?? {})) {
+    const dir = path.join(PERSONAL_MODULES_DIR(), name);
+    if (!lstatOrNull(dir)) continue;
+    const same = Object.entries(known.files).every(([rel, h]) => {
+      const p = path.join(dir, rel);
+      return lstatOrNull(p) && sha256(p) === h;
+    }) && walk(dir).every((rel) => known.files[rel] !== undefined);
+    states.set(name, same ? 'sample' : 'edited');
+  }
+  return states;
+}
+
+function seedModules(force) {
+  if (!lstatOrNull(SEED_MODULES_DIR)?.isDirectory()) return;
+  const rec = readJson(seedRecordPath(), null) ?? { schema: 1, modules: {} };
+  const home = PERSONAL_MODULES_DIR();
+  const placed = [], updated = [], edited = [];
+  let dirty = false;
+
+  for (const e of fs.readdirSync(SEED_MODULES_DIR, { withFileTypes: true })) {
+    if (!e.isDirectory() || !lstatOrNull(path.join(SEED_MODULES_DIR, e.name, 'module.json'))) continue;
+    const src = path.join(SEED_MODULES_DIR, e.name);
+    const dst = path.join(home, e.name);
+    const known = rec.modules[e.name];
+    // 消したのは意思である。見本が新しくなっても作り直さない。
+    if (known && !lstatOrNull(dst)) continue;
+    const was = known?.files ?? {};
+    const now = {};
+    let wrote = 0, held = false;
+
+    for (const rel of walk(src)) {
+      const from = path.join(src, rel);
+      const to = path.join(dst, rel);
+      const hash = sha256(from);
+      const st = lstatOrNull(to);
+      if (!st) {
+        // 憶えている物が無いなら、消したということ。憶えが無いなら、見本に増えた物である。
+        if (was[rel] !== undefined && !force) continue;
+      } else if (sha256(to) === hash) {
+        now[rel] = hash;
+        continue;
+      } else if (!(was[rel] !== undefined && sha256(to) === was[rel]) && !force) {
+        now[rel] = was[rel] ?? sha256(to); // 編集した物は残し、所有の記録だけ保つ
+        held = true;
+        continue;
+      }
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      writeFileAtomic(to, fs.readFileSync(from), fs.statSync(from).mode & 0o777);
+      now[rel] = hash;
+      wrote++;
+    }
+    // 見本から消えたファイルは、触られていなければ刈る
+    for (const [rel, h] of Object.entries(was)) {
+      if (now[rel] !== undefined) continue;
+      const to = path.join(dst, rel);
+      if (lstatOrNull(to) && sha256(to) === h) {
+        fs.unlinkSync(to);
+        removeEmptyDirsUpTo(path.dirname(to), dst);
+      }
+    }
+    if (!known && wrote) placed.push(e.name);
+    else if (wrote) updated.push(e.name);
+    if (held) edited.push(e.name);
+    rec.modules[e.name] = { files: now };
+    dirty = true;
+  }
+
+  if (!dirty) return;
+  rec.version = pkg().version;
+  writeJson(seedRecordPath(), rec);
+  // 配達の数には混ぜない。ここで起きたのは見本の設置であって、配備ではない。
+  if (placed.length) {
+    console.log(`  ${ui.green('+')} ${placed.join(' ')} ${ui.dim(`→ ${homePath(home)} (yours now — edit or delete them freely)`)}`);
+  }
+  if (updated.length) console.log(`  ${ui.yellow('~')} ${updated.join(' ')} ${ui.dim('(refreshed from the sample set)')}`);
+  if (edited.length) console.log(`  ${ui.dim(`  kept your edits in ${edited.join(' ')}${force ? '' : ' (--force to take the sample version)'}`)}`);
+}
+
+// module の在処は 1 つだけ — ~/.dotagents/modules/ である。見本もここへ実体で置かれるので、
+// 「読む場所」と「自分の場所」が分かれていない。要らない物は消せ、真似して直せ、隣に自分の
+// 物を足せる。それが一目で分かることが、経路の純度より価値がある。
+function moduleSources() {
+  return [{ root: PERSONAL_MODULES_DIR() }];
+}
+
+// 名前 → { dir }。名前はディレクトリ名であり、同じ場所に同じ名前は 2 つ作れない。
 function moduleIndex() {
   const index = new Map();
   for (const src of moduleSources()) {
     if (!lstatOrNull(src.root)?.isDirectory()) continue;
     for (const e of fs.readdirSync(src.root, { withFileTypes: true })) {
       if (!e.isDirectory() || !lstatOrNull(path.join(src.root, e.name, 'module.json'))) continue;
-      const dir = path.join(src.root, e.name);
-      const found = index.get(e.name);
-      if (found) {
-        throw new Error(`two modules are named ${e.name}:\n` +
-          `         ${homePath(found.dir)}\n` +
-          `         ${homePath(dir)}\n` +
-          `       Rename one — a rule must have a single place it comes from.`);
-      }
-      index.set(e.name, { name: e.name, dir, personal: src.personal });
+      index.set(e.name, { name: e.name, dir: path.join(src.root, e.name) });
     }
   }
   return index;
@@ -222,6 +352,8 @@ function moduleMeta(name) {
     name,
     description: typeof meta.description === 'string' ? meta.description : '',
     requires: Array.isArray(meta.requires) ? meta.requires.filter((r) => typeof r === 'string') : [],
+    // この module が受け継いだ、もう正本に無い名前。移行が済んだと判断したら消せばよい。
+    replaces: Array.isArray(meta.replaces) ? meta.replaces.filter((r) => typeof r === 'string') : [],
   };
 }
 
@@ -231,13 +363,20 @@ function missingRequirements(name) {
   return moduleMeta(name).requires.filter((cmd) => !onPath(cmd));
 }
 
+// 退役した名前は、別名として生かさない — 正しい形へ案内して止まる。行き先を知っているのに
+// 黙るのは、記録が無言で追従するのと釣り合わない。手順書もスクリプトも、ここを読んで直る。
 function assertKnownModules(names) {
   const known = new Set(moduleNames());
   const unknown = names.filter((n) => !known.has(n));
-  if (unknown.length) {
-    throw new Error(`unknown module: ${unknown.join(' ')}\n` +
-      `       Run \`agents-setup list\` to see what you can install.`);
-  }
+  if (!unknown.length) return;
+  const heirs = renameMap();
+  const say = (n) => {
+    const to = heirs.get(n);
+    if (!to) return `unknown module: ${n}`;
+    return `${n} is retired — it was ${to.length > 1 ? 'split into' : 'renamed to'} ${to.join(' ')}. Name those instead.`;
+  };
+  throw new Error(`${unknown.map(say).join('\n       ')}\n` +
+    `       Run \`agents-setup list\` to see what you can install.`);
 }
 
 // plugin の身元。内容は選んだ module 群から導出されるので、コピーではなく生成して配る。
@@ -257,7 +396,7 @@ const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs'])
 // - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
 // - skills/<name>/ → Codex : .codex/skills/dotagents-<name>/(名前空間が無いので名前へ畳む)
 // - AGENTS.md      → コピーではなく規則ファイルへの管理ブロック(rulesTargets)
-function deliveryEntries(ctx, modules) {
+function deliveryEntries(ctx, modules, { keepPlugin = false } = {}) {
   const entries = [];
   const seen = new Map();
   // unit = 配達の単位(plugin ならそのディレクトリ)。unit 自体が symlink の環境では
@@ -290,7 +429,7 @@ function deliveryEntries(ctx, modules) {
       }
     }
   }
-  if (entries.length) {
+  if (entries.length || keepPlugin) {
     add({
       module: null,
       content: pluginManifest(modules),
@@ -308,9 +447,9 @@ function entryHash(e) {
 
 function writeEntry(e) {
   fs.mkdirSync(path.dirname(e.dst), { recursive: true });
-  if (e.content !== undefined) return void fs.writeFileSync(e.dst, e.content);
-  fs.copyFileSync(e.src, e.dst);
-  fs.chmodSync(e.dst, fs.statSync(e.src).mode & 0o777); // フックの実行ビットを保つ
+  if (e.content !== undefined) return void writeFileAtomic(e.dst, e.content);
+  // フックの実行ビットを保つ。規則は小さいので、丸ごと読んでから一息で置き換える。
+  writeFileAtomic(e.dst, fs.readFileSync(e.src), fs.statSync(e.src).mode & 0o777);
 }
 
 // 消してよいのは自分が張った(created: true の)旧リンクだけ。
@@ -368,7 +507,7 @@ function removeZshenvLine(ctx, log) {
   const text = fs.readFileSync(ctx.zshenv, 'utf8');
   const kept = text.split('\n').filter((l) => !l.includes(MARKER));
   if (kept.join('\n') !== text) {
-    fs.writeFileSync(ctx.zshenv, kept.join('\n'));
+    writeFileAtomic(ctx.zshenv, kept.join('\n'));
     log.del(`legacy zshenv managed line`);
   }
 }
@@ -464,13 +603,21 @@ const BLOCK_END = '<!-- agents-harness:end -->';
 // 目印は agents-harness:begin までで、行の残りは飾りである。
 const hasBlock = (text) => /^[ \t]*<!-- agents-harness:begin/m.test(text);
 
-function rulesBody(modules) {
-  const parts = [];
+// module ごとの本文を返す。1 本の文字列ではなく分けて持つのは、供給元を失った module の
+// 遍在則を、記録から復元して残せるようにするためである — CLAUDE.md へ注がれる規則が
+// 「置き場のディレクトリを消した」だけで黙って抜けるのは、最も避けたい失われ方である。
+function rulesBodies(modules) {
+  const bodies = {};
   for (const m of modules) {
     const src = path.join(moduleDir(m), 'AGENTS.md');
-    if (lstatOrNull(src)) parts.push(fs.readFileSync(src, 'utf8').trim());
+    if (lstatOrNull(src)) bodies[m] = fs.readFileSync(src, 'utf8').trim();
   }
-  return parts.length ? parts.join('\n\n') : null;
+  return bodies;
+}
+
+function joinBodies(bodies) {
+  const keys = Object.keys(bodies).sort();
+  return keys.length ? keys.map((k) => bodies[k]).join('\n\n') : null;
 }
 
 function desiredBlock(body) { return [BLOCK_BEGIN, body, BLOCK_END].join('\n'); }
@@ -519,7 +666,7 @@ function applyRulesBlock(ctx, t, body, oldRecord, log) {
   const kept = stripBlock(text.split('\n'));
   while (kept.length && kept[kept.length - 1] === '') kept.pop();
   fs.mkdirSync(path.dirname(t.file), { recursive: true });
-  fs.writeFileSync(t.file, [...kept, ...(kept.length ? [''] : []), desired, ''].join('\n'));
+  writeFileAtomic(t.file, [...kept, ...(kept.length ? [''] : []), desired, ''].join('\n'));
   if (st) log.update(`rules block ${rel}`);
   else log.add(`rules block ${rel}`);
   return { file: rel, createdFile: st ? oldRecord?.createdFile === true : true };
@@ -537,7 +684,7 @@ function removeRulesBlock(ctx, record, log) {
     log.del(`rules block ${record.file} (removed the file — it was ours)`);
     return;
   }
-  fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
+  writeFileAtomic(file, kept.length ? kept.join('\n') + '\n' : '');
   log.del(`rules block ${record.file}`);
 }
 
@@ -771,25 +918,29 @@ function multiSelect({ title, options }) {
 async function resolveModules(cmd, opts) {
   if (opts.modules.length) { assertKnownModules(opts.modules); return opts; }
   const available = moduleNames();
-  if (!available.length) throw new Error(`no modules available — none bundled, none in ${homePath(PERSONAL_MODULES_DIR())}.`);
+  if (!available.length) throw new Error(`no modules in ${homePath(PERSONAL_MODULES_DIR())} — run \`npm i -g @hiroiku/dotagents\` to have the sample set placed there.`);
   if (!isInteractive()) {
     throw new Error(
       `no module given for \`${cmd}\`. Name at least one:\n` +
       available.map((n) => `         agents-setup ${cmd} ${n}`).join('\n') + '\n' +
       `       (run it in a terminal to choose interactively)`);
   }
+  const states = seedStates();
   const picked = await multiSelect({
     title: cmd === 'uninstall' ? 'Which modules to remove?' : 'Which modules?',
     options: available.map((n) => {
       const meta = moduleMeta(n);
       const missing = missingRequirements(n);
+      // 出どころは選ぶ前に要る。見本のままか、手が入っているかで意味が違う。
+      const origin = { sample: `from ${VENDOR}`, edited: `from ${VENDOR}, edited by you` }[states.get(n)] ?? 'yours';
+      const req = !meta.requires.length ? ''
+        : missing.length
+          ? `requires ${meta.requires.join(' ')} — missing: ${missing.join(' ')}`
+          : `requires ${meta.requires.join(' ')} — found`;
       return {
         label: n,
         detail: meta.description,
-        hint: !meta.requires.length ? ''
-          : missing.length
-            ? `requires ${meta.requires.join(' ')} — missing: ${missing.join(' ')}`
-            : `requires ${meta.requires.join(' ')} — found`,
+        hint: [origin, req].filter(Boolean).join(' · '),
       };
     }),
   });
@@ -842,7 +993,7 @@ function migrateLegacy(ctx, log) {
       if (hasBlock(text)) {
         const kept = stripBlock(text.split('\n'));
         while (kept.length && kept[kept.length - 1] === '') kept.pop();
-        fs.writeFileSync(file, kept.length ? kept.join('\n') + '\n' : '');
+        writeFileAtomic(file, kept.length ? kept.join('\n') + '\n' : '');
         log.del('legacy AGENTS.md reference block');
       }
     }
@@ -876,16 +1027,28 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   }
 
   // 憶えている選択に今回の指定を足す(install は加算、uninstall が減算)。module の概念を
-  // 持たない旧記録(新旧どちらのレイアウトでも)は、当時の唯一の配布物とみなして harness へ寄せる。
+  // 持たない旧記録(新旧どちらのレイアウトでも)は、当時の唯一の配布物とみなして引き取る。
   assertKnownModules(opts.modules);
-  const remembered = old ? old.modules ?? ['harness'] : legacy ? ['harness'] : [];
+  const recorded = old ? old.modules ?? [SOLE_MODULE_THEN] : legacy ? [SOLE_MODULE_THEN] : [];
+  // 受け継がれた名前は、消えたのではなく行き先がある。黙って引き継がず、対応を言う。
+  const heirs = renameMap();
+  for (const n of recorded.filter((n) => heirs.has(n))) {
+    const to = heirs.get(n);
+    log.update(`module ${n} → ${to.join(' ')} (it was ${to.length > 1 ? 'split' : 'renamed'})`);
+  }
+  const remembered = followRenames(recorded, heirs);
   const wanted = replaceModules ? opts.modules : [...new Set([...remembered, ...opts.modules])].sort();
   // 正本から消えた module は記録から落とす。挙げられた名前は上で検査済みなので、
   // ここで落ちるのは「憶えていたが、もう正本に無い」物だけである。
+  // 供給元を失った module は、記録からも配達先からも消さない。置き場のディレクトリを消すのは
+  // 軽い操作で、それが他のプロジェクトのリポジトリを書き換えてよい理由にはならない。
+  // 消すのは uninstall を明示したときだけである。ここでは配れないことを言うに留める。
   const known = new Set(moduleNames());
   const modules = wanted.filter((n) => known.has(n));
-  for (const n of wanted.filter((n) => !known.has(n))) log.del(`module ${n} (no longer available)`);
-  const entries = deliveryEntries(ctx, modules);
+  const orphans = wanted.filter((n) => !known.has(n));
+  // 孤児の配達物が残るなら plugin の身元も残す — plugin.json が無いと、残した物ごと読まれない。
+  const orphanHasFiles = orphans.some((n) => Object.values(old?.files || {}).some((v) => fileOwner(v) === n));
+  const entries = deliveryEntries(ctx, modules, { keepPlugin: orphanHasFiles });
 
   // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込みと、配達先を塞ぐ旧 symlink の掃除
   migrateLegacy(ctx, log);
@@ -906,33 +1069,38 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     }
     const srcHash = entryHash(e);
     const st = lstatOrNull(dst);
-    const recorded = old?.files?.[rel];
+    const was = fileHash(old?.files?.[rel]);
+    const mine = (hash) => ({ hash, module: e.module ?? null });
     if (!st) {
       writeEntry(e);
-      files[rel] = srcHash;
+      files[rel] = mine(srcHash);
       log.add(rel);
     } else if (sha256(dst) === srcHash) {
-      files[rel] = srcHash;
+      files[rel] = mine(srcHash);
       log.ok(rel);
-    } else if (recorded && sha256(dst) === recorded) {
+    } else if (was && sha256(dst) === was) {
       writeEntry(e);
-      files[rel] = srcHash;
+      files[rel] = mine(srcHash);
       log.update(rel);
     } else if (opts.force) {
       writeEntry(e);
-      files[rel] = srcHash;
+      files[rel] = mine(srcHash);
       log.update(`${rel}(--force で上書き)`);
     } else {
       log.warn(`modified in place, leaving it (use --force to overwrite): ${dst}`);
-      if (recorded) files[rel] = recorded; // 所有記録は保持し、状態は status が報告する
+      if (was) files[rel] = mine(was); // 所有記録は保持し、状態は status が報告する
     }
   }
 
   // 2. 配達されなくなったファイルの刈り込み(自分が置いた内容のままのものだけ)。
   //    module を外したとき・正本から消えたとき・旧配置から移ったときの、どれにも同じ規則が効く。
   const relSet = new Set(entries.map((e) => e.rel));
-  for (const [rel, hash] of Object.entries(old?.files || {})) {
+  const orphanSet = new Set(orphans);
+  for (const [rel, v] of Object.entries(old?.files || {})) {
     if (files[rel] !== undefined || relSet.has(rel)) continue;
+    // 供給元を失った module が置いた物は、所有の記録ごと持ち越す
+    if (orphanSet.has(fileOwner(v))) { files[rel] = v; continue; }
+    const hash = fileHash(v);
     const dst = path.join(ctx.base, rel);
     const st = lstatOrNull(dst);
     if (!st) continue;
@@ -945,8 +1113,13 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     }
   }
 
-  // 3. 規則ブロック(旧記録から外れた先の刈り込み → 現在の対象への適用)
-  const body = rulesBody(modules);
+  // 3. 規則ブロック(旧記録から外れた先の刈り込み → 現在の対象への適用)。
+  //    供給元を失った module の分は、記録に残した本文をそのまま持ち越す。
+  const bodies = rulesBodies(modules);
+  for (const n of orphans) {
+    if (old?.rulesBodies?.[n] !== undefined) bodies[n] = old.rulesBodies[n];
+  }
+  const body = joinBodies(bodies);
   const oldBlocks = new Map((old?.rulesBlocks || []).map((r) => [r.file, r]));
   const rulesRecords = [];
   if (body !== null) {
@@ -962,19 +1135,33 @@ async function install(opts, { requireExisting = false, replaceModules = false }
 
   // 4. manifest(マシン固有の記録なので ~/.dotagents/ に置き、配備先には何も残さない)
   writeJson(manifestPath(ctx), {
-    schema: 3,
+    schema: 4,
     kind: ctx.kind,
     base: ctx.base,
-    modules,
+    modules: [...modules, ...orphans].sort(),
     version: pkg().version,
     installedAt: new Date().toISOString(),
     files,
+    rulesBodies: bodies,
     rulesBlocks: rulesRecords,
   });
 
   const c = log.counts;
-  console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan(modules.join(' '))}`);
+  console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan([...modules, ...orphans].sort().join(' ')) || ui.dim('none')}`);
   console.log(`  ${summary(c)}`);
+  for (const n of orphans) {
+    const owned = Object.keys(files).filter((rel) => fileOwner(files[rel]) === n);
+    const kept = owned.filter((rel) => lstatOrNull(path.join(ctx.base, rel))).length;
+    const lost = owned.length - kept;
+    const what = [
+      kept ? `kept ${kept} delivered file${kept > 1 ? 's' : ''}, unverifiable until the module is back` : '',
+      lost ? `${lost} recorded file${lost > 1 ? 's' : ''} missing with nothing to restore from` : '',
+      !owned.length ? 'nothing was delivered from it; the record is kept' : '',
+    ].filter(Boolean).join('; ');
+    console.log(`  ${ui.yellow('!')} ${n} ${ui.dim(`is gone from ${homePath(PERSONAL_MODULES_DIR())} — ${what}`)}`);
+    console.log(`    ${ui.dim(`\`agents-setup uninstall ${n}\` removes it; nothing else will`)}`);
+  }
+  if (orphans.length) process.exitCode = 1;
   // 依存の不在は配備の失敗ではない。伝えるが、終了コードは変えない。
   for (const m of modules) {
     const missing = missingRequirements(m);
@@ -1007,9 +1194,15 @@ async function uninstall(opts) {
   // 外れた module のファイルは「配達されなくなった物」として同じ所有権規則で刈られる。
   if (opts.modules.length && m) {
     // 正本から消えた module も外せる必要があるので、検査は記録に対して行う。
-    const remembered = m.modules ?? ['harness'];
+    const remembered = followRenames(m.modules ?? [SOLE_MODULE_THEN]);
     const unknown = opts.modules.filter((n) => !remembered.includes(n));
-    if (unknown.length) throw new Error(`not installed here: ${unknown.join(' ')} (installed: ${remembered.join(' ')})`);
+    if (unknown.length) {
+      // 記録は追従済みなので、古い名前はここに無い。行き先を言わないと外し方が判らない。
+      const heirs = renameMap();
+      const hint = unknown.filter((n) => heirs.has(n))
+        .map((n) => `\n       ${n} is retired — its rules are now ${heirs.get(n).join(' ')}`).join('');
+      throw new Error(`not installed here: ${unknown.join(' ')} (installed: ${remembered.join(' ')})${hint}`);
+    }
     const remaining = remembered.filter((n) => !opts.modules.includes(n));
     if (remaining.length) {
       return install({ ...opts, modules: remaining }, { requireExisting: true, replaceModules: true });
@@ -1020,11 +1213,11 @@ async function uninstall(opts) {
   migrateLegacy(ctx, log);
 
   for (const r of m?.rulesBlocks || []) removeRulesBlock(ctx, r, log);
-  for (const [rel, hash] of Object.entries(m?.files || {})) {
+  for (const [rel, v] of Object.entries(m?.files || {})) {
     const dst = path.join(ctx.base, rel);
     const st = lstatOrNull(dst);
     if (!st) continue;
-    if (sha256(dst) === hash) {
+    if (sha256(dst) === fileHash(v)) {
       fs.unlinkSync(dst);
       removeEmptyDirsUpTo(path.dirname(dst), pruneStop(ctx, dst));
       log.del(rel);
@@ -1063,19 +1256,34 @@ function status(opts) {
     return;
   }
 
-  const modules = m.modules ?? ['harness'];
-  console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan(modules.join(' '))}`);
+  const modules = followRenames(m.modules ?? [SOLE_MODULE_THEN]);
+  console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan(modules.join(' ')) || ui.dim('none')}`);
   console.log(ui.dim(`  version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installed=${m.installedAt}`));
   console.log(ui.dim(`  source=${m.source}`));
   console.log(ui.dim(`  home=${homePath(DOTAGENTS_HOME())}${process.env.DOTAGENTS_HOME ? ' (DOTAGENTS_HOME)' : ''}\n`));
 
   const known = new Set(moduleNames());
-  for (const n of modules.filter((n) => !known.has(n))) {
-    report(false, `module ${n} — no longer available, run update to prune`);
+  // 供給元を失った module。配達物は残してあるが、照合する元が無いので「合っている」とは言えない。
+  const orphans = modules.filter((n) => !known.has(n));
+  const ownedByOrphan = new Set();
+  for (const n of orphans) {
+    const owned = Object.keys(m.files || {}).filter((rel) => fileOwner(m.files[rel]) === n);
+    owned.forEach((rel) => ownedByOrphan.add(rel));
+    const kept = owned.filter((rel) => lstatOrNull(path.join(ctx.base, rel))).length;
+    const lost = owned.length - kept;
+    const what = [
+      kept ? `${kept} file${kept > 1 ? 's' : ''} kept but unverifiable` : '',
+      lost ? `${lost} missing with nothing to restore from` : '',
+      !owned.length ? 'nothing delivered from it' : '',
+    ].filter(Boolean).join(', ');
+    report(false, `module ${n} — gone from ${homePath(PERSONAL_MODULES_DIR())}: ${what} (\`uninstall ${n}\` to remove)`);
   }
+  // 正本に無い名前は、ここから先のどの照合にも渡さない。読むだけのコマンドが、
+  // 記録の古さで例外になって途中で黙るのが最悪である。
+  const present = modules.filter((n) => known.has(n));
 
   // 正本との照合。消えた module の分は「配達されなくなった物」として下で報告される。
-  const entries = deliveryEntries(ctx, modules.filter((n) => known.has(n)));
+  const entries = deliveryEntries(ctx, present);
   for (const e of entries) {
     const { dst, unit, rel } = e;
     if (lstatOrNull(unit)?.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
@@ -1084,16 +1292,17 @@ function status(opts) {
     if (st.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
     const h = sha256(dst);
     if (h === entryHash(e)) report(true, rel);
-    else if (h === m.files?.[rel]) report(false, `${rel} — the package is newer, run update`);
+    else if (h === fileHash(m.files?.[rel])) report(false, `${rel} — the package is newer, run update`);
     else report(false, `${rel} — modified in place`);
   }
   const relSet = new Set(entries.map((e) => e.rel));
   for (const rel of Object.keys(m.files || {})) {
-    if (!relSet.has(rel)) report(false, `${rel} — no longer delivered, run update to prune`);
+    // 孤児の分は module 単位で 1 行にまとめて報告済み。ここで並べ直さない。
+    if (!relSet.has(rel) && !ownedByOrphan.has(rel)) report(false, `${rel} — no longer delivered, run update to prune`);
   }
 
   // 規則ブロック
-  const body = rulesBody(modules);
+  const body = joinBodies(rulesBodies(present));
   if (body !== null) {
     for (const t of rulesTargets(ctx)) {
       const st = rulesBlockState(ctx, t, body);
@@ -1114,29 +1323,34 @@ function status(opts) {
 function list() {
   const index = moduleIndex();
   if (!index.size) {
-    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} nothing in ${homePath(BUNDLED_MODULES_DIR)}`);
+    // 置き場が空でも壊れてはいない。どこから来る物なのかだけを示す。
+    console.log(`\n  ${ui.yellow('no modules')} ${ui.dim('—')} nothing in ${homePath(PERSONAL_MODULES_DIR())}\n`);
+    console.log(`  ${ui.dim(`the sample set (${VENDOR})`)}   npm i -g @hiroiku/dotagents   ${ui.dim('(it places them here, yours to keep or delete)')}`);
+    console.log(`  ${ui.dim('your own')}                  ${ui.dim('put any module directory here — nothing else is needed')}`);
     process.exitCode = 1;
     return;
   }
   const names = [...index.keys()].sort();
   const w = Math.max(...names.map((n) => textWidth(n)));
-  for (const src of moduleSources()) {
-    const here = names.filter((n) => index.get(n).personal === src.personal);
-    if (!here.length) continue;
-    console.log(`\n  ${ui.bold(src.personal ? 'personal' : 'bundled')} ${ui.dim(`— ${homePath(src.root)}`)}\n`);
-    for (const n of here) {
-      const meta = moduleMeta(n);
-      const missing = missingRequirements(n);
-      console.log(`  ${ui.cyan(pad(n, w))}  ${ui.dim(meta.description)}`);
-      if (meta.requires.length) {
-        const mark = missing.length ? ui.yellow(`missing: ${missing.join(' ')}`) : ui.green('found');
-        console.log(`  ${pad('', w)}  ${ui.dim(`requires ${meta.requires.join(' ')}`)} ${mark}`);
-      }
+  // 置き場は 1 つ。見本として来た物か、手を入れた物か、自分で書いた物かだけを添える。
+  const states = seedStates();
+  console.log(`\n  ${ui.bold('modules')} ${ui.dim(`— ${homePath(PERSONAL_MODULES_DIR())}`)}\n`);
+  for (const n of names) {
+    const meta = moduleMeta(n);
+    const missing = missingRequirements(n);
+    console.log(`  ${ui.cyan(pad(n, w))}  ${ui.dim(meta.description)}`);
+    const notes = [];
+    const st = states.get(n);
+    if (st === 'sample') notes.push(`from ${VENDOR}`);
+    else if (st === 'edited') notes.push(`from ${VENDOR}, edited by you`);
+    if (meta.requires.length) {
+      notes.push(`requires ${meta.requires.join(' ')} ${missing.length ? `— missing: ${missing.join(' ')}` : '— found'}`);
     }
+    if (notes.length) console.log(`  ${pad('', w)}  ${ui.dim(notes.join(' · '))}`);
   }
   console.log(`\n${ui.dim('  agents-setup install <module>       into this project')}`);
   console.log(`${ui.dim('  agents-setup install <module> -g    for every project on this machine')}`);
-  console.log(ui.dim(`  modules of your own go in ${homePath(PERSONAL_MODULES_DIR())} — they stay on this machine`));
+  console.log(ui.dim(`  every module above is a directory you own — edit it, delete it, or drop a new one beside it`));
 }
 
 // ---------------------------------------------------------------- 旧 corpus(刈り取り専用)
@@ -1150,10 +1364,10 @@ function list() {
 function migrateCorpus() {
   const src = path.join(CORPUS_DIR(), 'modules');
   if (!lstatOrNull(src)?.isDirectory()) return;
-  const bundled = new Set(lstatOrNull(BUNDLED_MODULES_DIR) ? fs.readdirSync(BUNDLED_MODULES_DIR) : []);
+  const seeded = new Set(lstatOrNull(SEED_MODULES_DIR) ? fs.readdirSync(SEED_MODULES_DIR) : []);
   const moved = [];
   for (const e of fs.readdirSync(src, { withFileTypes: true })) {
-    if (!e.isDirectory() || bundled.has(e.name)) continue;
+    if (!e.isDirectory() || seeded.has(e.name)) continue;
     if (!lstatOrNull(path.join(src, e.name, 'module.json'))) continue;
     const dst = path.join(PERSONAL_MODULES_DIR(), e.name);
     if (lstatOrNull(dst)) continue; // 同名が既にあるなら、そちらが持ち主の意思である
@@ -1287,20 +1501,24 @@ const CMD_HELP = {
     options: [['--force', 'overwrite whatever sits in the way and does not match what would be delivered']],
     notes: ['Name no module to pick interactively; a non-interactive shell stops instead of choosing for you.'],
     examples: [
-      ['agents-setup install harness', 'into the current project'],
-      ['agents-setup install harness -g', 'for every project on this machine'],
-      ['agents-setup install harness -C ~/x', 'into a specific project'],
+      ['agents-setup install review', 'into the current project'],
+      ['agents-setup install review -g', 'for every project on this machine'],
+      ['agents-setup install review -C ~/x', 'into a specific project'],
       ['agents-setup install', 'choose the modules interactively'],
     ],
   },
   update: {
     usage: '[options]',
-    line: 'redeliver whatever is recorded here, and prune what is no longer delivered',
+    line: 'redeliver whatever is recorded here, keeping what lost its source',
     body: [
       'Requires an existing installation, and works on the module set the manifest',
       'remembers — no module names, no flags to recall. Beyond what install does, it',
-      'removes files still recorded but no longer delivered, and prunes any legacy',
-      '.agents layout it finds.',
+      'drops files a module no longer carries, and prunes any legacy .agents layout it',
+      'finds. A remembered name that a module now declares it replaces is followed to its',
+      'heirs, renamed or split, and the record is rewritten to say so.',
+      '',
+      'A delivered module whose source is gone from ~/.dotagents/modules/ is kept, not',
+      'removed — only uninstall takes rules out of a deployment. It is reported instead.',
       '',
       'New rules arrive by updating the package, not by running this. Update it the way',
       'you installed it (bun add -g / npm i -g), then run this to redeliver.',
@@ -1357,7 +1575,7 @@ function printHelp(cmd) {
   if (!cmd) {
     console.log(`${ui.bold('agents-setup')} ${ui.dim('<command> [module...] [options]')}\n`);
     // 対象ごとに語彙を分けて示す。
-    console.log(`${ui.bold('The rules')} ${ui.dim('— shipped with this package; yours go in ~/.dotagents/modules/')}`);
+    console.log(`${ui.bold('The rules')} ${ui.dim(`— every module lives in ~/.dotagents/modules/; the ${VENDOR} set is placed there for you`)}`);
     console.log(pad2([['list', CMD_HELP.list.line]]).join('\n'));
     console.log(`\n${ui.bold('Deployments')} ${ui.dim('— what a tool actually reads')}`);
     console.log(pad2(['install', 'update', 'uninstall', 'status'].map((k) => [k, CMD_HELP[k].line])).join('\n'));
@@ -1368,7 +1586,7 @@ function printHelp(cmd) {
       ['--help, -h', 'show this help, or the help for a command'],
       ['--version, -v', 'print the version'],
     ]).join('\n'));
-    console.log(`\n${ui.bold('Home')} ${ui.dim('— your own modules, and the record of what was placed')}`);
+    console.log(`\n${ui.bold('Home')} ${ui.dim('— every module, and the record of what was placed where')}`);
     console.log(`  ${ui.cyan(pad(homePath(DOTAGENTS_HOME()), 14))}  ${ui.dim(process.env.DOTAGENTS_HOME ? 'from DOTAGENTS_HOME' : 'set DOTAGENTS_HOME to move it')}`);
     console.log(`\n${ui.dim('Deployments are plain copies. Update the package for new rules, then `update` to redeliver.')}`);
     console.log(`\n${ui.dim(`Run \`agents-setup <command> --help\` for what a single command does.`)}`);
@@ -1409,6 +1627,8 @@ async function main() {
   }
   migrateStateDir();
   migrateCorpus();
+  // 見本は使う前に置く。status は読むだけのコマンドなので書かない。
+  if (cmd !== 'status') seedModules(opts.force);
   switch (cmd) {
     case 'list': return list();
     case 'install':

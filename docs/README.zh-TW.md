@@ -11,18 +11,20 @@
 - **代理會原生讀取結果。** 沒有 runtime、沒有 daemon、沒有任何接進你 shell 的東西——安裝程式把純粹的檔案寫進每個代理原本就會查看的位置,然後便退到一旁。
 - **一套規則,多個代理。** 同一個 module 會同時抵達 Claude Code 與 Codex,且各自採用該代理所理解的形式。
 
-## 安裝一個 module
+## 安裝
+
+只有一個套件。它帶來機制,同時**把一套經過甄選的 module 當作屬於你的普通目錄放進 `~/.dotagents/modules/`**——不要的刪掉,差一點的改掉,自己的就放在它們旁邊。凡是從我這裡來的都標著 `from hiroiku`,所以你永遠知道自己讀的是誰的意見。
 
 ```sh
-bun add -g @hiroiku/dotagents      # 一次性——或 npm i -g @hiroiku/dotagents
+bun add -g @hiroiku/dotagents      # 只此一次——或:npm i -g @hiroiku/dotagents
 
 dotagents list                     # 你可以安裝什麼
-dotagents install harness          # 安裝進目前的專案
-dotagents install harness -g       # 為本機上的每一個專案安裝
-dotagents install harness -C ~/x   # 安裝進指定的專案
+dotagents install review           # 安裝進目前的專案
+dotagents install review -g        # 為本機上的每一個專案安裝
+dotagents install review -C ~/x    # 安裝進指定的專案
 ```
 
-沒有準備步驟。各個 module 就裝在這個套件裡,因此第一道指令便直接安裝——沒有要複製的東西、沒有要取回的東西,也沒有必須先遷移才能開工的狀態。若不想全域安裝,`bunx @hiroiku/dotagents install harness` 做的是同一件事。
+沒有要複製的東西、沒有要取回的東西,也沒有必須先遷移才能開工的狀態:module 就在套件裡一同旅行,所以第一道指令把它們放下,下一道就能直接安裝。
 
 目標預設為目前這個專案——影響範圍最小的那一個——而更廣的範圍一律需要旗標。至於要放入什麼,則從不預設:指名一個 module,或以互動方式挑選。非互動式 shell 會直接停止,而不替你做選擇。
 
@@ -34,7 +36,7 @@ Node 或 Bun,這台機器上有哪個都行——CLI 本身會挑選那台機器
 
 ```
 modules/<name>/
-├── module.json    它是什麼、以及它期望 PATH 上有什麼
+├── module.json    它是什麼、它期望 PATH 上有什麼、它接手了什麼
 ├── README.md      它為何存在——寫給人看,永不部署
 ├── AGENTS.md      注入每一次工作階段的規則
 ├── skills/        只在時機到來時才被讀取的規則
@@ -49,19 +51,33 @@ modules/<name>/
 
 一個 module 可以宣告它期望 `PATH` 上有什麼。這些要求是**被偵測,而非被安裝**的:`list` 與 `install` 會回報缺少了什麼,但不阻擋任何事,因此日後才補上工具也無須重新安裝。
 
-[modules/](../modules/) 是這份分發內容的權威定義——安裝程式並不持有檔案的清單,因此沒有任何東西會無聲地失去同步。隨套件附上的 module 既是預設,也同樣是範例,而非一組要你整套照收的東西:[harness](../modules/harness/docs/README.zh-TW.md) 承載審查代理,以及模型無法猜出的慣例;[architecture](../modules/architecture/docs/README.zh-TW.md) 則承載一條對某些專案適切、對另一些則否的依賴規則;[github](../modules/github/docs/README.zh-TW.md) 承載 issue 的哪種機制承載哪種意義。
+它也可以宣告自己接手了哪個已退役的名稱(`replaces`),於是仍記著舊名稱的記錄會一路跟到規約的去處——無論是改名,或是拆成了好幾個。安裝程式自己不持有任何對照表:說出名稱去了哪裡的是那份正本;等到遷移走完,要刪掉的是 module 裡的那一行,而不是安裝程式裡的程式碼。
 
-你自己的 module 以同樣的形狀放進 `~/.dotagents/modules/`。它們由完全相同的指令安裝,並留在你的機器上——永不進入任何儲存庫,也永不進入任何已發布的套件。`list` 會同時顯示這兩個來源;同一個名稱被佔用兩次是一個錯誤,而非一次無聲的覆寫。
+[modules/](../modules/) 是那一套的權威定義。安裝程式並不持有清單:檔案的清單沒有,module 的清單也沒有;它只讀 `~/.dotagents/modules/` 裡實際存在的東西。這一套既是預設,也同樣是起點,而非一組要你整套照收的東西:[review](../modules/review/README.md) 把驗證交給沒有寫過這段程式碼的 context;[code](../modules/code/README.md) 承載註解是為了什麼而存在;[git](../modules/git/README.md)·[testing](../modules/testing/README.md)·[prompting](../modules/prompting/README.md) 承載模型無法猜出的慣例,各自只在生效的那一刻才被讀到;[architecture](../modules/architecture/docs/README.zh-TW.md) 則承載一條對某些專案適切、對另一些則否的依賴規則;[github](../modules/github/README.md) 承載 issue 的哪種機制承載哪種意義。
+
+各個 module 是這樣切分的:其中一個不適合你,也不會把其餘的一併拖走。這裡沒有套裝:可以只把 `git` 與 `testing` 裝進那台不適合審查角色的機器,也可以只把 `review` 裝進唯一需要它的那個儲存庫。
+
+module 只能住在一個地方:`~/.dotagents/modules/`。範例並不是從套件裡被讀取,而是被*放到*那裡——於是你能安裝的集合與你能修改的集合是同一個集合。形狀相同的東西都算:無論你用什麼辦法取得,把那個目錄放進這裡,它就是一個 module。
+
+一旦放下,module 就是你的了:
+
+| | |
+|---|---|
+| 你沒有動過 | 套件帶來新版本時會跟著更新 |
+| 你改過 | 保留並告知(`--force` 取用範例的內容) |
+| 你刪掉了 | 再也不會被放回來 |
+
+`list` 依然會說出各自的來源——我帶來的這一套標著 `from hiroiku`,動過的會再加上 `edited by you`,你自己寫的則什麼也不加。
 
 ## 它存放在哪裡
 
 ```
 ~/.dotagents/         屬於你的一切,集中於一處
-├── modules/          你自己的 module
-└── state/            何物被放置於何處的紀錄
+├── modules/          所有 module——範例也放在這裡
+└── state/            什麼被放到了哪裡,以及你改過哪些範例
 ```
 
-凡是來自 npm 的東西都不住在這裡——安裝程式不在,隨套件附上的 module 也不在。兩者都在它們各自的來處被替換。
+安裝程式本身不住在這裡,它在自己的來處被替換。module 住在這裡——包括這個套件放下的那些。這正是要點所在。
 
 `DOTAGENTS_HOME` 能把這一整套搬走;其餘一切都無須被告知。只有一個家目錄,而每一條路徑都由它衍生——`status` 與 `--help` 會印出當前生效的那一個,因此一台機器絕不會隱瞞它的規則從何而來。
 
@@ -74,7 +90,9 @@ dotagents status               # 驗證每一個已交付的檔案——出現�
 dotagents --help               # 全部指令、選項、範例
 ```
 
-`install` 是累加的,`uninstall` 是遞減的,因此一次部署所持有的集合是一個 module 一個 module 地累積與拆卸的。`update` 以 manifest 所記得的內容為準:重新交付那一組,移除仍在紀錄中但已不再交付的東西,並清理它所發現的任何舊佈局。
+`install` 是累加的,`uninstall` 是遞減的,因此一次部署所持有的集合是一個 module 一個 module 地累積與拆卸的。`update` 以 manifest 所記得的內容為準:重新交付那一組,並清理它所發現的任何舊佈局。
+
+**只有 `uninstall` 會從部署處移除規則。** 從 `~/.dotagents/modules/` 刪掉一個 module 是日常的、輕微的動作,它不足以成為改寫你裝過它的每一個專案的理由。所以當一個已交付的 module 失去了來源,`update` 會保留檔案、保留紀錄,也保留 `CLAUDE.md` 裡的那些行,並說明它保留了什麼、以及要怎樣移除。`status` 會把這種狀態報告為偏離——既然沒有可比對的來源,就不能說它是對的。
 
 **沒有任何東西會自行移動。** 交付的是治理你的代理的文本,因此交付既不會自動發生,也不會悄無聲息:每一道指令都會說明它放置了什麼、保留了什麼、移除了什麼。
 
@@ -89,7 +107,8 @@ dotagents update -g             # 以及 dotagents update -C <專案>
 
 | | 從哪裡來 | 如何更新 |
 |---|---|---|
-| **安裝程式,以及隨它一起發布的 module** | npm | 與你安裝的任何工具一樣 |
+| **機制**(`@hiroiku/dotagents`) | npm | 與你安裝的任何工具一樣 |
+| **範例這一套**(`hiroiku`) | 就在同一個套件裡 | 被放進 `~/.dotagents/modules/`,只有你沒動過的才跟著更新 |
 | **你自己的 module** | `~/.dotagents/modules/` | 它們屬於你;不會有別的東西往那裡寫 |
 
 一條路徑,而非兩條。兩條就意味著必有一條會陳舊下去——而**遷移你這套配置的程式碼,會被困在被遷移的那一側**,乾等著它本該送達的那次更新。只有一條時,修復與它所修復的規則會一同抵達,成為一個你叫得出名字的版本。
@@ -105,10 +124,14 @@ dotagents update -g             # 以及 dotagents update -C <專案>
 ```
 bin/agents-setup      CLI 本體(list / install / update / uninstall / status)
 test/                 安裝程式的契約測試(npm test · bun test)
-modules/              隨套件一起發布的 module
-├── harness/          審查代理,以及 git · testing · prompting 的慣例
+modules/              隨套件同行的範例一套——來自 hiroiku
+├── review/           反證式審查、OWASP、WCAG——在自己的 context 裡
+├── code/             註解是為了什麼而存在
+├── git/              提交標題、squash、rebase
+├── testing/          好測試的十二種性質
+├── prompting/        編輯提示詞之前要讀的東西
 ├── architecture/     由建置強制的依賴規則
 └── github/           issue 能承載什麼,該放在哪條軸上
 ```
 
-本儲存庫是兩者的上游,而 npm 同時攜帶兩者:`bin/` 與 `modules/` 作為同一個版本一起發布。
+一個套件,一個版本:機制與它放下的規則,永遠是一起被驗證過的那一對。這裡的 `modules/` 是範例的來處,而不是它們的住處——一旦放下,`~/.dotagents/modules/` 裡的那份副本就是你的。

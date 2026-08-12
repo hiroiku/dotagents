@@ -11,18 +11,20 @@
 - **エージェントは結果をそのまま読む。** ランタイムもデーモンも、シェルへの組み込みも無い — installer は各エージェントが既に見ている場所へ素のファイルを書き、あとは身を引く。
 - **規則は 1 組、エージェントは複数。** 同じ module が、それぞれのエージェントが理解する形で Claude Code と Codex に届く。
 
-## module を install する
+## install する
+
+パッケージは 1 つ。仕組みを運び、あわせて**選別された module の一式を `~/.dotagents/modules/` にあなたの物として実体で置く** — 要らない物は消し、惜しい物は直し、隣に自分の物を足せばよい。私から来る物はすべて `from hiroiku` と名乗るので、誰の意見を読んでいるかは常に分かる。
 
 ```sh
-bun add -g @hiroiku/dotagents      # 初回のみ — もしくは npm i -g @hiroiku/dotagents
+bun add -g @hiroiku/dotagents      # 一度だけ。もしくは npm i -g @hiroiku/dotagents
 
 dotagents list                     # install できる物
-dotagents install harness          # 現在のプロジェクトへ
-dotagents install harness -g       # このマシンの全プロジェクトへ
-dotagents install harness -C ~/x   # 指定したプロジェクトへ
+dotagents install review           # 現在のプロジェクトへ
+dotagents install review -g        # このマシンの全プロジェクトへ
+dotagents install review -C ~/x    # 指定したプロジェクトへ
 ```
 
-準備手順は無い。module はパッケージの中に同梱されているので、最初のコマンドがそのまま install になる — clone する物も、取ってくる物も、作業を始める前に移行しておくべき状態も無い。グローバルに入れずに済ませるなら `bunx @hiroiku/dotagents install harness` でも同じことができる。
+clone する物も、取ってくる物も、作業を始める前に移行しておくべき状態も無い: module はパッケージの中を一緒に旅してくるので、最初のコマンドがそれを置き、次のコマンドがそのまま install できる。
 
 対象の既定はこのプロジェクトである — 影響範囲が最小だからだ。より広い範囲には必ず flag が要る。何を入れるかに既定値は無い: module を名指しするか、対話で選ぶ。非対話シェルでは、代わりに選ぶのではなく停止する。
 
@@ -34,7 +36,7 @@ node と bun のどちらでもよい — CLI 自身がその機械に在る run
 
 ```
 modules/<name>/
-├── module.json    それが何者で、PATH に何を期待するか
+├── module.json    それが何者で、PATH に何を期待し、何を受け継いだか
 ├── README.md      存在理由 — 人のための物で、決して配備されない
 ├── AGENTS.md      全セッションに注入される規則
 ├── skills/        その時が来たときにだけ読まれる規則
@@ -49,19 +51,33 @@ modules/<name>/
 
 module は `PATH` に期待する物を宣言してよい。要件は**検出されるだけで、決して install されない**: `list` と `install` は欠けている物を報告するが、何も妨げない。だから後からツールを足しても、再 install は要らない。
 
-[modules/](../modules/) が配布物の正本の定義である — installer 側にファイルの列挙は存在しないので、同期のずれで古びる物が無い。同梱の module は既定であると同時に見本でもあり、丸ごと受け取るべき一式ではない: [harness](../modules/harness/docs/README.ja.md) はレビューエージェントと、モデルには推測できない慣習を携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を、[github](../modules/github/docs/README.ja.md) は issue のどの仕組みがどの意味を担うかを携える。
+退役した名前を受け継いだのなら、それも宣言してよい(`replaces`)。古い名前を憶えている記録は、規則が行った先まで — 改名であれ、複数への分割であれ — ついていく。installer は対応表を持たない: どこへ行ったかを言うのは正本であり、移行が済んだと判断したときに消すのは module の 1 行であって、installer ではない。
 
-自分の module は、同じ形のまま `~/.dotagents/modules/` に置く。同じコマンドで install され、自分のマシンに留まる — リポジトリにも、公開されるパッケージにも決して入らない。`list` は両方の出所を見せる。同じ名前が二度主張されたときは、黙って上書きするのではなくエラーになる。
+[modules/](../modules/) がその一式の正本の定義である。installer は列挙を持たない。ファイルの列挙も、module の列挙も持たず、`~/.dotagents/modules/` に在る物をそのまま読む。この一式は既定であると同時に出発点でもあり、丸ごと受け取るべき物ではない: [review](../modules/review/README.md) はコードを書かなかった context へ検証を渡し、[code](../modules/code/README.md) はコメントが何のためにあるかを、[git](../modules/git/README.md)・[testing](../modules/testing/README.md)・[prompting](../modules/prompting/README.md) はモデルには推測できない慣習を、それぞれ効く瞬間に読ませる形で携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を、[github](../modules/github/README.md) は issue のどの仕組みがどの意味を担うかを携える。
+
+module は、そのうちの 1 つが自分に合わなくても、残りを道連れにしないように切ってある。ここに束は無い: レビュー役が馴染まない機械へ `git` と `testing` だけを入れることも、必要な 1 つのリポジトリへ `review` だけを入れることもできる。
+
+module が住める場所は 1 つ、`~/.dotagents/modules/` だけである。見本はパッケージの中から読まれるのではなく、そこへ*置かれる* — だから install できる集合と、編集できる集合が同じ集合になる。同じ形の物なら何でも効く: どんな手で入手した物でも、そのディレクトリをそこへ置けば module である。
+
+置かれた後、module はその人の物である:
+
+| | |
+|---|---|
+| 触っていない | パッケージが新しい版を運んできたら追従する |
+| 編集した | 残して報告する(`--force` で見本の内容にする) |
+| 消した | 二度と置かれない |
+
+`list` は今もそれぞれの出どころを言う — 私が運ぶ一式は `from hiroiku`、手が入っていれば同じ物に `edited by you`、自分で書いた物には何も付かない。
 
 ## どこに住むか
 
 ```
 ~/.dotagents/         あなたの物すべてが、1 箇所に
-├── modules/          自分の module
-└── state/            何がどこへ置かれたかの記録
+├── modules/          すべての module — 見本もここに置かれる
+└── state/            何がどこへ置かれたか、見本のどれを変えたか
 ```
 
-npm から来た物はここに住まない — installer も、同梱の module もである。どちらも、来た場所で入れ替わる。
+installer 自体はここに住まない。来た場所で入れ替わる。module はここに住む — パッケージが置いた物も含めて。それがこの設計の要点である。
 
 `DOTAGENTS_HOME` を移せば全体が移る。他に知らせるべき物は無い。本拠地は 1 つで、あらゆるパスがそこから導かれる — `status` と `--help` は現に効いている本拠地を表示するので、マシンが規則の出所を隠すことは無い。
 
@@ -74,7 +90,9 @@ dotagents status               # 配備された全ファイルを検査 — 乖
 dotagents --help               # 全コマンド・オプション・例
 ```
 
-`install` は加算、`uninstall` は減算であり、配備先が保持する集合は module 1 つずつ積み上げられ、取り崩される。`update` は manifest が憶えている物を起点に働く: その集合を配り直し、記録に残るが既に配られていない物を除き、見つけた旧レイアウトを刈り取る。
+`install` は加算、`uninstall` は減算であり、配備先が保持する集合は module 1 つずつ積み上げられ、取り崩される。`update` は manifest が憶えている物を起点に働く: その集合を配り直し、見つけた旧レイアウトを刈り取る。
+
+**配備先から規則を消すのは `uninstall` だけである。** `~/.dotagents/modules/` から module を消すのは日常の軽い操作であり、それを入れた全プロジェクトを書き換えてよい理由にはならない。だから配達済みの module が供給元を失ったとき、`update` はファイルを残し、記録を残し、`CLAUDE.md` の行も残し、何を残したか・どう消すかを言う。`status` はそれを乖離として報告する — 照合する元が無い以上、合っているとは言えないからである。
 
 **勝手には動かない。** 配るのはエージェントを支配する文書なので、配備が自動で起きることも、黙って起きることも無い。どのコマンドも、置いた物・残した物・除いた物をそのつど示す。
 
@@ -89,7 +107,8 @@ dotagents update -g             # と dotagents update -C <project>
 
 | | どこから来るか | どう動くか |
 |---|---|---|
-| **installer と、同梱の module** | npm | 他の道具と同じように入れ替える |
+| **仕組み**(`@hiroiku/dotagents`) | npm | 他の道具と同じように入れ替える |
+| **見本の一式**(`hiroiku`) | その同じパッケージの中 | `~/.dotagents/modules/` へ置かれ、触っていない物だけが追従する |
 | **自分の module** | `~/.dotagents/modules/` | あなたの物である。他の誰もそこへ書かない |
 
 経路は 2 本ではなく 1 本である。2 本あれば必ず片方が古くなり、**設定を移行するコードが、移行される側の中に閉じ込められる** — 自分が届けるはずの更新を、自分が待つことになる。1 本なら、修正と、その修正が直す規則とが、名前の付いた 1 つのバージョンとして一緒に届く。
@@ -105,10 +124,14 @@ dotagents update -g             # と dotagents update -C <project>
 ```
 bin/agents-setup      CLI(list / install / update / uninstall / status)
 test/                 installer の契約テスト(npm test · bun test)
-modules/              パッケージに同梱される module 群
-├── harness/          レビューエージェントと、git・testing・prompting の慣習
+modules/              一緒に旅する見本の一式 — 配布元は hiroiku
+├── review/           反証としてのレビュー、OWASP、WCAG — 自分の context で
+├── code/             コメントが何のためにあるか
+├── git/              コミットタイトル、squash、rebase
+├── testing/          良いテストの 12 の性質
+├── prompting/        プロンプトを編集する前に読む物
 ├── architecture/     ビルドが強制する依存規則
 └── github/           issue が何を担えるか、どの軸に載せるか
 ```
 
-このリポジトリは両方の上流であり、npm は両方を運ぶ: `bin/` と `modules/` は、1 つのバージョンとして一緒に公開される。
+パッケージは 1 つ、版も 1 つ: 仕組みと、それが置く規則は、常に一緒に検証された組でしかない。ここの `modules/` は見本の出どころであって、住処ではない — 置かれた後、`~/.dotagents/modules/` の写しはあなたの物である。

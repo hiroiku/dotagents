@@ -1,0 +1,6 @@
+{
+  "description": "Verification handed to a context that did not write the code: adversarial review, OWASP Top 10, WCAG 2.2 AA — roles that read and run, never edit.",
+  "replaces": [
+    "harness"
+  ]
+}

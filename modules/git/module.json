@@ -1,0 +1,9 @@
+{
+  "description": "The conventions around git a model cannot derive: what a commit title says, what never appears in a message, how work is integrated and how it follows upstream.",
+  "requires": [
+    "git"
+  ],
+  "replaces": [
+    "harness"
+  ]
+}

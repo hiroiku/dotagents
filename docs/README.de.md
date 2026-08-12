@@ -11,18 +11,20 @@
 - **Agenten lesen das Ergebnis nativ.** Keine Runtime, kein Daemon, nichts in deine Shell verdrahtet — der Installer schreibt schlichte Dateien dorthin, wo jeder Agent ohnehin schaut, und geht dir dann aus dem Weg.
 - **Ein Regelwerk, viele Agenten.** Dasselbe Modul erreicht Claude Code und Codex, jeden in der Form, die dieser Agent versteht.
 
-## Ein Modul installieren
+## Installation
+
+Ein Paket. Es bringt den Mechanismus und **legt einen kuratierten Satz Module als gewöhnliche Verzeichnisse, die dir gehören, in `~/.dotagents/modules/`** — lösche, was du nicht willst, ändere, was fast passt, und lege dein Eigenes daneben. Alles, was von mir kommt, nennt sich `from hiroiku`, damit immer klar ist, wessen Meinung du liest.
 
 ```sh
 bun add -g @hiroiku/dotagents      # einmalig — oder: npm i -g @hiroiku/dotagents
 
 dotagents list                     # was du installieren kannst
-dotagents install harness          # in das aktuelle Projekt
-dotagents install harness -g       # für jedes Projekt auf dieser Maschine
-dotagents install harness -C ~/x   # in ein bestimmtes Projekt
+dotagents install review           # in das aktuelle Projekt
+dotagents install review -g        # für jedes Projekt auf dieser Maschine
+dotagents install review -C ~/x    # in ein bestimmtes Projekt
 ```
 
-Es gibt keinen Einrichtungsschritt. Die Module stecken im Paket selbst, daher installiert der erste Befehl sofort — nichts zu klonen, nichts zu holen, und kein Zustand, der erst migriert werden müsste, bevor du arbeiten kannst. `bunx @hiroiku/dotagents install harness` tut dasselbe, ohne global etwas zu installieren.
+Nichts zu klonen, nichts zu holen, kein Zustand, der erst migriert werden müsste: Die Module reisen im Paket mit, also legt der erste Befehl sie ab und der nächste installiert sofort.
 
 Das Ziel ist standardmäßig dieses Projekt — der kleinste Wirkungsradius — und der weitere Geltungsbereich verlangt immer ein Flag. Was hineinkommt, hat nie einen Standardwert: Benenne ein Modul oder wähle interaktiv. Eine nicht-interaktive Shell stoppt, statt für dich zu entscheiden.
 
@@ -34,7 +36,7 @@ Ein Verzeichnis mit einer `module.json`. Alles Weitere ist optional, und jede Ar
 
 ```
 modules/<name>/
-├── module.json    was es ist und was es auf PATH erwartet
+├── module.json    was es ist, was es auf PATH erwartet, was es beerbt
 ├── README.md      warum es existiert — für Menschen, wird nie bereitgestellt
 ├── AGENTS.md      Regeln, die in jede Sitzung injiziert werden
 ├── skills/        Regeln, die erst gelesen werden, wenn ihr Moment gekommen ist
@@ -49,19 +51,33 @@ modules/<name>/
 
 Ein Modul darf deklarieren, was es auf `PATH` erwartet. Voraussetzungen werden **erkannt, nie installiert**: `list` und `install` melden, was fehlt, und blockieren nichts — das Werkzeug später hinzuzufügen, erfordert also keine Neuinstallation.
 
-[modules/](../modules/) ist die kanonische Definition der Distribution — der Installer hält keine Liste der Dateien, also kann nichts still auseinanderdriften. Die mitgelieferten Module sind ebenso Beispiele wie Voreinstellungen, kein Satz, den du als Ganzes übernehmen sollst: [harness](../modules/harness/docs/README.de.md) trägt Review-Agenten und die Konventionen, die ein Modell nicht erraten kann, [architecture](../modules/architecture/docs/README.de.md) eine Abhängigkeitsregel, die für manche Projekte richtig ist und für andere nicht, [github](../modules/github/docs/README.de.md) die Zuordnung, welcher Mechanismus eines Issues welche Bedeutung trägt.
+Es darf auch deklarieren, welchen ausgemusterten Namen es übernommen hat (`replaces`), sodass ein Eintrag, der den alten Namen erinnert, den Regeln dorthin folgt, wohin sie gegangen sind — umbenannt oder auf mehrere aufgeteilt. Der Installer hält keine eigene Tabelle: Wohin ein Name ging, sagt der Korpus, und wenn die Migration ihren Lauf genommen hat, wird die Zeile aus dem Modul gelöscht, nicht aus dem Installer.
 
-Deine eigenen Module liegen in derselben Form in `~/.dotagents/modules/`. Sie werden von denselben Befehlen installiert und bleiben auf deiner Maschine — nie in einem Repository, nie in einem veröffentlichten Paket. `list` zeigt beide Quellen; ein doppelt vergebener Name ist ein Fehler statt einer stillen Überschreibung.
+[modules/](../modules/) ist die kanonische Definition dieses Satzes. Der Installer hält keine Liste: keine der Dateien und keine der Module; er liest, was in `~/.dotagents/modules/` liegt. Der Satz ist ebenso ein Ausgangspunkt wie eine Voreinstellung, nichts, das du als Ganzes übernehmen sollst: [review](../modules/review/README.md) übergibt die Verifikation an einen Kontext, der den Code nicht geschrieben hat, [code](../modules/code/README.md) wofür ein Kommentar da ist, [git](../modules/git/README.md) · [testing](../modules/testing/README.md) · [prompting](../modules/prompting/README.md) die Konventionen, die ein Modell nicht erraten kann — jede gelesen in dem Moment, in dem sie greift, [architecture](../modules/architecture/docs/README.de.md) eine Abhängigkeitsregel, die für manche Projekte richtig ist und für andere nicht, [github](../modules/github/README.md) die Zuordnung, welcher Mechanismus eines Issues welche Bedeutung trägt.
+
+Die Module sind so geschnitten, dass eines davon für dich falsch sein kann, ohne den Rest mitzunehmen. Hier gibt es kein Bündel: installiere `git` und `testing` auf einer Maschine, auf der die Review-Rollen nicht passen, oder `review` allein in das eine Repository, das sie braucht.
+
+Es gibt einen Ort, an dem ein Modul leben kann: `~/.dotagents/modules/`. Der Beispielsatz wird nicht aus dem Paket gelesen, sondern dorthin *gelegt* — so ist die Menge, die du installieren kannst, dieselbe wie die, die du bearbeiten kannst. Alles in derselben Form zählt: wie auch immer du es bekommen hast, lege das Verzeichnis dorthin, und es ist ein Modul.
+
+Einmal gelegt, gehört ein Modul dir:
+
+| | |
+|---|---|
+| du hast es nicht angerührt | wird aktualisiert, wenn das Paket eine neuere Version bringt |
+| du hast es bearbeitet | bleibt erhalten und wird gemeldet (`--force` übernimmt die Beispielfassung) |
+| du hast es gelöscht | wird nie wieder gelegt |
+
+`list` sagt weiterhin, woher jedes stammt — `from hiroiku` für den Satz, den ich mitgebe, bei Änderungen zusätzlich `edited by you`, und nichts bei denen, die du selbst geschrieben hast.
 
 ## Wo es liegt
 
 ```
 ~/.dotagents/         alles, was dir gehört, an einem Ort
-├── modules/          deine eigenen Module
-└── state/            die Aufzeichnung, was wohin platziert wurde
+├── modules/          alle Module — auch der Beispielsatz liegt hier
+└── state/            was wohin platziert wurde, und welche Beispiele du geändert hast
 ```
 
-Nichts, was von npm kam, wohnt hier — weder der Installer noch ein mitgeliefertes Modul. Beide werden dort ersetzt, wo sie herkamen.
+Der Installer selbst wohnt nicht hier; er wird dort ersetzt, wo er herkam. Die Module wohnen hier — auch die, die das Paket gelegt hat. Genau das ist der Punkt.
 
 `DOTAGENTS_HOME` verschiebt das Ganze; nichts sonst muss davon erfahren. Ein Home, und jeder Pfad leitet sich daraus ab — `status` und `--help` geben das jeweils wirksame Home aus, damit eine Maschine nie verbirgt, woher ihre Regeln stammen.
 
@@ -74,7 +90,9 @@ dotagents status               # jede ausgelieferte Datei prüfen — exit 1 bei
 dotagents --help               # jeder Befehl, jede Option, jedes Beispiel
 ```
 
-`install` ist additiv und `uninstall` subtraktiv, daher wird die Menge, die eine Bereitstellung hält, Modul für Modul auf- und abgebaut. `update` arbeitet mit dem, woran sich das Manifest erinnert: Es liefert diese Menge neu aus, entfernt, was verzeichnet, aber nicht mehr ausgeliefert ist, und beschneidet jedes alte Layout, das es findet.
+`install` ist additiv und `uninstall` subtraktiv, daher wird die Menge, die eine Bereitstellung hält, Modul für Modul auf- und abgebaut. `update` arbeitet mit dem, woran sich das Manifest erinnert: Es liefert diese Menge neu aus und beschneidet jedes alte Layout, das es findet.
+
+**Nur `uninstall` entfernt Regeln aus einer Bereitstellung.** Ein Modul aus `~/.dotagents/modules/` zu löschen ist ein kleiner, alltäglicher Schritt; jedes Projekt umzuschreiben, in das du es installiert hast, ist es nicht. Verliert ein ausgeliefertes Modul also seine Quelle, behält `update` die Dateien, behält den Eintrag, behält seine Zeilen in `CLAUDE.md` — und sagt, was es behalten hat und wie es zu entfernen ist. `status` meldet diesen Zustand als Abweichung, denn ohne Quelle gibt es nichts, woran sich die Dateien prüfen ließen.
 
 **Nichts bewegt sich von selbst.** Ausgeliefert werden die Texte, die deine Agenten regieren, also geschieht die Auslieferung nie automatisch und nie stillschweigend: Jeder Befehl zeigt, was er platziert, behalten und entfernt hat.
 
@@ -89,7 +107,8 @@ dotagents update -g             # und: dotagents update -C <projekt>
 
 | | Woher es kommt | Wie es sich bewegt |
 |---|---|---|
-| **Der Installer und die mitgelieferten Module** | npm | wie jedes andere Werkzeug, das du installierst |
+| **Der Mechanismus** (`@hiroiku/dotagents`) | npm | wie jedes andere Werkzeug, das du installierst |
+| **Der Beispielsatz** (`hiroiku`) | in demselben Paket | wird in `~/.dotagents/modules/` gelegt und dort erneuert, wo du ihn nicht angerührt hast |
 | **Deine eigenen Module** | `~/.dotagents/modules/` | sie gehören dir; nichts anderes schreibt dorthin |
 
 Ein Weg, nicht zwei. Zwei hieße, dass einer von beiden veraltet — und **der Code, der deine Einrichtung migriert, wäre in dem eingesperrt, was migriert wird**, wartend auf genau das Update, das er liefern soll. So kommen eine Korrektur und die Regeln, die sie korrigiert, gemeinsam an, in einer Version, die du benennen kannst.
@@ -105,10 +124,14 @@ Plugins im Projekt-Geltungsbereich werden nur geladen, wenn Claude Code in der R
 ```
 bin/agents-setup      die CLI (list / install / update / uninstall / status)
 test/                 Vertragstests für den Installer (npm test · bun test)
-modules/              die Module, die mit dem Paket ausgeliefert werden
-├── harness/          Review-Agenten, Konventionen für git · testing · prompting
+modules/              der Beispielsatz, der mitreist — von hiroiku
+├── review/           adversariale Review, OWASP, WCAG — in eigenem Kontext
+├── code/             wofür ein Kommentar da ist
+├── git/              Commit-Titel, Squash, Rebase
+├── testing/          die zwölf Eigenschaften eines guten Tests
+├── prompting/        was vor dem Bearbeiten eines Prompts zu lesen ist
 ├── architecture/     eine Abhängigkeitsregel, die der Build erzwingt
 └── github/           was ein Issue tragen kann, und auf welcher Achse
 ```
 
-Dieses Repository ist der Upstream von beidem, und npm trägt beides: `bin/` und `modules/` werden gemeinsam veröffentlicht, als eine Version.
+Ein Paket, eine Version: Der Mechanismus und die Regeln, die er legt, sind immer das Paar, das gemeinsam geprüft wurde. `modules/` hier ist die Herkunft des Beispiels, nicht sein Wohnort — einmal gelegt, gehört die Kopie in `~/.dotagents/modules/` dir.

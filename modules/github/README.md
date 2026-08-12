@@ -1,7 +1,5 @@
 # github
 
-English | [日本語](docs/README.ja.md) | [简体中文](docs/README.zh-CN.md) | [繁體中文](docs/README.zh-TW.md) | [한국어](docs/README.ko.md) | [Deutsch](docs/README.de.md) | [Español](docs/README.es.md) | [Français](docs/README.fr.md)
-
 A module about what a GitHub issue can carry and which mechanism carries which meaning. The rules themselves are in [skills/issues/SKILL.md](skills/issues/SKILL.md).
 
 ## Everything becomes a label

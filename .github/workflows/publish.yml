@@ -16,7 +16,8 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - name: the tag is the version being published
+      # 仕組みと見本の module は同じパッケージで出る。版は 1 つしか無い。
+      - name: the tag is the version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           version=$(node -p 'require("./package.json").version')

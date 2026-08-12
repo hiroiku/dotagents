@@ -11,18 +11,20 @@ English | [日本語](docs/README.ja.md) | [简体中文](docs/README.zh-CN.md) 
 - **Agents read the result natively.** No runtime, no daemon, nothing wired into your shell — the installer writes plain files where each agent already looks, and gets out of the way.
 - **One rule set, many agents.** The same module reaches Claude Code and Codex, each in the form that agent understands.
 
-## Install a module
+## Install
+
+One package. It brings the mechanism and **places a curated set of modules in `~/.dotagents/modules/` as ordinary directories you own** — delete the ones you don't want, edit the ones you nearly want, drop your own beside them. Everything that comes from me says `from hiroiku`, so you can always tell whose opinion you are reading.
 
 ```sh
 bun add -g @hiroiku/dotagents      # once — or: npm i -g @hiroiku/dotagents
 
 dotagents list                     # what you can install
-dotagents install harness          # into the current project
-dotagents install harness -g       # for every project on this machine
-dotagents install harness -C ~/x   # into a specific project
+dotagents install review           # into the current project
+dotagents install review -g        # for every project on this machine
+dotagents install review -C ~/x    # into a specific project
 ```
 
-There is no setup step. The modules ship inside the package, so the first command installs straight away — nothing to clone, nothing to fetch, and no state to migrate before you can work. `bunx @hiroiku/dotagents install harness` does the same without installing anything globally.
+Nothing to clone, nothing to fetch, and no state to migrate before you can work: the modules travel inside the package, so the first command places them and the next installs one straight away.
 
 The target defaults to this project — the smallest blast radius — and the wider scope always takes a flag. What goes in never defaults: name a module, or pick interactively. A non-interactive shell stops rather than choosing for you.
 
@@ -34,7 +36,7 @@ A directory with a `module.json`. Everything else is optional, and each kind has
 
 ```
 modules/<name>/
-├── module.json    what it is, and what it expects on PATH
+├── module.json    what it is, what it expects on PATH, what it replaces
 ├── README.md      why it exists — for people, never deployed
 ├── AGENTS.md      rules injected into every session
 ├── skills/        rules read only when their moment arrives
@@ -49,19 +51,33 @@ modules/<name>/
 
 A module may declare what it expects on `PATH`. Requirements are **detected, never installed**: `list` and `install` report what is missing and block nothing, so adding the tool later needs no reinstall.
 
-[modules/](./modules/) is the canonical definition of the distribution — the installer holds no list of the files, so nothing rots out of sync. The modules that ship here are examples as much as defaults, not a set you are meant to take whole: [harness](./modules/harness/README.md) carries review agents and the conventions a model cannot guess, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others, [github](./modules/github/README.md) which mechanism of an issue carries which meaning.
+It may also declare a retired name it took over (`replaces`), so a record that remembers the old one follows the rules to wherever they went — renamed, or split across several. The installer keeps no table of its own: the corpus says where a name went, and when the migration has run its course the line is deleted from the module, not from the installer.
 
-Modules of your own go in `~/.dotagents/modules/`, in the same shape. They are installed by the same commands and stay on your machine — never in a repository, never in a published package. `list` shows both sources; a name claimed twice is an error rather than a silent override.
+[modules/](./modules/) is the canonical definition of that set. The installer holds no list: not of the files, and not of the modules either — it reads whatever is in `~/.dotagents/modules/`. The set is a starting point as much as a default, not something you are meant to take whole: [review](./modules/review/README.md) hands verification to a context that did not write the code, [code](./modules/code/README.md) what a comment is for, [git](./modules/git/README.md) · [testing](./modules/testing/README.md) · [prompting](./modules/prompting/README.md) the conventions a model cannot guess, each read at the moment it applies, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others, [github](./modules/github/README.md) which mechanism of an issue carries which meaning.
+
+Modules are cut so that one of them can be wrong for you without taking the rest with it. Nothing here is a bundle: install `git` and `testing` on a machine where the review roles would not fit, or `review` alone into the one repository that needs it.
+
+There is one place a module can live: `~/.dotagents/modules/`. The sample set is *placed* there rather than read from inside the package, so the set you can install and the set you can edit are the same set. Anything in the same shape works — however you got it, put the directory there and it is a module.
+
+Once placed, a module is yours:
+
+| | |
+|---|---|
+| you left it alone | refreshed when the package brings a newer version |
+| you edited it | kept and reported (`--force` to take the sample version) |
+| you deleted it | never placed again |
+
+`list` still says where each one came from — `from hiroiku` for the set I ship, the same with `edited by you` once you have changed it, and nothing at all for the ones you wrote.
 
 ## Where it lives
 
 ```
 ~/.dotagents/         everything that is yours, in one place
-├── modules/          modules of your own
-└── state/            the record of what was placed where
+├── modules/          every module — the sample set is placed here too
+└── state/            what was placed where, and which samples you changed
 ```
 
-Nothing that came from npm lives here — no installer, no shipped module. Both are replaced where they came from.
+The installer itself never lives here; it is replaced where it came from. The modules do live here, including the ones the package placed — that is the point. `state/` records what was placed where, and which sample copies you have since changed or removed.
 
 `DOTAGENTS_HOME` moves the whole thing; nothing else needs to be told. One root, and every path derives from it — `status` and `--help` print the one in effect, so a machine never hides where its rules came from.
 
@@ -74,7 +90,9 @@ dotagents status               # verify every delivered file — exit 1 on drift
 dotagents --help               # every command, option, example
 ```
 
-`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. `update` works from what the manifest remembers: it redelivers that set, removes what is recorded but no longer delivered, and prunes any legacy layout it finds.
+`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. `update` works from what the manifest remembers: it redelivers that set and prunes any legacy layout it finds.
+
+**Only `uninstall` removes rules from a deployment.** Deleting a module from `~/.dotagents/modules/` is a small, everyday act; rewriting every project you installed it into is not. So when a delivered module no longer has a source, `update` keeps the files, keeps the record, keeps its lines in `CLAUDE.md`, and says what it kept and how to remove it. `status` reports the state as drift, because with no source there is nothing to verify the files against.
 
 **Nothing moves on its own.** What arrives are the texts that govern your agents, so the delivery is never automatic and never silent: every command prints what it placed, kept and removed.
 
@@ -89,7 +107,8 @@ dotagents update -g             # and: dotagents update -C <project>
 
 | | Where it comes from | How it moves |
 |---|---|---|
-| **The installer, and the modules it ships** | npm | like any other tool you install |
+| **The mechanism** (`@hiroiku/dotagents`) | npm | like any other tool you install |
+| **The sample set** (`hiroiku`) | inside that same package | placed in `~/.dotagents/modules/`, refreshed wherever you left it alone |
 | **Modules of your own** | `~/.dotagents/modules/` | they are yours; nothing else writes there |
 
 One path, not two. Two would mean one of them going stale — and the code that migrates your setup would be trapped inside the thing being migrated, waiting on the very update it is supposed to deliver. Here a fix and the rules it fixes arrive together, in one version you can name.
@@ -105,10 +124,14 @@ Project-scope plugins load only when Claude Code starts at the repository root, 
 ```
 bin/agents-setup      the CLI (list / install / update / uninstall / status)
 test/                 contract tests for the installer (npm test · bun test)
-modules/              the modules that ship with the package
-├── harness/          review agents, git · testing · prompting conventions
+modules/              the sample set that travels with it — from hiroiku
+├── review/           adversarial review, OWASP, WCAG — in a context of their own
+├── code/             what a comment is for
+├── git/              commit titles, squash, rebase
+├── testing/          the twelve properties of a good test
+├── prompting/        what to read before editing a prompt
 ├── architecture/     a dependency rule the build can enforce
 └── github/           what an issue can carry, and on which axis
 ```
 
-This repository is the upstream of both, and npm carries both: `bin/` and `modules/` are published together, as one version.
+One package, one version: the mechanism and the rules it places are always the pair that was verified together. `modules/` here is where the sample comes from, not where it lives — once placed, the copy in `~/.dotagents/modules/` is yours.

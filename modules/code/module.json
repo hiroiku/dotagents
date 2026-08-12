@@ -1,0 +1,6 @@
+{
+  "description": "Rules that govern the writing of code and have no moment to be triggered on, so they are injected into every session. Today: what a comment is for.",
+  "replaces": [
+    "harness"
+  ]
+}

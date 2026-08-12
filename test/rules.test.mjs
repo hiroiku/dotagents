@@ -52,8 +52,10 @@ test('規則は実装と一緒に来る — 取得も追従も要らない', () 
   // 何も取ってこないまま、いきなり配れる
   const listed = run(cli, ['list'], { env });
   assert.equal(listed.code, 0, listed.out);
-  assert.match(listed.out, /bundled/, '同梱として示す');
   assert.match(listed.out, /demo/);
+  // 見本は読みに行く場所ではなく、本拠地へ実体で置かれる。だから消せるし、真似できる。
+  assert.match(fs.readFileSync(path.join(home, 'modules', 'demo', 'skills', 'demo-skill', 'SKILL.md'), 'utf8'),
+    /demo v1/, '同梱は本拠地へ実体で置かれる');
 
   const installed = run(cli, ['install', 'demo', '-C', proj], { env });
   assert.equal(installed.code, 0, installed.out);
@@ -86,8 +88,7 @@ test('自作の module は使う人の側に残り、同じコマンドで配ら
   writeModule(path.join(home, 'modules', 'mine'), '# 自分の規則');
 
   const listed = run(cli, ['list'], { env });
-  assert.match(listed.out, /personal/, '出どころを分けて示す');
-  assert.match(listed.out, /mine/);
+  assert.match(listed.out, /mine/, '自分で置いた module も同じ一覧に出る');
 
   const installed = run(cli, ['install', 'mine', 'demo', '-C', proj], { env });
   assert.equal(installed.code, 0, installed.out);
@@ -115,7 +116,8 @@ test('git で持っていた頃の corpus: 自作の module を写し、残り�
   assert.match(
     fs.readFileSync(path.join(proj, '.claude', 'skills', 'dotagents', 'skills', 'mine-skill', 'SKILL.md'), 'utf8'),
     /自作の規則/, '写した先から配られる');
-  assert.ok(!fs.existsSync(path.join(home, 'modules', 'demo')), '同梱と同じ名前は写さない');
+  assert.match(fs.readFileSync(path.join(home, 'modules', 'demo', 'skills', 'demo-skill', 'SKILL.md'), 'utf8'),
+    /demo v1/, '同梱と同じ名前は corpus から写さない — そこは見本が占めている');
   assert.ok(fs.existsSync(path.join(corpus, 'modules', 'mine')), '写しただけで、corpus は壊さない');
   assert.match(r.out, /no longer read/, 'もう読んでいないことを言う');
 
