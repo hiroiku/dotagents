@@ -1,4 +1,4 @@
 {
-  "description": "How to put GitHub issues to work: decomposition into sub-issues, milestones that can close, labels a query actually runs, types that span repositories. Install it where the tracker is GitHub.",
+  "description": "How to work through GitHub: issues decomposed into sub-issues, meanings put on the axis a query can filter, a Projects status that never lags the work, one worktree and branch per issue, pull requests linked back to what they close. Install it where the tracker is GitHub.",
   "requires": ["gh"]
 }

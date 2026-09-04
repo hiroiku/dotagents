@@ -53,7 +53,7 @@ Ein Modul darf deklarieren, was es auf `PATH` erwartet. Voraussetzungen werden *
 
 Es darf auch deklarieren, welchen ausgemusterten Namen es übernommen hat (`replaces`), sodass ein Eintrag, der den alten Namen erinnert, den Regeln dorthin folgt, wohin sie gegangen sind — umbenannt oder auf mehrere aufgeteilt. Der Installer hält keine eigene Tabelle: Wohin ein Name ging, sagt der Korpus, und wenn die Migration ihren Lauf genommen hat, wird die Zeile aus dem Modul gelöscht, nicht aus dem Installer.
 
-[modules/](../modules/) ist die kanonische Definition dieses Satzes. Der Installer hält keine Liste: keine der Dateien und keine der Module; er liest, was in `~/.dotagents/modules/` liegt. Der Satz ist ebenso ein Ausgangspunkt wie eine Voreinstellung, nichts, das du als Ganzes übernehmen sollst: [review](../modules/review/README.md) übergibt die Verifikation an einen Kontext, der den Code nicht geschrieben hat, [code](../modules/code/README.md) wofür ein Kommentar da ist, [git](../modules/git/README.md) · [testing](../modules/testing/README.md) · [prompting](../modules/prompting/README.md) die Konventionen, die ein Modell nicht erraten kann — jede gelesen in dem Moment, in dem sie greift, [architecture](../modules/architecture/docs/README.de.md) eine Abhängigkeitsregel, die für manche Projekte richtig ist und für andere nicht, [github](../modules/github/README.md) die Zuordnung, welcher Mechanismus eines Issues welche Bedeutung trägt.
+[modules/](../modules/) ist die kanonische Definition dieses Satzes. Der Installer hält keine Liste: keine der Dateien und keine der Module; er liest, was in `~/.dotagents/modules/` liegt. Der Satz ist ebenso ein Ausgangspunkt wie eine Voreinstellung, nichts, das du als Ganzes übernehmen sollst: [review](../modules/review/README.md) übergibt die Verifikation an einen Kontext, der den Code nicht geschrieben hat, [code](../modules/code/README.md) wofür ein Kommentar da ist, [git](../modules/git/README.md) · [testing](../modules/testing/README.md) · [prompting](../modules/prompting/README.md) die Konventionen, die ein Modell nicht erraten kann — jede gelesen in dem Moment, in dem sie greift, [architecture](../modules/architecture/docs/README.de.md) eine Abhängigkeitsregel, die für manche Projekte richtig ist und für andere nicht, [github](../modules/github/README.md) die Zuordnung, welcher Mechanismus eines Issues welche Bedeutung trägt, und die Schleife vom Aufgreifen bis zum Aufräumen danach.
 
 Die Module sind so geschnitten, dass eines davon für dich falsch sein kann, ohne den Rest mitzunehmen. Hier gibt es kein Bündel: installiere `git` und `testing` auf einer Maschine, auf der die Review-Rollen nicht passen, oder `review` allein in das eine Repository, das sie braucht.
 
@@ -131,7 +131,7 @@ modules/              der Beispielsatz, der mitreist — von hiroiku
 ├── testing/          die zwölf Eigenschaften eines guten Tests
 ├── prompting/        was vor dem Bearbeiten eines Prompts zu lesen ist
 ├── architecture/     eine Abhängigkeitsregel, die der Build erzwingt
-└── github/           was ein Issue tragen kann, und auf welcher Achse
+└── github/           was ein Issue tragen kann, und die Schleife darum
 ```
 
 Ein Paket, eine Version: Der Mechanismus und die Regeln, die er legt, sind immer das Paar, das gemeinsam geprüft wurde. `modules/` hier ist die Herkunft des Beispiels, nicht sein Wohnort — einmal gelegt, gehört die Kopie in `~/.dotagents/modules/` dir.

@@ -53,7 +53,7 @@ modules/<name>/
 
 它也可以宣告自己接手了哪個已退役的名稱(`replaces`),於是仍記著舊名稱的記錄會一路跟到規約的去處——無論是改名,或是拆成了好幾個。安裝程式自己不持有任何對照表:說出名稱去了哪裡的是那份正本;等到遷移走完,要刪掉的是 module 裡的那一行,而不是安裝程式裡的程式碼。
 
-[modules/](../modules/) 是那一套的權威定義。安裝程式並不持有清單:檔案的清單沒有,module 的清單也沒有;它只讀 `~/.dotagents/modules/` 裡實際存在的東西。這一套既是預設,也同樣是起點,而非一組要你整套照收的東西:[review](../modules/review/README.md) 把驗證交給沒有寫過這段程式碼的 context;[code](../modules/code/README.md) 承載註解是為了什麼而存在;[git](../modules/git/README.md)·[testing](../modules/testing/README.md)·[prompting](../modules/prompting/README.md) 承載模型無法猜出的慣例,各自只在生效的那一刻才被讀到;[architecture](../modules/architecture/docs/README.zh-TW.md) 則承載一條對某些專案適切、對另一些則否的依賴規則;[github](../modules/github/README.md) 承載 issue 的哪種機制承載哪種意義。
+[modules/](../modules/) 是那一套的權威定義。安裝程式並不持有清單:檔案的清單沒有,module 的清單也沒有;它只讀 `~/.dotagents/modules/` 裡實際存在的東西。這一套既是預設,也同樣是起點,而非一組要你整套照收的東西:[review](../modules/review/README.md) 把驗證交給沒有寫過這段程式碼的 context;[code](../modules/code/README.md) 承載註解是為了什麼而存在;[git](../modules/git/README.md)·[testing](../modules/testing/README.md)·[prompting](../modules/prompting/README.md) 承載模型無法猜出的慣例,各自只在生效的那一刻才被讀到;[architecture](../modules/architecture/docs/README.zh-TW.md) 則承載一條對某些專案適切、對另一些則否的依賴規則;[github](../modules/github/README.md) 承載 issue 的哪種機制承載哪種意義,以及從接手到收尾的一整圈。
 
 各個 module 是這樣切分的:其中一個不適合你,也不會把其餘的一併拖走。這裡沒有套裝:可以只把 `git` 與 `testing` 裝進那台不適合審查角色的機器,也可以只把 `review` 裝進唯一需要它的那個儲存庫。
 
@@ -131,7 +131,7 @@ modules/              隨套件同行的範例一套——來自 hiroiku
 ├── testing/          好測試的十二種性質
 ├── prompting/        編輯提示詞之前要讀的東西
 ├── architecture/     由建置強制的依賴規則
-└── github/           issue 能承載什麼,該放在哪條軸上
+└── github/           issue 能承載什麼,從接手到收尾
 ```
 
 一個套件,一個版本:機制與它放下的規則,永遠是一起被驗證過的那一對。這裡的 `modules/` 是範例的來處,而不是它們的住處——一旦放下,`~/.dotagents/modules/` 裡的那份副本就是你的。

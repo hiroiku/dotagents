@@ -53,7 +53,7 @@ modules/<name>/
 
 它也可以声明自己接手了哪个已退役的名字(`replaces`),于是仍记着旧名字的记录会一路跟到规约的去处——无论是改名,还是拆成了好几个。安装程序自己不持有任何对照表:说出名字去了哪里的是那份正本;等到迁移走完,要删掉的是 module 里的那一行,而不是安装程序里的代码。
 
-[modules/](../modules/) 是那一套的权威定义。安装程序并不持有清单:文件的清单没有,module 的清单也没有;它只读 `~/.dotagents/modules/` 里实际存在的东西。这一套既是默认项,也同样是起点,而不是要你整份照单全收的集合:[review](../modules/review/README.md) 把验证交给没有写过这段代码的 context;[code](../modules/code/README.md) 承载注释是用来做什么的;[git](../modules/git/README.md)·[testing](../modules/testing/README.md)·[prompting](../modules/prompting/README.md) 承载模型无法自行猜出的约定,各自只在生效的那一刻才被读到;[architecture](../modules/architecture/docs/README.zh-CN.md) 则是一条依赖规则——它对某些项目而言是对的,对另一些则不然;[github](../modules/github/README.md) 承载 issue 的哪种机制承载哪种含义。
+[modules/](../modules/) 是那一套的权威定义。安装程序并不持有清单:文件的清单没有,module 的清单也没有;它只读 `~/.dotagents/modules/` 里实际存在的东西。这一套既是默认项,也同样是起点,而不是要你整份照单全收的集合:[review](../modules/review/README.md) 把验证交给没有写过这段代码的 context;[code](../modules/code/README.md) 承载注释是用来做什么的;[git](../modules/git/README.md)·[testing](../modules/testing/README.md)·[prompting](../modules/prompting/README.md) 承载模型无法自行猜出的约定,各自只在生效的那一刻才被读到;[architecture](../modules/architecture/docs/README.zh-CN.md) 则是一条依赖规则——它对某些项目而言是对的,对另一些则不然;[github](../modules/github/README.md) 承载 issue 的哪种机制承载哪种含义,以及从接手到收尾的一整圈。
 
 各个 module 是这样切分的:其中一个不适合你,也不会把其余的一并拖走。这里没有捆绑:可以只把 `git` 与 `testing` 装进那台不适合审查角色的机器,也可以只把 `review` 装进唯一需要它的那个仓库。
 
@@ -131,7 +131,7 @@ modules/              随包同行的范例一套——来自 hiroiku
 ├── testing/          好测试的十二种性质
 ├── prompting/        编辑提示词之前要读的东西
 ├── architecture/     由构建强制的依赖规则
-└── github/           issue 能承载什么,该放在哪条轴上
+└── github/           issue 能承载什么,从接手到收尾
 ```
 
 一个包,一个版本:机制与它放下的规则,永远是一起被验证过的那一对。这里的 `modules/` 是范例的来处,而不是它们的住处——一旦放下,`~/.dotagents/modules/` 里的那份副本就是你的。

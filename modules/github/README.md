@@ -1,6 +1,6 @@
 # github
 
-A module about what a GitHub issue can carry and which mechanism carries which meaning. The rules themselves are in [skills/issues/SKILL.md](skills/issues/SKILL.md).
+A module about working through GitHub: which mechanism carries which meaning, and what the loop around one issue looks like from picking it up to cleaning up after it. The rules themselves are in [skills/issues/SKILL.md](skills/issues/SKILL.md), with a Japanese copy in [docs/SKILL.ja.md](docs/SKILL.ja.md).
 
 ## Everything becomes a label
 
@@ -8,7 +8,9 @@ Labels are the one mechanism every model already knows. So they absorb what belo
 
 What is lost is the query. `is:open no:milestone` cannot find work that has no release when the release is written as a label. A parent's progress cannot be counted when the children are only mentioned in prose. **The tracker is written once and read hundreds of times**, and every meaning put on the wrong axis is subtracted from every later reading.
 
-So the skill is not a tour of `gh issue`. It is about what each feature buys — which later question it makes answerable — because that is the only reason to reach for one.
+## The other half is the loop
+
+A tracker only answers if what it says is true right now. So the module also fixes the few moves that keep it true: the status changes before the work starts rather than after it ends, one worktree and one branch per issue named after that issue, sub-issues integrating into the parent's branch instead of the trunk, the pull request pointing back at what it closes, and the worktree and branch going away once the change has landed. None of it is difficult. All of it is skipped when nobody wrote it down.
 
 ## Answerable, or not
 
@@ -16,10 +18,12 @@ The line that decides whether a feature was worth using:
 
 | | |
 | --- | --- |
-| A checkbox is not a sub-issue | They render identically. One is an object with its own state that a parent can count; the other is text. The entire payoff of decomposition sits on one side of that line. |
-| Blocking cannot be filtered on | Every other axis narrows a list; this one does not. Order still belongs in the tracker, but only where someone will assemble the queue by hand. |
-| A milestone that cannot close answers nothing | The burn-down and the "will we make it" reading come from a set that finishes on a date. `backlog` and `someday` produce neither, and quietly cost the reading for everything they hold. |
+| A checkbox is not a sub-issue | They render identically. One is an object with its own state that a parent can count; the other is text. Anything that has to be tracked on its own sits on one side of that line. |
+| Dependencies cannot be filtered on | Every other axis narrows a list; this one does not. Order still belongs in the tracker, but only where someone will follow the edge by hand. |
 | A type spans repositories, a label does not | Types belong to the organization, so one question can cross every repository at once. Two labels both named `bug` guarantee nothing about each other. |
+| A stale status is worse than none | A board nobody trusts gets replaced by asking the person, and then everyone pays for the asking. That is why the status moves when the work starts, not when it is remembered. |
+| The branch name is the link | `.worktrees/issue-{id}` and `issues/issue#{id}` make the mapping from a working tree to an issue readable without a lookup, by a person or by the next session. |
+| The closing reason is data | Done and abandoned are two different histories: one becomes the release note, the other is the record of a decision to stop. A farewell comment is neither. |
 
 ## Where the call could have gone otherwise
 
@@ -27,4 +31,12 @@ The line that decides whether a feature was worth using:
 
 **No template for the issue body.** What a good report contains is judgment, and a capable model already has it. The module settles where a meaning goes, never how to word it.
 
+**No menu item named where the name can change.** The rules say to pick the closing reason that matches what happened, not to pick `not planned`; to move to the status that means in progress, not to a column spelled *In Progress*. GitHub renames things, and a rule written against the current wording of a menu stops being followed the day it changes.
+
+**Branch names are fixed here, though `git` leaves them alone.** That module says nothing about them because a branch name is gone the week after the work lands. Here the name is doing a job while it is alive: it is what ties a working tree to the issue it belongs to, and it is read by whoever opens the repository next.
+
+**AI signatures are refused here as well as in commits.** The `git` module keeps them out of commit messages. Issue bodies, comments and pull requests are the same text read by the same people, and they are the half that is public.
+
 **Named for the host, not for issues.** Pull requests, releases and Actions run on the same platform and have the same shape of problem. The module is `github` so the next skill has a place to land.
+
+This module expects `gh` on `PATH` — detected, never installed.

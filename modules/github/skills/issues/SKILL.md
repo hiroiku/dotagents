@@ -1,49 +1,39 @@
 ---
-description: Use when planning, tracking or querying work in GitHub issues — decomposition, milestones, labels, types, relationships.
+description: Use when planning, tracking or querying work in GitHub issues, and when picking one up. Issues, Projects, branches, pull requests.
 ---
 
-# GitHub issues
+# GitHub
 
-An issue is written once and read hundreds of times, by people and by sessions that were not there. Every feature below buys one specific later answer. Put a meaning somewhere that cannot answer, and it is subtracted from every reading that follows.
+- Keep AI signatures (`Generated with Claude Code`, `Co-Authored-By: Claude`, and the like) and session URLs (`claude.ai/code/session_...`) out of commit messages, pull requests, and issue bodies and comments.
 
-## Decomposition
+## GitHub Issues
 
-Break work into sub-issues, not into checkboxes in the body. A checkbox looks the same and carries nothing — it cannot be assigned, discussed, closed on its own, or counted. A sub-issue is an ordinary issue, and the parent gets a progress count for free.
+- Scope one issue to the range that works the moment it is merged.
+- If it is too large to close on its own, make it an epic and split the inside into sub-issues. A sub-issue does not have to be mergeable alone.
+- Anything that has to be tracked on its own is a sub-issue. Steps that do not go in the body.
+- Once it is filed, fill in whichever of type, labels, milestone, assignee, parent and dependencies apply. Take the values already in use in that organization and repository.
+- A distinction every repository would draw the same way is a type; one that means something only there is a label. Create a new one when a filter is needed that none of the existing ones answers.
+- Dependencies are a separate axis from hierarchy and may cross parents, milestones and repositories. They do not narrow a list, so record them only where someone will follow them.
+- Put what was learned in a comment: the cause that was found, the approach tried and dropped, the constraint discovered along the way.
+- When closing, pick the available reason that matches what actually happened. A reason that counts as done and a reason that records a decision to stop are read differently.
+- Close a duplicate pointing at the one that survives.
 
-- The unit is what one person can finish in one sitting. If a sub-issue needs sub-issues, it was a parent.
-- The parent holds the goal and the reasoning; the children hold the work. Restating the plan in each child is how they drift apart.
-- Eight levels and a hundred children are available. Two levels is almost always the whole tree — depth costs a reader more than it buys.
+## GitHub Projects
 
-## Order
+- On picking it up, move it to whatever status means in progress before doing anything else.
+- When the situation changes, move it to the status closest to what is true at that moment.
+- Never let the status lag behind the work.
+- Anything a field can carry goes in the field, not in the body.
 
-Blocking says what has to land first. Hierarchy says what something is part of. They are unrelated: blocking crosses parents, milestones and repositories freely, and most issues have one without the other.
+## Branches
 
-Record it only where it changes what someone picks up next. Unlike every other axis here, blocking cannot be filtered on: the ready queue has to be assembled by reading each issue's blockers. An edge nobody will assemble is a note nobody will read.
+- Create the worktree at `.worktrees/issue-{id}`, branch `issues/issue#{id}`, and work there.
+- Link the branch to the issue before the first commit.
+- A sub-issue integrates into the parent issue's branch. What reaches the trunk is the parent's branch alone.
+- Close the parent once every sub-issue has landed in it.
+- Once it is integrated, clean up the worktree and the branch.
 
-## Milestones
+## Pull Requests
 
-A milestone is something that can be finished, on a date. That is what produces the burn-down and the answer to "are we going to make it". A permanent bucket — `backlog`, `someday`, `next` — never closes, so it yields no such reading; it is a label wearing a milestone's clothes.
-
-Work with no milestone is work nobody has committed to a date. That set is worth looking at on purpose, and it is directly askable.
-
-## Labels
-
-A label earns its place when a query filters on it. One that has never appeared in a search is decoration, and its cost is paid again by every person choosing labels afterwards.
-
-Add one when a question needs it, not in anticipation of one. Keep the set small enough to choose from without thinking — a taxonomy nobody can hold is applied at random, and random labels are worse than none.
-
-## Types
-
-An issue type belongs to the organization, so every repository draws from one set. That is what makes a question span repositories: how much of this quarter was bugs, everywhere. A label named `bug` in each repository cannot answer it, because nothing guarantees the two mean the same thing.
-
-The type is the kind of work. Everything else is a label. If every repository would draw the distinction identically, it is a type.
-
-## Memory
-
-An issue outlives the session that worked on it, and it is where the next one starts. What was learned belongs there as a comment — the cause that was found, the approach that was tried and rejected, the constraint discovered halfway. A pull request explains a change; the issue holds the problem, and the problem is what comes back.
-
-Link a branch to the issue before the first commit, and the code, the review and the reason stay attached to each other without anyone maintaining the link.
-
-## Closing
-
-The reason for closing is data; a farewell comment is not. Completed and not planned are two different histories — one becomes the release note, the other is the record of a decision to stop, and only the first should be read as done. Point duplicates at the survivor so the trail can be followed from either end.
+- Open it pointing at the issue it closes, so the issue leads back to it.
+- The change is explained in the pull request; the problem itself stays in the issue.

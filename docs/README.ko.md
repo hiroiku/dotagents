@@ -53,7 +53,7 @@ module은 `PATH`에 무엇을 기대하는지 선언할 수 있다. 요구 사�
 
 퇴역한 이름을 이어받았다면 그것도 선언할 수 있다(`replaces`). 옛 이름을 기억하는 기록은 규칙이 간 곳까지 — 개명이든, 여럿으로 쪼개졌든 — 따라간다. installer는 자기 대조표를 갖지 않는다. 이름이 어디로 갔는지 말하는 것은 정본이고, 이행이 끝났다고 판단했을 때 지우는 것은 module의 한 줄이지 installer가 아니다.
 
-[modules/](../modules/)가 그 집합의 정본 정의다. installer는 목록을 갖지 않는다. 파일 목록도, module 목록도: `~/.dotagents/modules/`에 있는 것을 그대로 읽는다. 이 집합은 기본값인 동시에 출발점이지, 통째로 가져가라고 놓아둔 것이 아니다: [review](../modules/review/README.md)는 그 코드를 쓰지 않은 context에 검증을 넘기고, [code](../modules/code/README.md)는 주석이 무엇을 위한 것인지를, [git](../modules/git/README.md)·[testing](../modules/testing/README.md)·[prompting](../modules/prompting/README.md)은 모델이 추측할 수 없는 관례를 저마다 그것이 듣는 순간에 읽히는 형태로 담고, [architecture](../modules/architecture/docs/README.ko.md)는 어떤 프로젝트에는 맞고 어떤 프로젝트에는 맞지 않는 의존성 규칙을, [github](../modules/github/README.md)는 issue의 어떤 장치가 어떤 의미를 담는지를 담는다.
+[modules/](../modules/)가 그 집합의 정본 정의다. installer는 목록을 갖지 않는다. 파일 목록도, module 목록도: `~/.dotagents/modules/`에 있는 것을 그대로 읽는다. 이 집합은 기본값인 동시에 출발점이지, 통째로 가져가라고 놓아둔 것이 아니다: [review](../modules/review/README.md)는 그 코드를 쓰지 않은 context에 검증을 넘기고, [code](../modules/code/README.md)는 주석이 무엇을 위한 것인지를, [git](../modules/git/README.md)·[testing](../modules/testing/README.md)·[prompting](../modules/prompting/README.md)은 모델이 추측할 수 없는 관례를 저마다 그것이 듣는 순간에 읽히는 형태로 담고, [architecture](../modules/architecture/docs/README.ko.md)는 어떤 프로젝트에는 맞고 어떤 프로젝트에는 맞지 않는 의존성 규칙을, [github](../modules/github/README.md)는 issue의 어떤 장치가 어떤 의미를 담는지와, 착수부터 뒷정리까지의 한 바퀴를 담는다.
 
 module은 그중 하나가 나에게 맞지 않더라도 나머지까지 함께 끌고 가지 않도록 잘라 두었다. 여기에 묶음은 없다: 리뷰 역할이 어울리지 않는 머신에 `git`과 `testing`만 넣을 수도 있고, 그것이 필요한 저장소 하나에만 `review`를 넣을 수도 있다.
 
@@ -131,7 +131,7 @@ modules/              함께 실려 오는 본보기 한 벌 — 배포원은 hi
 ├── testing/          좋은 테스트의 열두 가지 성질
 ├── prompting/        프롬프트를 고치기 전에 읽을 것
 ├── architecture/     빌드가 강제하는 의존성 규칙
-└── github/           issue가 무엇을 담을 수 있는지, 어느 축에 얹을지
+└── github/           issue가 무엇을 담을 수 있는지, 착수부터 뒷정리까지
 ```
 
 패키지도 하나, 버전도 하나다: 기제와 그것이 놓는 규칙은 언제나 함께 검증된 한 짝이다. 여기의 `modules/`는 본보기가 나오는 곳이지 사는 곳이 아니다 — 한번 놓인 뒤 `~/.dotagents/modules/`의 사본은 당신의 것이다.

@@ -53,7 +53,7 @@ module は `PATH` に期待する物を宣言してよい。要件は**検出さ
 
 退役した名前を受け継いだのなら、それも宣言してよい(`replaces`)。古い名前を憶えている記録は、規則が行った先まで — 改名であれ、複数への分割であれ — ついていく。installer は対応表を持たない: どこへ行ったかを言うのは正本であり、移行が済んだと判断したときに消すのは module の 1 行であって、installer ではない。
 
-[modules/](../modules/) がその一式の正本の定義である。installer は列挙を持たない。ファイルの列挙も、module の列挙も持たず、`~/.dotagents/modules/` に在る物をそのまま読む。この一式は既定であると同時に出発点でもあり、丸ごと受け取るべき物ではない: [review](../modules/review/README.md) はコードを書かなかった context へ検証を渡し、[code](../modules/code/README.md) はコメントが何のためにあるかを、[git](../modules/git/README.md)・[testing](../modules/testing/README.md)・[prompting](../modules/prompting/README.md) はモデルには推測できない慣習を、それぞれ効く瞬間に読ませる形で携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を、[github](../modules/github/README.md) は issue のどの仕組みがどの意味を担うかを携える。
+[modules/](../modules/) がその一式の正本の定義である。installer は列挙を持たない。ファイルの列挙も、module の列挙も持たず、`~/.dotagents/modules/` に在る物をそのまま読む。この一式は既定であると同時に出発点でもあり、丸ごと受け取るべき物ではない: [review](../modules/review/README.md) はコードを書かなかった context へ検証を渡し、[code](../modules/code/README.md) はコメントが何のためにあるかを、[git](../modules/git/README.md)・[testing](../modules/testing/README.md)・[prompting](../modules/prompting/README.md) はモデルには推測できない慣習を、それぞれ効く瞬間に読ませる形で携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を、[github](../modules/github/README.md) は issue のどの仕組みがどの意味を担うかと、着手から後片付けまでの一巡りを携える。
 
 module は、そのうちの 1 つが自分に合わなくても、残りを道連れにしないように切ってある。ここに束は無い: レビュー役が馴染まない機械へ `git` と `testing` だけを入れることも、必要な 1 つのリポジトリへ `review` だけを入れることもできる。
 
@@ -131,7 +131,7 @@ modules/              一緒に旅する見本の一式 — 配布元は hiroiku
 ├── testing/          良いテストの 12 の性質
 ├── prompting/        プロンプトを編集する前に読む物
 ├── architecture/     ビルドが強制する依存規則
-└── github/           issue が何を担えるか、どの軸に載せるか
+└── github/           issue が何を担えるか、着手から後片付けまで
 ```
 
 パッケージは 1 つ、版も 1 つ: 仕組みと、それが置く規則は、常に一緒に検証された組でしかない。ここの `modules/` は見本の出どころであって、住処ではない — 置かれた後、`~/.dotagents/modules/` の写しはあなたの物である。
