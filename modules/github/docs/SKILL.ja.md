@@ -1,39 +1,40 @@
 ---
-description: GitHub の issue で作業を計画・追跡・照会するとき、issue へ着手するとき。issues、Projects、branches、pull requests。
+description: GitHub の issue で作業を計画・追跡・照会するとき、issue に着手するとき。issues、Projects、branches、pull requests。
 ---
 
 # GitHub
 
-- AI の署名 (`Generated with Claude Code`、`Co-Authored-By: Claude` など) とセッション URL (`claude.ai/code/session_...`) を、commit メッセージ、pull request、issue の本文とコメントへ残さない。
+- AI の署名 (`Generated with Claude Code`、`Co-Authored-By: Claude` など) とセッション URL (`claude.ai/code/session_...`) を、commit メッセージ、pull request、issue の本文とコメントに書かない。
 
 ## GitHub Issues
 
-- 1 つの issue は、マージされた時点でその機能が動く範囲にする。
-- それだけで完結しない大きさなら epic にして、中身を sub-issue へ割る。sub-issue は単体でマージできなくてよい。
-- 個別に追う必要があるものは sub-issue、追う必要のない手順は本文に書く。
-- 立てたら、タイプ、ラベル、マイルストーン、担当、親子、依存のうち当てはまるものを埋める。値はその organization と repository で既に使われているものから選ぶ。
-- どのリポジトリでも同じ線を引く区別はタイプ、そこでしか意味を持たない区別はラベル。新しく作るのは、既にあるどれでも答えられない絞り込みが要るとき。
-- 依存は階層とは別の軸で、親もマイルストーンもリポジトリも跨いでよい。一覧の絞り込みには効かないので、辿る人がいる場所にだけ結ぶ。
-- 分かったことはコメントへ置く。突き止めた原因、試して捨てた方法、途中で見つかった制約。
-- 閉じるときは、選べる理由のうち実際に起きたことに合うものを選ぶ。done として数えられる理由と、やめた記録として残る理由は別に扱う。
-- 重複は残るほうを指して閉じる。
+- 1 つの issue は、マージした時点でその機能が動作する範囲にする。
+- それだけでは完結しない大きさなら epic にして、中身を sub-issue に分ける。sub-issue は単体でマージできなくてよい。
+- 個別に管理する必要があるものは sub-issue にする。管理する必要のない手順は本文に書く。
+- 作成したら、タイプ、ラベル、マイルストーン、担当者、親子関係、依存関係のうち該当するものを設定する。値はその organization と repository で既に使われているものから選ぶ。
+- どのリポジトリでも同じ意味になる区別はタイプ、そのリポジトリでしか意味を持たない区別はラベル。新しく作るのは、既にあるどれでも絞り込めないときだけ。
+- 依存関係は親子関係とは別で、別の親、別のマイルストーン、別のリポジトリの issue にも設定できる。検索では絞り込めないので、実際に参照する人がいるときだけ設定する。
+- 分かったことはコメントに書く。判明した原因、試して採用しなかった方法、途中で見つかった制約。
+- クローズするときは、選択できる理由のうち実際に起きたことに合うものを選ぶ。完了として集計される理由と、中止した記録として残る理由は区別する。
+- 重複した issue は、残すほうを参照してクローズする。
 
 ## GitHub Projects
 
-- 着手したら、手を動かす前に、進行中にあたるステータスへ移す。
-- 状況が変わったら、その時点の実態に一番近いステータスへ移す。
-- ステータスを作業の実態より遅らせない。
-- フィールドで表せることは、本文へ書かずフィールドへ入れる。
+- 着手したら、作業を始める前にステータスを進行中に変更する。
+- 状況が変わったら、その時点の状況に最も近いステータスに変更する。
+- ステータスの更新を作業より遅らせない。
+- フィールドで表せる情報は、本文ではなくフィールドに設定する。
 
 ## Branches
 
-- worktree を `.worktrees/issue-{id}` に作り、`issues/issue#{id}` を切って、そこで作業する。
-- 最初のコミットの前に、branch を issue へ結び付ける。
-- sub-issue は親 issue の branch へ統合する。本線へ入るのは親の branch 1 つ。
-- sub-issue が全て入ったら親を閉じる。
-- 統合が済んだら worktree と branch を片付ける。
+- worktree を `.worktrees/issue-{id}` に作成し、`issues/issue#{id}` という branch を作成して、そこで作業する。
+- sub-issue は親 issue の branch にマージする。統合先のブランチにマージするのは親の branch だけ。
+- sub-issue がすべてマージされたら親 issue をクローズする。
+- マージが完了したら worktree と branch を削除する。
 
 ## Pull Requests
 
-- 閉じる issue を指して出し、issue の側から辿れる状態にする。
-- 変更の説明は pull request に書き、問題そのものは issue へ残す。
+- 作成したらすぐ、対応する issue にリンクする (`addCloseIssueReferences`)。base がどのブランチでも、issue の Linked pull requests に表示される。
+- 本文の `Closes #123` ではリンクしない。base がデフォルトブランチのときしか解釈されない。
+- issue から作成したリンク済みブランチで pull request を作成しても、リンクされない。docs には自動でリンクされると書かれているが、実際には表示されない。
+- 変更内容の説明は pull request に書き、問題そのものは issue に残す。

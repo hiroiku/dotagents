@@ -22,12 +22,15 @@ The line that decides whether a feature was worth using:
 | Dependencies cannot be filtered on | Every other axis narrows a list; this one does not. Order still belongs in the tracker, but only where someone will follow the edge by hand. |
 | A type spans repositories, a label does not | Types belong to the organization, so one question can cross every repository at once. Two labels both named `bug` guarantee nothing about each other. |
 | A stale status is worse than none | A board nobody trusts gets replaced by asking the person, and then everyone pays for the asking. That is why the status moves when the work starts, not when it is remembered. |
-| The branch name is the link | `.worktrees/issue-{id}` and `issues/issue#{id}` make the mapping from a working tree to an issue readable without a lookup, by a person or by the next session. |
+| The branch name is the only tie | `.worktrees/issue-{id}` and `issues/issue#{id}` make the mapping from a working tree to an issue readable without a lookup, by a person or by the next session. GitHub keeps no other: the branch link an issue can hold does not reach the pull request. |
+| A linked pull request has one reliable route | `addCloseIssueReferences` fills the issue's Linked pull requests whatever the base branch is. `Closes #123` in the body is interpreted only for a pull request that targets the default branch, and one opened from a branch linked to the issue never appears, though the documentation says it does. Measured, not read. |
 | The closing reason is data | Done and abandoned are two different histories: one becomes the release note, the other is the record of a decision to stop. A farewell comment is neither. |
 
 ## Where the call could have gone otherwise
 
 **No conventions for label names.** A scheme that fits one team's workflow is wrong for the next, and a rule nobody follows costs attention without buying anything. The module binds which axis a meaning belongs on; which labels exist on that axis is the team's.
+
+**One API name is written down, against the habit of the rest.** The rules avoid naming tools, because `--help` is newer than any document written about it. `addCloseIssueReferences` is the exception: GitHub's own documentation states the opposite of what the API does, so a reader who trusts the documentation takes a route that silently produces nothing. What cannot be derived from the documentation is the part worth carrying.
 
 **No template for the issue body.** What a good report contains is judgment, and a capable model already has it. The module settles where a meaning goes, never how to word it.
 
