@@ -614,6 +614,28 @@ test('移行の頑健性: 所有記録に無い .agents 向き symlink が残っ
   assert.match(out, /no drift/, '移行後は乖離なし');
 });
 
+test('旧プロジェクトの移行: 所有記録のある .agents は共通正本と区別して移行する', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  const root = path.join(proj, '.agents');
+  fs.mkdirSync(root);
+  fs.mkdirSync(path.join(proj, '.claude'));
+  fs.writeFileSync(path.join(root, 'AGENTS.md'), RULES);
+  fs.symlinkSync('../.agents/AGENTS.md', path.join(proj, '.claude/CLAUDE.md'));
+  fs.writeFileSync(path.join(root, '.dotagents.json'), JSON.stringify({
+    schema: 1, kind: 'project', scope: 'full', version: '1.0.0', source: REPO,
+    files: { 'AGENTS.md': sha(path.join(root, 'AGENTS.md')) },
+    links: [],
+    fragments: {},
+  }) + '\n');
+
+  run(home, ['update', '-C', proj]);
+  assert.ok(!fs.existsSync(root), '旧配布物とその記録を除去する');
+  assert.ok(!fs.lstatSync(path.join(proj, '.claude/CLAUDE.md')).isSymbolicLink());
+  assert.ok(read(path.join(proj, '.claude/CLAUDE.md')).includes(RULES));
+  assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
+});
+
 test('生きた手張り symlink は上書きせず、警告して退く', () => {
   const home = freshHome();
   const mine = path.join(home, 'my-plugin');
@@ -627,6 +649,120 @@ test('生きた手張り symlink は上書きせず、警告して退く', () =>
   assert.ok(fs.lstatSync(path.join(home, '.claude/skills/dotagents')).isSymbolicLink(), 'リンクは残る');
   assert.equal(read(path.join(mine, 'SKILL.md')), '# my very own\n', 'リンク先を書き換えない');
   assert.equal(userManifest(home).files[`${PLUGIN}/skills/prompting/SKILL.md`], undefined, '所有記録に入れない');
+});
+
+function shareProjectRules(proj, text) {
+  const canonical = path.join(proj, '.agents/AGENTS.md');
+  fs.mkdirSync(path.dirname(canonical), { recursive: true });
+  fs.mkdirSync(path.join(proj, '.claude'), { recursive: true });
+  fs.writeFileSync(canonical, text);
+  for (const [rel, target] of [['AGENTS.md', '.agents/AGENTS.md'], ['.claude/CLAUDE.md', '../.agents/AGENTS.md']]) {
+    fs.rmSync(path.join(proj, rel), { force: true });
+    fs.symlinkSync(target, path.join(proj, rel));
+  }
+  return canonical;
+}
+
+test('共通正本: 両ツールへのリンクを保ったまま、管理ブロックを1つだけ配布・更新・削除する', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  const own = '# プロジェクトの規則\n\n- 業務の言葉を保つ。\n';
+  const canonical = shareProjectRules(proj, own);
+  run(home, ['install', ...BASE, '-C', proj]);
+
+  assert.equal(fs.readlinkSync(path.join(proj, 'AGENTS.md')), '.agents/AGENTS.md');
+  assert.equal(fs.readlinkSync(path.join(proj, '.claude/CLAUDE.md')), '../.agents/AGENTS.md');
+  assert.deepEqual(projectManifest(home, proj).rulesBlocks, [{ file: '.agents/AGENTS.md', createdFile: false }]);
+  assert.equal((read(canonical).match(/agents-harness:begin/g) || []).length, 1);
+  assert.ok(read(canonical).startsWith(own));
+  assert.ok(read(canonical).includes(RULES));
+  assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
+
+  fs.writeFileSync(canonical, read(canonical).replace(RULES, '古い配布内容'));
+  assert.equal(run(home, ['status', '-C', proj], { allowFail: true }).code, 1);
+  run(home, ['update', '-C', proj]);
+  assert.ok(read(canonical).includes(RULES));
+  assert.equal((read(canonical).match(/agents-harness:begin/g) || []).length, 1);
+  assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
+
+  run(home, ['uninstall', '-C', proj]);
+  assert.equal(read(canonical), own);
+  assert.ok(fs.lstatSync(path.join(proj, 'AGENTS.md')).isSymbolicLink());
+  assert.ok(fs.lstatSync(path.join(proj, '.claude/CLAUDE.md')).isSymbolicLink());
+});
+
+for (const command of ['update', 'uninstall']) {
+  test(`共通正本: 配布済みファイルをリンクへ移した後も ${command} が同じ実体を扱う`, () => {
+    const home = freshHome();
+    const proj = freshProject();
+    // 空の正本でも、リンクへの移行でユーザーが用意したファイルは削除しない。
+    fs.writeFileSync(path.join(proj, 'AGENTS.md'), '');
+    run(home, ['install', ...BASE, '-C', proj]);
+    assert.equal(projectManifest(home, proj).rulesBlocks.length, 2);
+    const canonical = shareProjectRules(proj, read(path.join(proj, '.claude/CLAUDE.md')));
+    run(home, [command, '-C', proj]);
+    if (command === 'update') {
+      assert.deepEqual(projectManifest(home, proj).rulesBlocks, [{ file: '.agents/AGENTS.md', createdFile: false }]);
+      assert.ok(read(canonical).includes(RULES), '旧配布記録の刈り込みで新しいブロックを消さない');
+      assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
+      run(home, ['uninstall', '-C', proj]);
+    }
+    assert.equal(read(canonical), '');
+    assert.ok(fs.lstatSync(path.join(proj, '.claude/CLAUDE.md')).isSymbolicLink());
+  });
+}
+
+test('共通正本: 任意の外部ファイルへのリンクは配布先にせず保持する', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  const external = path.join(freshProject(), 'AGENTS.md');
+  fs.writeFileSync(external, '# 外部の規則\n');
+  fs.mkdirSync(path.join(proj, '.claude'));
+  for (const rel of ['AGENTS.md', '.claude/CLAUDE.md']) fs.symlinkSync(external, path.join(proj, rel));
+
+  assert.equal(run(home, ['install', ...BASE, '-C', proj], { allowFail: true }).code, 1);
+  assert.deepEqual(projectManifest(home, proj).rulesBlocks, []);
+  assert.equal(run(home, ['status', '-C', proj], { allowFail: true }).code, 1);
+  run(home, ['uninstall', '-C', proj]);
+  assert.equal(read(external), '# 外部の規則\n');
+  for (const rel of ['AGENTS.md', '.claude/CLAUDE.md']) assert.equal(fs.readlinkSync(path.join(proj, rel)), external);
+});
+
+for (const redirected of ['ファイル', 'ディレクトリ']) {
+  test(`共通正本: 正本の${redirected}が外部リンクなら配布も削除もしない`, () => {
+    const home = freshHome();
+    const proj = freshProject();
+    const canonical = shareProjectRules(proj, '# プロジェクトの規則\n');
+    run(home, ['install', ...BASE, '-C', proj]);
+    const externalDir = freshProject();
+    const external = path.join(externalDir, 'AGENTS.md');
+    const before = read(canonical);
+    fs.writeFileSync(external, before);
+    if (redirected === 'ファイル') {
+      fs.unlinkSync(canonical);
+      fs.symlinkSync(external, canonical);
+    } else {
+      fs.rmSync(path.dirname(canonical), { recursive: true });
+      fs.symlinkSync(externalDir, path.dirname(canonical));
+    }
+
+    assert.equal(run(home, ['update', '-C', proj], { allowFail: true }).code, 1);
+    assert.equal(run(home, ['status', '-C', proj], { allowFail: true }).code, 1);
+    run(home, ['uninstall', '-C', proj]);
+    assert.equal(read(external), before, '正本から外部へ差し替えた後は管理ブロックも触らない');
+    assert.equal(fs.readlinkSync(path.join(proj, '.claude/CLAUDE.md')), '../.agents/AGENTS.md');
+  });
+}
+
+test('共通正本: 正本が欠けていてもリンクを実ファイルへ置き換えない', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  const canonical = shareProjectRules(proj, '# 規則\n');
+  fs.unlinkSync(canonical);
+  assert.equal(run(home, ['install', ...BASE, '-C', proj], { allowFail: true }).code, 1);
+  assert.ok(!fs.existsSync(canonical));
+  assert.equal(fs.readlinkSync(path.join(proj, 'AGENTS.md')), '.agents/AGENTS.md');
+  assert.equal(fs.readlinkSync(path.join(proj, '.claude/CLAUDE.md')), '../.agents/AGENTS.md');
 });
 
 // ---------------------------------------------------------------- 配備先

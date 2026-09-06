@@ -465,12 +465,14 @@ function removeLink(l, log) {
   }
 }
 
-// .agents を指すリンクと切れたリンクは、実体をコピーする場所を塞ぐので除去する
-// (所有記録に無い手張りでも、行き先が .agents か切れている限り機能し得ない)。
+// 共通正本へのリンクを除き、旧 .agents を指すリンクと切れたリンクは除去する。
+// 配布先を実ファイルへ移行するため、所有記録に無い旧リンクも対象とする。
 // それ以外の生きた symlink はユーザーの構成として残し、後段が conflict として警告する。
-function clearStaleSymlink(ctx, p, log) {
+function clearStaleSymlink(ctx, p, log, migratedLegacy = false) {
   const st = lstatOrNull(p);
   if (!st?.isSymbolicLink()) return;
+  // プロジェクトの共通正本へのリンクは、配布先の構成として保持する。
+  if (!migratedLegacy && projectRulesLinkTarget(ctx, p)) return;
   const resolved = path.resolve(path.dirname(p), fs.readlinkSync(p));
   const inLegacy = resolved === ctx.legacyRoot || resolved.startsWith(ctx.legacyRoot + path.sep);
   if (inLegacy || !fs.existsSync(p)) {
@@ -598,6 +600,7 @@ function removeCodexHooks(ctx, fragments, log) {
 // - Codex(user): ~/.codex/AGENTS.md — .codex/ がある環境でだけ、無ければ作る
 // - Codex(project): <project>/AGENTS.md — 既存のファイルにだけ足す(プロジェクトの
 //   ルートに新しいファイルを作って見た目を変えない)
+// - project の両規則ファイルから .agents/AGENTS.md へのリンクは、共通正本へ1度だけ届ける。
 const BLOCK_BEGIN = '<!-- agents-harness:begin -->';
 const BLOCK_END = '<!-- agents-harness:end -->';
 // 目印は agents-harness:begin までで、行の残りは飾りである。
@@ -622,16 +625,41 @@ function joinBodies(bodies) {
 
 function desiredBlock(body) { return [BLOCK_BEGIN, body, BLOCK_END].join('\n'); }
 
+// プロジェクト内の明示された共通正本だけを扱い、任意のリンク先へは配布しない。
+function projectRulesLinkTarget(ctx, file) {
+  if (ctx.kind !== 'project') return null;
+  if (file !== path.join(ctx.base, 'AGENTS.md') && file !== path.join(ctx.claudeDir, 'CLAUDE.md')) return null;
+  if (!lstatOrNull(file)?.isSymbolicLink()) return null;
+  const canonical = path.join(ctx.base, '.agents', 'AGENTS.md');
+  return path.resolve(path.dirname(file), fs.readlinkSync(file)) === canonical ? canonical : null;
+}
+
+function sharedRulesFile(ctx, file) {
+  if (ctx.kind !== 'project') return null;
+  const canonical = path.join(ctx.base, '.agents', 'AGENTS.md');
+  if (file !== canonical && !projectRulesLinkTarget(ctx, file)) return null;
+  // 正本や親ディレクトリが別のリンクなら、その先の所有権は引き受けない。
+  if (!lstatOrNull(path.dirname(canonical))?.isDirectory() || !lstatOrNull(canonical)?.isFile()) return null;
+  if (file === path.join(ctx.claudeDir, 'CLAUDE.md') && !lstatOrNull(ctx.claudeDir)?.isDirectory()) return null;
+  return canonical;
+}
+
 function rulesTargets(ctx) {
   const targets = [{ file: path.join(ctx.claudeDir, 'CLAUDE.md'), create: true }];
   if (ctx.kind === 'user') {
     if (lstatOrNull(ctx.codexDir)?.isDirectory()) {
       targets.push({ file: path.join(ctx.codexDir, 'AGENTS.md'), create: true });
     }
-  } else if (lstatOrNull(path.join(ctx.base, 'AGENTS.md'))?.isFile()) {
+  } else if (lstatOrNull(path.join(ctx.base, 'AGENTS.md'))?.isFile() || projectRulesLinkTarget(ctx, path.join(ctx.base, 'AGENTS.md'))) {
     targets.push({ file: path.join(ctx.base, 'AGENTS.md'), create: false });
   }
-  return targets;
+  const unique = new Map();
+  for (const t of targets) {
+    const shared = sharedRulesFile(ctx, t.file);
+    const target = shared ? { file: shared, create: false } : t;
+    unique.set(target.file, target);
+  }
+  return [...unique.values()];
 }
 
 function stripBlock(lines) {
@@ -673,13 +701,16 @@ function applyRulesBlock(ctx, t, body, oldRecord, log) {
 }
 
 function removeRulesBlock(ctx, record, log) {
-  const file = path.join(ctx.base, record.file);
+  const recordedFile = path.join(ctx.base, record.file);
+  const shared = sharedRulesFile(ctx, recordedFile);
+  if (ctx.kind === 'project' && recordedFile === path.join(ctx.base, '.agents', 'AGENTS.md') && !shared) return;
+  const file = shared ?? recordedFile;
   if (!lstatOrNull(file)?.isFile()) return;
   const text = fs.readFileSync(file, 'utf8');
   if (!hasBlock(text)) return; // ブロックが無ければユーザーのファイルに触れない
   const kept = stripBlock(text.split('\n'));
   while (kept.length && kept[kept.length - 1] === '') kept.pop();
-  if (record.createdFile === true && kept.join('\n').trim() === '') {
+  if (record.createdFile === true && !shared && kept.join('\n').trim() === '') {
     fs.unlinkSync(file);
     log.del(`rules block ${record.file} (removed the file — it was ours)`);
     return;
@@ -1051,8 +1082,8 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   const entries = deliveryEntries(ctx, modules, { keepPlugin: orphanHasFiles });
 
   // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込みと、配達先を塞ぐ旧 symlink の掃除
-  migrateLegacy(ctx, log);
-  for (const p of staleSymlinkCandidates(ctx, entries)) clearStaleSymlink(ctx, p, log);
+  const migratedLegacy = migrateLegacy(ctx, log);
+  for (const p of staleSymlinkCandidates(ctx, entries)) clearStaleSymlink(ctx, p, log, migratedLegacy);
 
   // 1. module → 各ツールの置き場(所有ハッシュに基づく外科的コピー)
   const files = {};
@@ -1130,7 +1161,9 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   }
   const currentBlockFiles = new Set(rulesRecords.map((r) => r.file));
   for (const r of old?.rulesBlocks || []) {
-    if (!currentBlockFiles.has(r.file)) removeRulesBlock(ctx, r, log);
+    const file = path.join(ctx.base, r.file);
+    const currentFile = path.relative(ctx.base, sharedRulesFile(ctx, file) ?? file);
+    if (!currentBlockFiles.has(currentFile)) removeRulesBlock(ctx, r, log);
   }
 
   // 4. manifest(マシン固有の記録なので ~/.dotagents/ に置き、配備先には何も残さない)

@@ -49,6 +49,12 @@ modules/<name>/
 | `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **1 つの plugin directory**。marketplace も install 手順も無しに読み込まれ、その中身を `/dotagents:*` という名前空間に収める。hook が `settings.json` に一切触れずに届くのは、これによる | スキルのみ、`.codex/skills/dotagents-*` として — Codex に plugin は無いので、名前空間はディレクトリ名に畳み込まれる |
 | `AGENTS.md` | `.claude/CLAUDE.md` 内の管理ブロック | `AGENTS.md` 内の管理ブロック |
 
+プロジェクトの規則を共通正本へまとめる場合は、実ファイルの `.agents/AGENTS.md` を用意し、
+`AGENTS.md → .agents/AGENTS.md` と `.claude/CLAUDE.md → ../.agents/AGENTS.md` のシンボリックリンクを張れる。
+この構成では、正本内の管理ブロックを1つだけ配布・更新・検査・削除し、リンクとプロジェクト自身の記述は保持する。
+正本や `.agents` 自体がシンボリックリンクの場合や、別の行き先を指す規則ファイルは対象にしない。
+正本が欠けている場合も、リンクを通常ファイルへ置き換えず警告する。
+
 module は `PATH` に期待する物を宣言してよい。要件は**検出されるだけで、決して install されない**: `list` と `install` は欠けている物を報告するが、何も妨げない。だから後からツールを足しても、再 install は要らない。
 
 退役した名前を受け継いだのなら、それも宣言してよい(`replaces`)。古い名前を憶えている記録は、規則が行った先まで — 改名であれ、複数への分割であれ — ついていく。installer は対応表を持たない: どこへ行ったかを言うのは正本であり、移行が済んだと判断したときに消すのは module の 1 行であって、installer ではない。
