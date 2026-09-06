@@ -1,5 +1,5 @@
 {
-  "description": "The conventions around git a model cannot derive: what a commit title says, what never appears in a message, how work is integrated and how it follows upstream.",
+  "description": "コミット、worktree の統合、PR と CI の扱いを、Git の操作時に読み込む。",
   "requires": [
     "git"
   ],

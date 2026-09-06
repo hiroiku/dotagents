@@ -1,26 +1,33 @@
 ---
-description: Use when deciding a testing approach or writing tests.
+name: testing
+description: テストの設計・実装・実行、検証範囲や完了条件を判断するときに使う。
 ---
 
-# Testing
+# テスト
 
-- Isolated — tests should return the same results regardless of the order in which they are run.
-- Composable — I should be able to test different dimensions of variability separately and combine the results.
-- Deterministic — if nothing changes, the test result shouldn’t change.
-- Fast — tests should run quickly.
-- Writable — tests should be cheap to write relative to the cost of the code being tested.
-- Readable — tests should be comprehensible for reader, invoking the motivation for writing this particular test.
-- Behavioral — tests should be sensitive to changes in the behavior of the code under test. If the behavior changes, the test result should change.
-- Structure-insensitive — tests should not change their result if the structure of the code changes.
-- Automated — tests should run without human intervention.
-- Specific — if a test fails, the cause of the failure should be obvious.
-- Predictive — if the tests all pass, then the code under test should be suitable for production.
-- Inspiring — passing the tests should inspire confidence
+[Test Desiderata](https://testdesiderata.com/) を基準に、対象に必要な性質を選ぶ。
 
-Some properties support each other. Automating tests makes them faster to run.
+- 独立性: 実行順に結果が依存しない。
+- 合成可能性: 異なる変動要因を別々に検証し、結果を組み合わせられる。
+- 決定性: 条件が変わらなければ結果も変わらない。
+- 速さ: 短時間で実行できる。
+- 書きやすさ: 対象コードに対して作成コストが見合う。
+- 読みやすさ: テストを置く理由が読者に伝わる。
+- 振る舞いへの感度: 対象の振る舞いが変わると結果も変わる。
+- 構造への非依存: 構造だけの変更では結果が変わらない。
+- 自動化: 人の介入なしに実行できる。
+- 具体性: 失敗の原因が分かる。
+- 予測性: 成功が本番での動作を予測する。
+- 信頼: 成功が対象への信頼につながる。
 
-Some properties interfere with each other. Making tests more predictive of production behavior makes them slower.
+これらは互いに補強する場合も、トレードオフになる場合もある。構成を工夫して両立できるかも検討する。
 
-Sometimes (and this is the magic), properties only seem to interfere. You can use composability to make tests faster and more predictive.
+ソースを文字列として読んで未使用・構造・命名・配置を調べる検査は lint として扱い、アプリケーションの振る舞いを検証するテストと分ける。
 
-The original Test Desiderata papers are [here](https://medium.com/@kentbeck_7670/test-desiderata-94150638a4b3) and [here](https://medium.com/@kentbeck_7670/programmer-test-principles-d01c064d7934).
+## 検証の進め方
+
+- 修正中は対象に近いテストから実行し、変更の影響範囲に応じて広げる。全体の検査は変更が仕上がってから行う。
+- 完了時はプロジェクトが定めた必須検査を満たす。振る舞いの検証、静的検査、カバレッジの閾値は別々の条件として扱う。
+- 作業ブランチの検証と統合後の検証を区別する。同じコードに対する全体検査を重複させず、統合で変わった組み合わせは確認する。
+- 重い検証を並行する場合は、同じマシン上の他の実行を考慮して本数を調整する。
+- 完了報告では、検証した対象と満たした条件、未実行の必須検査を明確にする。

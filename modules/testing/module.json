@@ -1,5 +1,5 @@
 {
-  "description": "Test Desiderata as a prompt: the twelve properties of a good test, and the canon's own framing that they trade off and the mix is chosen deliberately.",
+  "description": "Test Desiderata に基づくテスト設計と、修正中・完了時・統合後の検証の進め方。",
   "replaces": [
     "harness"
   ]
