@@ -22,6 +22,8 @@ dotagents list                     # 설치할 수 있는 것
 dotagents install review           # 현재 프로젝트에
 dotagents install review -g        # 이 머신의 모든 프로젝트에
 dotagents install review -C ~/x    # 특정 프로젝트에
+dotagents install review --agent codex
+dotagents install review --agent claude,codex
 ```
 
 클론할 것도, 받아올 것도, 일을 시작하기 전에 이행시켜 둘 상태도 없다: module은 패키지 안에 함께 실려 오므로, 첫 명령이 그것을 놓고 다음 명령이 곧바로 설치한다.
@@ -46,7 +48,7 @@ modules/<name>/
 
 | 종류 | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **하나의 plugin 디렉터리**로, marketplace도 설치 단계도 없이 읽히며, 담긴 것을 `/dotagents:*`라는 네임스페이스에 넣는다. 훅이 `settings.json`을 한 번도 건드리지 않고 도착하는 것은 이 덕분이다 | 스킬만, `.codex/skills/dotagents-*`로 — Codex에는 plugin이 없으므로 네임스페이스가 디렉터리 이름 안으로 접혀 들어간다 |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **하나의 plugin 디렉터리**로, marketplace도 설치 단계도 없이 읽히며, 담긴 것을 `/dotagents:*`라는 네임스페이스에 넣는다. 훅이 `settings.json`을 한 번도 건드리지 않고 도착하는 것은 이 덕분이다 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; [Codex setup](../README.md#what-a-module-is) |
 | `AGENTS.md` | `.claude/CLAUDE.md` 안의 관리 블록 | `AGENTS.md` 안의 관리 블록 |
 
 module은 `PATH`에 무엇을 기대하는지 선언할 수 있다. 요구 사항은 **감지될 뿐, 절대 설치되지 않는다**: `list`와 `install`은 빠진 것을 보고할 뿐 아무것도 막지 않으므로, 나중에 도구를 추가하더라도 재설치는 필요 없다.

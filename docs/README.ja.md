@@ -28,7 +28,22 @@ clone する物も、取ってくる物も、作業を始める前に移行し�
 
 対象の既定はこのプロジェクトである — 影響範囲が最小だからだ。より広い範囲には必ず flag が要る。何を入れるかに既定値は無い: module を名指しするか、対話で選ぶ。非対話シェルでは、代わりに選ぶのではなく停止する。
 
+`dotagents install` は **module 選択 → インストール先選択** の順に進む。2 画面目で **Claude Code / Codex を複数選択**でき、各ツールへの導入済み件数とドリフトも表示する。名指しした module を入れる場合も、`--agent` を省略すればインストール先を選べる。
+
+```sh
+dotagents install
+dotagents install review prompting --agent codex
+dotagents install git --agent claude,codex
+dotagents install review -g --agent codex
+```
+
+インストール先ごとに module の集合を記録する。`update`・`uninstall`・`status` は記録済みの全インストール先に働き、`--agent codex` などで対象を絞れる。非対話実行では module 名が必須。`--agent` を省略すると記録済みの先を使い、新規の場合は従来互換で Claude と、`.codex/` またはプロジェクトの `AGENTS.md` が存在すれば Codex を選ぶ。CI などでは `--agent` の明示を推奨する。
+
 node と bun のどちらでもよい — CLI 自身がその機械に在る runtime を選ぶ。
+
+対話選択では対象の `project / global` を上部に示し、**今回の選択** (`[ ]` / `[x]`) と **現在の導入状態** を分けて表示する。灰色の `○` は未導入、緑の `●` は導入済み、黄色の `↑` は更新待ち、青の `~` は配備先の編集、赤の `!` は欠落や配備を妨げる状態。カーソルを合わせた module の説明・出どころ・差分の理由は一覧の下に表示する。導入済みのチェックを外しても uninstall にはならない。
+
+選択画面と `status` は配布内容を同じ方法で比較する。配布元の変更と配備先の編集は両方表示でき、版番号だけが変わっても全 module を更新待ちにはしない。共通の plugin 情報の差分は別に表示し、module ごとの区切りを持たない規則ブロックの編集は `shared rules changed` として示す。`NO_COLOR` でも記号とラベルで状態を判別できる。
 
 ## module とは何か
 
@@ -41,13 +56,23 @@ modules/<name>/
 ├── AGENTS.md      全セッションに注入される規則
 ├── skills/        その時が来たときにだけ読まれる規則
 ├── agents/        独自の context とツールを持つサブエージェントの役割
-└── hooks/         エージェントの作業中に走るイベントハンドラ
+├── hooks/         エージェントの作業中に走るイベントハンドラ
+└── codex/         Codex 固有のネイティブ設定（任意）
 ```
 
 | 種別 | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **1 つの plugin directory**。marketplace も install 手順も無しに読み込まれ、その中身を `/dotagents:*` という名前空間に収める。hook が `settings.json` に一切触れずに届くのは、これによる | スキルのみ、`.codex/skills/dotagents-*` として — Codex に plugin は無いので、名前空間はディレクトリ名に畳み込まれる |
-| `AGENTS.md` | `.claude/CLAUDE.md` 内の管理ブロック | `AGENTS.md` 内の管理ブロック |
+| `skills/` | `.claude/skills/dotagents/skills/` — `/dotagents:*` | `.agents/skills/dotagents-*/` — スキルの `name` も `dotagents-*` にする |
+| `agents/*.md` | plugin 内の `agents/` | `.codex/agents/dotagents-*.toml` に変換。同梱レビュー役は `read-only` sandbox |
+| `hooks/` | plugin 内の `hooks/` | Claude 固有の hook は自動変換しない。`codex/hooks.json` にネイティブ形式を用意する |
+| `codex/` | 配布しない | `.codex/` へネイティブ設定を配る。`codex/agents/dotagents-<name>.toml` は同名の変換結果より優先 |
+| `AGENTS.md` | `.claude/CLAUDE.md` 内の管理ブロック | プロジェクトは `AGENTS.md`、`-g` は `~/.codex/AGENTS.md`。無ければ作成 |
+
+Codex の配置は公式の[スキル検出](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills)と[カスタムエージェント](https://learn.chatgpt.com/docs/agent-configuration/subagents)の形式に従う。`-g` ではスキルを `~/.agents/skills/`、エージェントを `~/.codex/agents/` に置く。既存の `.codex/skills/dotagents-*` は `update` で移行し、手修正した旧ファイルは残して報告する。旧 `.agents/.dotagents.json` が残る環境では、先に `--agent` なしの `update` を1回実行してから個別のインストール先を選ぶ。
+
+同梱の全 module は Codex に配布できる。自作エージェントの変換では単一行の `name`・`description`・`tools` を読み、本文を `developer_instructions` にする。Claude のモデル指定は移さず、Codex の設定を引き継ぐ。より細かい制御や複雑なメタデータが必要ならネイティブ TOML を用意する。ネイティブ設定にもハッシュ所有の規則が適用され、既存のユーザー設定と競合すれば保持して報告する。
+
+Codex はインストール後に新しいセッションで読み込む。独自の hook を配る場合は、Codex の [`/hooks` による信頼確認](https://learn.chatgpt.com/docs/hooks)が必要で、installer は信頼設定を変更しない。
 
 プロジェクトの規則を共通正本へまとめる場合は、実ファイルの `.agents/AGENTS.md` を用意し、
 `AGENTS.md → .agents/AGENTS.md` と `.claude/CLAUDE.md → ../.agents/AGENTS.md` のシンボリックリンクを張れる。
@@ -93,6 +118,8 @@ installer 自体はここに住まない。来た場所で入れ替わる。modu
 dotagents update               # 記録されている物を配り直す — 引数は不要、選んだ module を憶えている
 dotagents uninstall <module>   # module を 1 つ外し、残りは保つ。名指ししなければすべてを除去する
 dotagents status               # 配備された全ファイルを検査 — 乖離があれば exit 1
+dotagents update --agent codex # Codex の配布内容だけ更新
+dotagents status --agent codex # Codex だけ検査
 dotagents --help               # 全コマンド・オプション・例
 ```
 

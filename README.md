@@ -28,6 +28,21 @@ Nothing to clone, nothing to fetch, and no state to migrate before you can work:
 
 The target defaults to this project — the smallest blast radius — and the wider scope always takes a flag. What goes in never defaults: name a module, or pick interactively. A non-interactive shell stops rather than choosing for you.
 
+`dotagents install` asks for **modules first, then installation agents**. Select **Claude Code, Codex, or both** in the second picker; each row shows how many selected modules are installed and whether they have drifted. Naming modules still opens the agent picker unless `--agent` is supplied.
+
+```sh
+dotagents install
+dotagents install review prompting --agent codex
+dotagents install git --agent claude,codex
+dotagents install review -g --agent codex
+```
+
+Each agent remembers its own module set. `update`, `uninstall`, and `status` operate on all recorded agents unless narrowed with `--agent codex` or `--agent claude`. Non-interactive installation requires module names. Without `--agent`, it uses recorded agents; a fresh installation preserves the previous default of Claude plus Codex when `.codex/` or project `AGENTS.md` exists. Specify `--agent` for deterministic scripts.
+
+The interactive picker shows the target and keeps **this run's selection** (`[ ]` / `[x]`) separate from **what is already installed**: gray `○` available, green `●` installed, yellow `↑` update available, blue `~` modified locally, and red `!` missing or blocked. The focused module's description, origin, and drift details appear below the list. Unchecking an installed module does not uninstall it.
+
+The picker and `status` compare delivered contents, not just package versions. Source changes and local edits can both be reported; a version change alone does not mark every module as outdated. Changes to the shared plugin metadata are reported separately, and edits to a combined rules block are labeled `shared rules changed` because the block has no module boundaries. Symbols and labels remain visible with `NO_COLOR`.
+
 Node or Bun, whichever the machine has — the CLI runs on either runtime.
 
 ## What a module is
@@ -41,13 +56,23 @@ modules/<name>/
 ├── AGENTS.md      rules injected into every session
 ├── skills/        rules read only when their moment arrives
 ├── agents/        subagent roles, with their own context and tools
-└── hooks/         event handlers that run as the agent works
+├── hooks/         event handlers that run as the agent works
+└── codex/         optional native Codex assets
 ```
 
 | Kind | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **one plugin directory**, loaded with no marketplace and no install step, namespacing what it holds as `/dotagents:*`. This is how hooks arrive without ever touching `settings.json` | skills only, as `.codex/skills/dotagents-*` — Codex has no plugins, so the namespace folds into the directory name |
-| `AGENTS.md` | a managed block in `.claude/CLAUDE.md` | a managed block in `AGENTS.md` |
+| `skills/` | `.claude/skills/dotagents/skills/` — `/dotagents:*` | `.agents/skills/dotagents-*/`; the skill `name` is also namespaced as `dotagents-*` |
+| `agents/*.md` | `agents/` inside the plugin | Converted to `.codex/agents/dotagents-*.toml`; bundled reviewers use a `read-only` sandbox |
+| `hooks/` | `hooks/` inside the plugin | Claude hooks are not automatically translated; supply native `codex/hooks.json` |
+| `codex/` | Not delivered | Native assets copied into `.codex/`; `codex/agents/dotagents-<name>.toml` overrides the generated role of the same name |
+| `AGENTS.md` | A managed block in `.claude/CLAUDE.md` | A managed block in project `AGENTS.md`, or `~/.codex/AGENTS.md` with `-g`; created if absent |
+
+Codex delivery follows the official [skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills) and [custom agent](https://learn.chatgpt.com/docs/agent-configuration/subagents) formats. With `-g`, skills live in `~/.agents/skills/` and agents in `~/.codex/agents/`. `update` migrates the previous `.codex/skills/dotagents-*` layout, retaining and reporting edited old files. Installations still using the legacy `.agents/.dotagents.json` record need one `update` without `--agent` before selecting individual agents.
+
+All bundled modules support Codex. Agent conversion reads single-line `name`, `description`, and `tools` metadata and uses the Markdown body as `developer_instructions`. Claude model names are omitted so Codex inherits its own settings. Supply native TOML for more advanced metadata or tool controls. Native assets follow the same hash ownership rules; conflicting user configuration is preserved and reported.
+
+Start a new Codex session after installation. Custom hooks require Codex’s native [`/hooks` trust flow](https://learn.chatgpt.com/docs/hooks); the installer does not change trust settings.
 
 A module may declare what it expects on `PATH`. Requirements are **detected, never installed**: `list` and `install` report what is missing and block nothing, so adding the tool later needs no reinstall.
 
@@ -87,6 +112,8 @@ The installer itself never lives here; it is replaced where it came from. The mo
 dotagents update               # redeliver what is recorded — no arguments, it remembers what you chose
 dotagents uninstall <module>   # drop one module, keep the rest; name none to remove everything
 dotagents status               # verify every delivered file — exit 1 on drift
+dotagents update --agent codex # refresh only Codex
+dotagents status --agent codex # inspect only Codex
 dotagents --help               # every command, option, example
 ```
 

@@ -90,7 +90,7 @@ const RULES = read(path.join(RULES_MODULE, 'AGENTS.md')).trim();
 // Claude へ配る plugin の位置(名前空間 dotagents = このディレクトリ名)
 const PLUGIN = '.claude/skills/dotagents';
 
-test('fresh install(-g): Claude へは plugin 1 つ、Codex へは素のコピー。.agents も symlink も作らない', () => {
+test('fresh install(-g): Claude へは plugin、Codex へはネイティブのスキルとエージェントを配る', () => {
   const home = freshHome();
   run(home, ['install', ...BASE, '-g']);
 
@@ -103,9 +103,9 @@ test('fresh install(-g): Claude へは plugin 1 つ、Codex へは素のコピ�
   const manifest = JSON.parse(read(path.join(home, PLUGIN, '.claude-plugin/plugin.json')));
   assert.equal(manifest.name, 'dotagents', '名前空間は dotagents(/dotagents:* になる)');
 
-  assert.ok(fs.existsSync(path.join(home, '.codex/skills/dotagents-prompting/SKILL.md')),
-    'Codex には plugin が無いので、名前空間を名前へ畳んで素で配る');
-  assert.ok(!fs.existsSync(path.join(home, '.codex/agents')), 'Codex にエージェント定義の置き場は無い');
+  assert.ok(fs.existsSync(path.join(home, '.agents/skills/dotagents-prompting/SKILL.md')),
+    'Codex が検出する標準のスキル置き場へ配る');
+  assert.ok(fs.existsSync(path.join(home, '.codex/agents/dotagents-review.toml')), 'Codex にネイティブのレビュー役を配る');
   assert.ok(!fs.existsSync(path.join(home, '.claude/skills/prompting')), '名前空間の外にスキルを置かない');
   assert.ok(!fs.existsSync(path.join(home, '.claude/agents')), '名前空間の外にエージェントを置かない');
 
@@ -114,7 +114,7 @@ test('fresh install(-g): Claude へは plugin 1 つ、Codex へは素のコピ�
   assert.ok(claudeMd.includes(RULES), 'ブロックの中身は module の AGENTS.md 全文');
   assert.ok(read(path.join(home, '.codex/AGENTS.md')).includes(RULES), '.codex/AGENTS.md にも規則ブロックが入る');
 
-  assert.ok(!fs.existsSync(path.join(home, '.agents')), '.agents は作らない');
+  assert.ok(!fs.existsSync(path.join(home, '.agents/.dotagents.json')), '旧レイアウトの manifest は作らない');
   assert.ok(!fs.existsSync(path.join(home, '.zshenv')), 'zshenv に触れない');
   assert.ok(!fs.existsSync(path.join(home, '.claude/settings.json')), 'settings.json を触らない');
   assert.ok(!fs.existsSync(path.join(home, PLUGIN, 'README.md')), '解説(README)は配備しない');
@@ -204,7 +204,7 @@ test('配達先までの経路に切れたリンクが挟まっていても、�
   // recursive な mkdir でもこの先は作れないので、掃除が届かなければ install ごと落ちる。
   const inner = path.join(home, PLUGIN, 'skills');
   fs.rmSync(inner, { recursive: true });
-  fs.symlinkSync(path.join(home, '.agents', 'skills'), inner);
+  fs.symlinkSync(path.join(home, '.agents', 'old-skills'), inner);
   assert.ok(!fs.existsSync(inner), '行き先の無いリンクになっている');
 
   const again = run(home, ['install', ...BASE, '-g'], { allowFail: true });
@@ -301,6 +301,8 @@ test('分解された module: 憶えていた名前が消えても、行き先�
   run(home, ['install', ...LEGACY, '-g']);
   // 4.x の記録が憶えているのは harness という 1 つの名前である。中身は今この 5 つに分かれている。
   const m = userManifest(home);
+  delete m.agentModules;
+  delete m.agentRulesBodies;
   fs.writeFileSync(path.join(stateDir(home), 'user.json'),
     JSON.stringify({ ...m, modules: ['harness'] }, null, 2) + '\n');
 
@@ -322,6 +324,8 @@ test('名前の受け継ぎを宣言するのは module である: 私的な mod
 
   run(home, ['install', 'mine', '-g']);
   const m = userManifest(home);
+  delete m.agentModules;
+  delete m.agentRulesBodies;
   fs.writeFileSync(path.join(stateDir(home), 'user.json'),
     JSON.stringify({ ...m, modules: ['gone', 'review'] }, null, 2) + '\n');
 
@@ -544,7 +548,8 @@ test('旧レイアウトの移行: .agents・symlink・zshenv 行・settings 断
 
   run(home, ['update', '-g']);
 
-  assert.ok(!fs.existsSync(root), '.agents はディレクトリごと消える');
+  assert.ok(!fs.existsSync(path.join(root, '.dotagents.json')), '旧レイアウトの記録は消える');
+  assert.ok(fs.existsSync(path.join(root, 'skills/dotagents-prompting/SKILL.md')), 'Codex のネイティブスキルは新しく配られる');
   assert.ok(!fs.lstatSync(path.join(home, '.claude/CLAUDE.md')).isSymbolicLink(), 'CLAUDE.md は実ファイルになる');
   assert.ok(read(path.join(home, '.claude/CLAUDE.md')).includes(RULES), '規則ブロックが入る');
   assert.ok(!fs.existsSync(path.join(home, '.claude/skills/dotagents-prompting')), '旧スキルのリンクは消える');
@@ -607,7 +612,7 @@ test('移行の頑健性: 所有記録に無い .agents 向き symlink が残っ
 
   run(home, ['update', '-g']);
 
-  assert.ok(!fs.existsSync(root), '.agents は消える');
+  assert.ok(!fs.existsSync(path.join(root, '.dotagents.json')), '旧レイアウトの記録は消える');
   assert.ok(!fs.lstatSync(path.join(home, '.claude/CLAUDE.md')).isSymbolicLink(), '切れたリンクは実体に置き換わる');
   assert.ok(!fs.lstatSync(path.join(home, PLUGIN)).isSymbolicLink(), 'plugin の場所も実体になる');
   const { out } = run(home, ['status', '-g']);
@@ -672,7 +677,7 @@ test('共通正本: 両ツールへのリンクを保ったまま、管理ブロ
 
   assert.equal(fs.readlinkSync(path.join(proj, 'AGENTS.md')), '.agents/AGENTS.md');
   assert.equal(fs.readlinkSync(path.join(proj, '.claude/CLAUDE.md')), '../.agents/AGENTS.md');
-  assert.deepEqual(projectManifest(home, proj).rulesBlocks, [{ file: '.agents/AGENTS.md', createdFile: false }]);
+  assert.deepEqual(projectManifest(home, proj).rulesBlocks.map(({ file, createdFile }) => ({ file, createdFile })), [{ file: '.agents/AGENTS.md', createdFile: false }]);
   assert.equal((read(canonical).match(/agents-harness:begin/g) || []).length, 1);
   assert.ok(read(canonical).startsWith(own));
   assert.ok(read(canonical).includes(RULES));
@@ -702,7 +707,7 @@ for (const command of ['update', 'uninstall']) {
     const canonical = shareProjectRules(proj, read(path.join(proj, '.claude/CLAUDE.md')));
     run(home, [command, '-C', proj]);
     if (command === 'update') {
-      assert.deepEqual(projectManifest(home, proj).rulesBlocks, [{ file: '.agents/AGENTS.md', createdFile: false }]);
+      assert.deepEqual(projectManifest(home, proj).rulesBlocks.map(({ file, createdFile }) => ({ file, createdFile })), [{ file: '.agents/AGENTS.md', createdFile: false }]);
       assert.ok(read(canonical).includes(RULES), '旧配布記録の刈り込みで新しいブロックを消さない');
       assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
       run(home, ['uninstall', '-C', proj]);

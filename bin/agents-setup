@@ -12,7 +12,7 @@
 // 配達先:
 // - Claude: .claude/skills/dotagents/ 1 つに plugin として。skills・agents・hooks が
 //   名前空間 /dotagents:* の下に入り、settings.json を触らずにフックまで届く。
-// - Codex : .codex/skills/dotagents-<name>/ へ素のコピー(plugin が無いので名前へ畳む)。
+// - Codex : .agents/skills/dotagents-<name>/ と .codex/agents/*.toml へ。
 // - AGENTS.md: 各ツールの規則ファイルへマーカー付きの管理ブロックとして。
 //
 // install はハッシュが一致するファイルにしか触れず、uninstall は manifest の記録だけを外す。
@@ -34,6 +34,8 @@ const { execFileSync } = require('node:child_process');
 const PKG_ROOT = path.resolve(__dirname, '..');
 // Claude へ配る plugin の名前 = スキルとエージェントの名前空間(/dotagents:git など)。
 const PLUGIN = 'dotagents';
+const AGENTS = ['claude', 'codex'];
+const AGENT_LABELS = { claude: 'Claude Code', codex: 'Codex' };
 // マシン固有の記録(manifest)の集約先。
 // この仕組みの本拠地。根は 1 つだけ環境変数で動かせ、中身の位置はすべてそこから導出する。
 const DOTAGENTS_HOME = () => (process.env.DOTAGENTS_HOME
@@ -120,6 +122,21 @@ function lstatOrNull(p) {
   try { return fs.lstatSync(p); } catch { return null; }
 }
 
+// 配布先の途中にあるリンクも辿らない。--force はユーザーの別ディレクトリへ
+// 書き込む許可ではない。規則の明示的な共通正本は呼び出し側で解決する。
+function blockedPath(ctx, file, includeFile = true) {
+  const parts = path.relative(ctx.base, file).split(path.sep);
+  let current = ctx.base;
+  for (let i = 0; i < parts.length; i++) {
+    current = path.join(current, parts[i]);
+    if (!includeFile && i === parts.length - 1) break;
+    const st = lstatOrNull(current);
+    if (!st) break;
+    if (st.isSymbolicLink() || (i === parts.length - 1 ? !st.isFile() : !st.isDirectory())) return current;
+  }
+  return null;
+}
+
 function pkg() {
   return readJson(path.join(PKG_ROOT, 'package.json'), { version: '0.0.0' });
 }
@@ -135,7 +152,7 @@ function removeEmptyDirsUpTo(from, stopAt) {
 // 空ディレクトリの遡り削除は各ツールのディレクトリ(.claude / .codex)で止める。
 // それ自体はユーザーの持ち物なので、空でも消さない。
 function pruneStop(ctx, dst) {
-  for (const d of [ctx.claudeDir, ctx.codexDir]) {
+  for (const d of [ctx.claudeDir, ctx.codexDir, path.join(ctx.base, '.agents')]) {
     if (dst.startsWith(d + path.sep)) return d;
   }
   return ctx.base;
@@ -151,6 +168,7 @@ function makeCtx(opts) {
     if (!lstatOrNull(proj)?.isDirectory()) throw new Error(`no such directory: ${proj}`);
     proj = fs.realpathSync(proj); // manifest のキーを安定させる(symlink 経由の表記揺れを吸収)
     return {
+      agents: opts.agents,
       kind: 'project',
       base: proj,
       claudeDir: path.join(proj, '.claude'),
@@ -161,6 +179,7 @@ function makeCtx(opts) {
   }
   const home = os.homedir();
   return {
+    agents: opts.agents,
     kind: 'user',
     base: home,
     claudeDir: path.join(home, '.claude'),
@@ -179,6 +198,47 @@ function manifestPath(ctx) {
 }
 
 function legacyManifestPath(ctx) { return path.join(ctx.legacyRoot, LEGACY_MANIFEST_NAME); }
+
+function recordAgent(rel, record) {
+  return record?.agent ?? (rel.startsWith('.claude/') ? 'claude' : 'codex');
+}
+
+function defaultAgents(ctx) {
+  const codex = lstatOrNull(ctx.codexDir)?.isDirectory() ||
+    (ctx.kind === 'project' && lstatOrNull(path.join(ctx.base, 'AGENTS.md')));
+  return codex ? [...AGENTS] : ['claude'];
+}
+
+// 旧記録は実際に配った先から読み替える。新しいディレクトリの有無で、更新先を増やさない。
+function recordedAgentModules(ctx, manifest) {
+  if (!manifest) return {};
+  if (manifest.agentModules) return Object.fromEntries(Object.entries(manifest.agentModules)
+    .map(([agent, names]) => [agent, followRenames(names)]));
+  const modules = followRenames(manifest.modules ?? [SOLE_MODULE_THEN]);
+  const result = { claude: modules };
+  const codexFiles = Object.entries(manifest.files ?? {}).filter(([rel, v]) => recordAgent(rel, v) === 'codex');
+  const codexRules = (manifest.rulesBlocks ?? []).some((r) => !r.file.startsWith('.claude/'));
+  if (codexFiles.length || codexRules) {
+    const owned = codexFiles.map(([, v]) => fileOwner(v));
+    const rules = codexRules ? Object.keys(manifest.rulesBodies ?? {}) : [];
+    result.codex = owned.includes(null) || (codexRules && !manifest.rulesBodies)
+      ? modules : followRenames([...new Set([...owned, ...rules])]);
+  }
+  return result;
+}
+
+function recordedAgentBodies(manifest, agentModules) {
+  return Object.fromEntries(Object.entries(agentModules).map(([agent, names]) => [agent,
+    manifest?.agentRulesBodies?.[agent] ?? Object.fromEntries(Object.entries(manifest?.rulesBodies ?? {})
+      .filter(([n]) => names.includes(n))),
+  ]));
+}
+
+function rulesRecordAgents(ctx, record) {
+  if (record.agents) return record.agents;
+  if (record.file === path.join('.agents', 'AGENTS.md')) return [...AGENTS];
+  return [recordAgent(record.file, record)];
+}
 
 // 記録は本拠地の直下に置いていた。modules/ と並ぶようになったので state/ へ移す。
 function migrateStateDir() {
@@ -394,50 +454,107 @@ const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs'])
 
 // 配達先の導出:
 // - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
-// - skills/<name>/ → Codex : .codex/skills/dotagents-<name>/(名前空間が無いので名前へ畳む)
+// - skills/<name>/ → Codex : .agents/skills/dotagents-<name>/
+// - agents/*.md    → Codex : .codex/agents/dotagents-<name>.toml
 // - AGENTS.md      → コピーではなく規則ファイルへの管理ブロック(rulesTargets)
-function deliveryEntries(ctx, modules, { keepPlugin = false } = {}) {
+function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } = {}) {
   const entries = [];
   const seen = new Map();
-  // unit = 配達の単位(plugin ならそのディレクトリ)。unit 自体が symlink の環境では
-  // リンク越しに書き込まないよう、コピー側が unit を見て丸ごと退く。
+  const known = new Set(moduleNames());
+  const agentModules = ctx.agentModules ?? Object.fromEntries(defaultAgents(ctx).map((a) => [a, modules]));
   const add = (e) => {
     const rel = path.relative(ctx.base, e.dst);
-    const owner = seen.get(rel);
-    if (owner !== undefined && owner !== e.module) {
-      throw new Error(`modules ${owner} and ${e.module} both deliver ${rel}.`);
-    }
+    if (seen.has(rel)) throw new Error(`modules ${seen.get(rel)} and ${e.module} both deliver ${rel}.`);
     seen.set(rel, e.module);
     entries.push({ ...e, rel });
   };
-  const pluginRoot = path.join(ctx.claudeDir, 'skills', PLUGIN);
-  const codex = lstatOrNull(ctx.codexDir)?.isDirectory();
-
-  for (const m of modules) {
-    const root = moduleDir(m);
-    for (const rel of walk(root)) {
-      if (NOT_DELIVERED.has(rel.split(path.sep)[0])) continue;
-      add({ module: m, src: path.join(root, rel), dst: path.join(pluginRoot, rel), unit: pluginRoot });
-    }
-    const skills = path.join(root, 'skills');
-    if (codex && lstatOrNull(skills)?.isDirectory()) {
-      for (const e of fs.readdirSync(skills, { withFileTypes: true }).filter((x) => x.isDirectory())) {
-        const unit = path.join(ctx.codexDir, 'skills', `${PLUGIN}-${e.name}`);
-        for (const rel of walk(path.join(skills, e.name))) {
-          add({ module: m, src: path.join(skills, e.name, rel), dst: path.join(unit, rel), unit });
+  for (const [agent, names] of Object.entries(agentModules)) {
+    if (!agents.includes(agent)) continue;
+    const present = names.filter((n) => known.has(n));
+    const pluginRoot = path.join(ctx.claudeDir, 'skills', PLUGIN);
+    const before = entries.length;
+    for (const m of present) {
+      const root = moduleDir(m);
+      if (agent === 'claude') {
+        for (const rel of walk(root)) {
+          if (NOT_DELIVERED.has(rel.split(path.sep)[0]) || rel.startsWith('codex/')) continue;
+          add({ agent, module: m, src: path.join(root, rel), dst: path.join(pluginRoot, rel), unit: pluginRoot });
+        }
+      } else {
+        const skills = path.join(root, 'skills');
+        if (lstatOrNull(skills)?.isDirectory()) {
+          for (const skill of fs.readdirSync(skills, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+            const unit = path.join(ctx.base, '.agents', 'skills', `${PLUGIN}-${skill.name}`);
+            for (const rel of walk(path.join(skills, skill.name))) {
+              const src = path.join(skills, skill.name, rel);
+              add({ agent, module: m, src, ...(rel === 'SKILL.md' ? { content: codexSkill(src, skill.name, moduleMeta(m).description) } : {}), dst: path.join(unit, rel), unit });
+            }
+          }
+        }
+        const roles = path.join(root, 'agents');
+        if (lstatOrNull(roles)?.isDirectory()) {
+          for (const rel of walk(roles).filter((rel) => rel.endsWith('.md'))) {
+            const role = codexAgent(path.join(roles, rel), path.join(root, 'codex', 'agents'));
+            if (role.override) continue;
+            const dst = path.join(ctx.codexDir, 'agents', `${role.name}.toml`);
+            add({ agent, module: m, content: role.content, dst, unit: path.dirname(dst) });
+          }
+        }
+        // Native Codex assets allow modules to add hooks or role overrides without
+        // pretending that Claude-specific configuration is portable.
+        const native = path.join(root, 'codex');
+        if (lstatOrNull(native)?.isDirectory()) {
+          for (const rel of walk(native)) {
+            add({ agent, module: m, src: path.join(native, rel), dst: path.join(ctx.codexDir, rel), unit: ctx.codexDir });
+          }
         }
       }
     }
-  }
-  if (entries.length || keepPlugin) {
-    add({
-      module: null,
-      content: pluginManifest(modules),
-      dst: path.join(pluginRoot, '.claude-plugin', 'plugin.json'),
-      unit: pluginRoot,
-    });
+    if (agent === 'claude' && (entries.length > before || (keepPlugin && names.length))) {
+      add({ agent, module: null, content: pluginManifest(present),
+        dst: path.join(pluginRoot, '.claude-plugin', 'plugin.json'), unit: pluginRoot });
+    }
   }
   return entries;
+}
+
+function codexAgent(file, nativeRoot) {
+  const text = fs.readFileSync(file, 'utf8');
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (!match) throw new Error(`agent needs YAML frontmatter: ${file}`);
+  const scalar = (key) => {
+    const raw = match[1].match(new RegExp(`^${key}: *(.+)$`, 'm'))?.[1]?.trim();
+    if (!raw) return '';
+    if (raw.startsWith('"')) return JSON.parse(raw);
+    if (raw.startsWith("'")) return raw.slice(1, -1).replaceAll("''", "'");
+    if (/^[>|]/.test(raw)) throw new Error(`use a single-line ${key} or a native codex/agents TOML file: ${file}`);
+    return raw;
+  };
+  const name = `${PLUGIN}-${scalar('name') || path.basename(file, '.md')}`;
+  if (/^[a-zA-Z0-9_-]+$/.test(name) && lstatOrNull(path.join(nativeRoot, `${name}.toml`))?.isFile()) return { name, override: true };
+  const description = scalar('description');
+  if (!/^[a-zA-Z0-9_-]+$/.test(name) || !description) throw new Error(`invalid agent name or description: ${file}`);
+  const tools = scalar('tools').split(',').map((t) => t.trim());
+  const readOnly = tools.length > 0 && tools.every((t) => ['Read', 'Glob', 'Grep', 'Bash', 'WebFetch', 'WebSearch'].includes(t));
+  const fields = { name, description, ...(readOnly ? { sandbox_mode: 'read-only' } : {}), developer_instructions: match[2].trim() };
+  return { name, content: Object.entries(fields).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join('\n') + '\n' };
+}
+
+function codexSkill(file, name, description) {
+  const text = fs.readFileSync(file, 'utf8');
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  const field = `name: ${PLUGIN}-${name}`;
+  if (!match) return `---\n${field}\ndescription: ${JSON.stringify(description)}\n---\n\n${text}`;
+  const metadata = /^name:/m.test(match[1]) ? match[1].replace(/^name:.*$/m, field) : `${field}\n${match[1]}`;
+  return `---\n${metadata}\n---\n${match[2]}`;
+}
+
+function unsupportedCodexHooks(modules) {
+  return modules.filter((name) => {
+    const root = moduleDir(name);
+    return lstatOrNull(path.join(root, 'hooks'))?.isDirectory() && walk(path.join(root, 'hooks')).length &&
+      !lstatOrNull(path.join(root, 'codex', 'hooks.json'))?.isFile();
+  });
 }
 
 // 生成される配達物(plugin.json)と、正本からコピーされる物を同じ所有権規則で扱う。
@@ -469,6 +586,7 @@ function removeLink(l, log) {
 // 配布先を実ファイルへ移行するため、所有記録に無い旧リンクも対象とする。
 // それ以外の生きた symlink はユーザーの構成として残し、後段が conflict として警告する。
 function clearStaleSymlink(ctx, p, log, migratedLegacy = false) {
+  if (blockedPath(ctx, p, false)) return;
   const st = lstatOrNull(p);
   if (!st?.isSymbolicLink()) return;
   // プロジェクトの共通正本へのリンクは、配布先の構成として保持する。
@@ -486,10 +604,7 @@ function clearStaleSymlink(ctx, p, log, migratedLegacy = false) {
 // ディレクトリを作ることさえできない — 配達単位だけを見ていては届かない。
 // 上の段から順に外す(浅い順)ので、先に外れた段の下は素直に作れる。
 function staleSymlinkCandidates(ctx, entries) {
-  const out = new Set([path.join(ctx.claudeDir, 'CLAUDE.md')]);
-  if (ctx.kind === 'user' && lstatOrNull(ctx.codexDir)?.isDirectory()) {
-    out.add(path.join(ctx.codexDir, 'AGENTS.md'));
-  }
+  const out = new Set(rulesTargets(ctx).filter((t) => t.agents.some((a) => !ctx.agents || ctx.agents.includes(a))).map((t) => t.file));
   for (const e of entries) {
     out.add(e.unit);
     let cur = ctx.base;
@@ -645,21 +760,29 @@ function sharedRulesFile(ctx, file) {
 }
 
 function rulesTargets(ctx) {
-  const targets = [{ file: path.join(ctx.claudeDir, 'CLAUDE.md'), create: true }];
-  if (ctx.kind === 'user') {
-    if (lstatOrNull(ctx.codexDir)?.isDirectory()) {
-      targets.push({ file: path.join(ctx.codexDir, 'AGENTS.md'), create: true });
-    }
-  } else if (lstatOrNull(path.join(ctx.base, 'AGENTS.md'))?.isFile() || projectRulesLinkTarget(ctx, path.join(ctx.base, 'AGENTS.md'))) {
-    targets.push({ file: path.join(ctx.base, 'AGENTS.md'), create: false });
-  }
+  const targets = [];
+  const agents = Object.keys(ctx.agentModules ?? Object.fromEntries(defaultAgents(ctx).map((a) => [a, []])));
+  if (agents.includes('claude')) targets.push({ file: path.join(ctx.claudeDir, 'CLAUDE.md'), create: true, agents: ['claude'] });
+  if (agents.includes('codex')) targets.push({ file: path.join(ctx.kind === 'user' ? ctx.codexDir : ctx.base, 'AGENTS.md'), create: true, agents: ['codex'] });
   const unique = new Map();
   for (const t of targets) {
     const shared = sharedRulesFile(ctx, t.file);
-    const target = shared ? { file: shared, create: false } : t;
-    unique.set(target.file, target);
+    const file = shared ?? t.file;
+    const existing = unique.get(file);
+    if (existing) existing.agents.push(...t.agents);
+    else unique.set(file, { ...t, file, create: shared ? false : t.create });
   }
   return [...unique.values()];
+}
+
+function targetRulesBodies(ctx, target) {
+  const bodies = {};
+  // A user-selected common rules file serves both tools. Keep the other tool's
+  // recorded rules when changing only one installation.
+  const active = ctx.agents ?? ctx.inspectionAgents ?? AGENTS;
+  const agents = [...target.agents].sort((a, b) => Number(active.includes(a)) - Number(active.includes(b)));
+  for (const agent of agents) Object.assign(bodies, ctx.agentRulesBodies?.[agent] ?? {});
+  return bodies;
 }
 
 function stripBlock(lines) {
@@ -680,9 +803,9 @@ function applyRulesBlock(ctx, t, body, oldRecord, log) {
   const st = lstatOrNull(t.file);
   if (!st && !t.create) return null;
   const rel = path.relative(ctx.base, t.file);
-  if (st?.isSymbolicLink()) {
+  if (blockedPath(ctx, t.file)) {
     // リンク越しに書くとリンク先(ユーザーの実体)を書き換えてしまう
-    log.warn(`a symlink is in the way, leaving it alone: ${t.file}`);
+    log.warn(`a symlink or non-file is in the way, leaving it alone: ${t.file}`);
     return null;
   }
   const desired = desiredBlock(body);
@@ -705,6 +828,7 @@ function removeRulesBlock(ctx, record, log) {
   const shared = sharedRulesFile(ctx, recordedFile);
   if (ctx.kind === 'project' && recordedFile === path.join(ctx.base, '.agents', 'AGENTS.md') && !shared) return;
   const file = shared ?? recordedFile;
+  if (blockedPath(ctx, file)) return;
   if (!lstatOrNull(file)?.isFile()) return;
   const text = fs.readFileSync(file, 'utf8');
   if (!hasBlock(text)) return; // ブロックが無ければユーザーのファイルに触れない
@@ -719,11 +843,163 @@ function removeRulesBlock(ctx, record, log) {
   log.del(`rules block ${record.file}`);
 }
 
-function rulesBlockState(ctx, t, body) {
-  const st = lstatOrNull(t.file);
-  if (!st) return t.create ? false : null;
-  if (st.isSymbolicLink()) return fs.existsSync(t.file) ? false : (t.create ? false : null);
-  return fs.readFileSync(t.file, 'utf8').includes(desiredBlock(body));
+// ---------------------------------------------------------------- 配備状態(読み取り専用)
+
+// status と選択画面は同じ検査結果を使う。版番号は配備全体の記録なので、module の
+// 更新待ちは「配布元・前回配布・現在の配備先」の内容で判定する。
+function inspectDeployment(ctx) {
+  const full = readJson(manifestPath(ctx), null);
+  const hasLegacy = !!readJson(legacyManifestPath(ctx), null);
+  const agentModules = recordedAgentModules(ctx, full);
+  const agents = ctx.agents ?? Object.keys(agentModules);
+  ctx.agentModules = agentModules;
+  ctx.agentRulesBodies = recordedAgentBodies(full, agentModules);
+  ctx.inspectionAgents = agents;
+  const known = new Set(moduleNames());
+  for (const agent of agents) {
+    const names = agentModules[agent] ?? [];
+    const bodies = rulesBodies(names.filter((n) => known.has(n)));
+    for (const n of names.filter((n) => !known.has(n))) {
+      if (ctx.agentRulesBodies[agent]?.[n] !== undefined) bodies[n] = ctx.agentRulesBodies[agent][n];
+    }
+    ctx.agentRulesBodies[agent] = bodies;
+  }
+  const names = [...new Set(agents.flatMap((a) => agentModules[a] ?? []))].sort();
+  const installed = new Set(names);
+  const checks = [];
+  const add = (owners, kinds, message) => checks.push({ owners, kinds, message });
+  const manifest = full ? { ...full,
+    files: Object.fromEntries(Object.entries(full.files ?? {}).filter(([rel, v]) => agents.includes(recordAgent(rel, v)))),
+    rulesBlocks: (full.rulesBlocks ?? []).filter((r) => rulesRecordAgents(ctx, r).some((a) => agents.includes(a))),
+  } : null;
+  if (!manifest) {
+    if (hasLegacy) add([], ['update'], `legacy layout ${homePath(ctx.legacyRoot)} — run update to migrate`);
+    return { manifest, hasLegacy, installed, checks, agentModules };
+  }
+
+  const orphans = names.filter((n) => !known.has(n));
+  const orphanFiles = new Set();
+  for (const n of orphans) {
+    const owned = Object.keys(manifest.files ?? {}).filter((rel) => fileOwner(manifest.files[rel]) === n);
+    owned.forEach((rel) => orphanFiles.add(rel));
+    const kept = owned.filter((rel) => lstatOrNull(path.join(ctx.base, rel))).length;
+    const lost = owned.length - kept;
+    const what = [
+      kept ? `${kept} file${kept > 1 ? 's' : ''} kept but unverifiable` : '',
+      lost ? `${lost} missing with nothing to restore from` : '',
+      !owned.length ? 'nothing delivered from it' : '',
+    ].filter(Boolean).join(', ');
+    add([n], ['gone'], `module ${n} — gone from ${homePath(PERSONAL_MODULES_DIR())}: ${what} (\`uninstall ${n}\` to remove)`);
+  }
+
+  const present = names.filter((n) => known.has(n));
+  if (agents.includes('codex')) for (const n of unsupportedCodexHooks((agentModules.codex ?? []).filter((n) => known.has(n)))) {
+    add([n], ['blocked'], `${n} — Claude hooks need native codex/hooks.json for Codex`);
+  }
+  const entries = deliveryEntries(ctx, present, { keepPlugin: orphanFiles.size > 0, agents });
+  for (const e of entries) {
+    const owners = e.module ? [e.module] : [];
+    const st = lstatOrNull(e.dst);
+    const was = fileHash(manifest.files?.[e.rel]);
+    if (blockedPath(ctx, e.dst)) {
+      add(owners, ['blocked'], `${e.rel} — a symlink is in the way`);
+    } else if (!st) {
+      add(owners, [was ? 'missing' : 'update'], `${e.rel} — ${was ? 'missing' : 'new delivery, run update'}`);
+    } else if (!st.isFile()) {
+      add(owners, ['blocked'], `${e.rel} — not a regular file`);
+    } else {
+      const current = sha256(e.dst);
+      const source = entryHash(e);
+      const kinds = [];
+      // 既に正本と同じなら、前回の記録が古くても内容のドリフトは無い。
+      if (current !== source) {
+        if (was && source !== was) kinds.push('update');
+        if (!was || current !== was) kinds.push('modified');
+      }
+      const reasons = [];
+      if (kinds.includes('update')) reasons.push('source changed, run update');
+      if (kinds.includes('modified')) reasons.push('modified in place');
+      add(owners, kinds, e.rel + (reasons.length ? ` — ${reasons.join('; ')}` : ''));
+    }
+  }
+  const delivered = new Set(entries.map((e) => e.rel));
+  for (const [rel, record] of Object.entries(manifest.files ?? {})) {
+    if (delivered.has(rel) || orphanFiles.has(rel)) continue;
+    const owner = fileOwner(record);
+    const owners = owner ? followRenames([owner]).filter((n) => installed.has(n)) : [];
+    const st = lstatOrNull(path.join(ctx.base, rel));
+    const kinds = ['update'];
+    let reason = 'no longer delivered, run update to prune';
+    if (st && (blockedPath(ctx, path.join(ctx.base, rel)) || sha256(path.join(ctx.base, rel)) !== fileHash(record))) {
+      kinds.push('modified');
+      reason += '; modified in place';
+    }
+    add(owners, kinds, `${rel} — ${reason}`);
+  }
+
+  inspectRules(ctx, manifest, present, orphans, add);
+  if (hasLegacy) add([], ['update'], `legacy layout ${homePath(ctx.legacyRoot)} — run update to migrate`);
+  if (ctx.kind === 'user' && zshenvHasMarker(ctx)) add([], ['update'], 'legacy zshenv managed line — run update to prune');
+  return { manifest, hasLegacy, installed, checks, agentModules };
+}
+
+function inspectRules(ctx, manifest, present, orphans, add) {
+  const targets = new Map(rulesTargets(ctx).filter((t) => t.agents.some((a) => ctx.inspectionAgents.includes(a))).map((t) => [t.file, t]));
+  const records = new Map();
+  for (const r of manifest.rulesBlocks ?? []) {
+    const recorded = path.join(ctx.base, r.file);
+    const file = sharedRulesFile(ctx, recorded) ?? recorded;
+    records.set(file, r);
+    if (!targets.has(file)) targets.set(file, { file, create: false, agents: rulesRecordAgents(ctx, r) });
+  }
+  for (const t of targets.values()) {
+    const bodies = targetRulesBodies(ctx, t);
+    const previous = records.get(t.file)?.bodies ?? (records.has(t.file) ? manifest.rulesBodies : {});
+    const body = joinBodies(bodies);
+    const oldBody = previous ? joinBodies(previous) : null;
+    const owners = followRenames([...new Set([...Object.keys(bodies), ...Object.keys(previous ?? {})])]);
+    if (body === null && oldBody === null && !records.has(t.file)) continue;
+    const changed = previous ? owners.filter((n) => bodies[n] !== previous[n]) : [];
+    const rel = `rules block ${path.relative(ctx.base, t.file)}`;
+    const st = lstatOrNull(t.file);
+    if (!st && body === null) continue;
+    if (!st) {
+      add(owners, [records.has(t.file) ? 'missing' : 'update'], `${rel} — ${records.has(t.file) ? 'missing' : 'new delivery, run update'}`);
+      continue;
+    }
+    if (blockedPath(ctx, t.file)) { add(owners, ['blocked'], `${rel} — a symlink or non-file is in the way`); continue; }
+    const text = fs.readFileSync(t.file, 'utf8');
+    const matches = (b) => b === null ? !hasBlock(text) : text.includes(desiredBlock(b));
+    if (matches(body)) { add(owners, [], rel); continue; }
+    if (previous && changed.length) add(changed, ['update'], `${rel} — source changed, run update`);
+    if (!previous || !matches(oldBody)) {
+      add(owners, ['shared'], `${rel} — shared rules differ${previous ? ' (modified in place)' : ' (no previous content recorded)'}; inspect with status`);
+    }
+  }
+}
+
+const DEPLOYMENT_STATES = {
+  available: { symbol: '○', label: 'available', color: 'gray' },
+  installed: { symbol: '●', label: 'installed', color: 'green' },
+  update: { symbol: '↑', label: 'update available', color: 'yellow' },
+  modified: { symbol: '~', label: 'modified locally', color: 'blue' },
+  shared: { symbol: '~', label: 'shared rules changed', color: 'blue' },
+  missing: { symbol: '!', label: 'missing files', color: 'red' },
+  blocked: { symbol: '!', label: 'blocked', color: 'red' },
+  gone: { symbol: '!', label: 'source missing', color: 'red' },
+};
+
+function deploymentState(inspection, name) {
+  const checks = inspection.checks.filter((c) => c.kinds.length && (name === null ? !c.owners.length : c.owners.includes(name)));
+  const kinds = new Set(checks.flatMap((c) => c.kinds));
+  const priority = ['gone', 'blocked', 'missing', 'modified', 'shared', 'update'];
+  const states = priority.filter((kind) => kinds.has(kind));
+  const primary = states[0] ?? (inspection.installed.has(name) ? 'installed' : 'available');
+  return {
+    ...DEPLOYMENT_STATES[primary],
+    label: states.length ? states.map((kind) => DEPLOYMENT_STATES[kind].label).join(' + ') : DEPLOYMENT_STATES[primary].label,
+    details: checks.map((c) => c.message),
+  };
 }
 
 // ---------------------------------------------------------------- log
@@ -763,6 +1039,7 @@ const ui = {
   red: sgr(31, 39),
   green: sgr(32, 39),
   yellow: sgr(33, 39),
+  blue: sgr(34, 39),
   cyan: sgr(36, 39),
   gray: sgr(90, 39),
 };
@@ -803,6 +1080,22 @@ function truncHead(s, max) {
     w += cw;
   }
   return '…' + out;
+}
+
+// 説明は冒頭、パスは末尾を残す。色を付ける前に切り詰めて ANSI を途中で切らない。
+function truncText(s, max) {
+  const text = String(s).replace(ANSI_RE, '').replace(/[\x00-\x1f\x7f]/g, ' ');
+  if (max <= 0) return '';
+  if (textWidth(text) <= max) return text;
+  let out = '';
+  let width = 0;
+  for (const ch of text) {
+    const cw = isWide(ch.codePointAt(0)) ? 2 : 1;
+    if (width + cw > max - 1) break;
+    out += ch;
+    width += cw;
+  }
+  return out + '…';
 }
 
 function homePath(p) {
@@ -886,37 +1179,67 @@ function closePrompt() {
 }
 
 // 複数選択。何を入れるかは既定値で決まらないので、初期選択は空である。
-function multiSelect({ title, options }) {
+function multiSelect({ title, context, options, notices = [] }) {
   return new Promise((resolve) => {
     const stdin = process.stdin;
-    const width = termWidth();
-    const labelWidth = Math.max(...options.map((o) => textWidth(o.label)));
     const chosen = new Set();
     let index = 0;
     let drawn = 0;
 
     const paint = () => {
-      const lines = ['', `  ${ui.bold(title)}`, ''];
-      options.forEach((o, i) => {
+      // 右端の自動折返しを避ける。高さにも収め、長い一覧はカーソルに追従させる。
+      const width = termWidth() - 1;
+      const room = width - 2;
+      const narrow = width < 58;
+      const labelWidth = Math.min(Math.max(...options.map((o) => textWidth(o.label))), width - 12);
+      const selected = options[index];
+      const details = [
+        `  ${truncText(selected.detail, room)}`,
+        `  ${ui.dim(truncText(selected.hint, room))}`,
+      ];
+      if (selected.state.details.length) {
+        details.push(`  ${ui[selected.state.color](truncText(selected.state.label, room))}`);
+        details.push(`  ${truncHead(selected.state.details[0], room)}`);
+      }
+      if (notices.length) details.push(`  ${ui.yellow(truncText(`shared: ${notices.join('; ')} — see status`, room))}`);
+      const footer = (narrow ? [
+        `${chosen.size} selected · [x] this run`,
+        '↑/↓ move · space toggle',
+        'enter confirm · ctrl-c cancel',
+      ] : [
+        `${chosen.size} selected · checks: this run · icons: current state`,
+        '↑/↓ move · space toggle · enter confirm',
+        'ctrl-c cancel',
+      ]).map((text) => `  ${ui.dim(truncText(text, room))}`);
+      const scope = `${context.scope} → `;
+      const header = ['', `  ${ui.bold(truncText(title, room))}`, `  ${ui.dim(scope + truncHead(context.path, room - textWidth(scope)))}`, ''];
+      const rows = process.stdout.rows || 24;
+      const count = Math.max(1, Math.min(options.length, Math.floor((rows - header.length - details.length - footer.length - 4) / (narrow ? 2 : 1))));
+      const start = Math.min(Math.max(0, index - Math.floor(count / 2)), options.length - count);
+      const lines = [...header];
+      options.slice(start, start + count).forEach((o, offset) => {
+        const i = start + offset;
         const on = i === index;
-        const mark = chosen.has(i) ? ui.green('◉') : ui.dim('◯');
-        const label = on ? ui.cyan(ui.bold(pad(o.label, labelWidth))) : pad(o.label, labelWidth);
-        const room = width - labelWidth - 10;
-        const detail = o.detail ? (on ? ui.gray(truncHead(o.detail, room)) : ui.dim(truncHead(o.detail, room))) : '';
-        lines.push(`  ${on ? ui.cyan('❯') : ' '} ${mark} ${label}   ${detail}`.trimEnd());
-        if (o.hint) lines.push(`        ${ui.dim(truncHead(o.hint, width - 10))}`);
+        const check = chosen.has(i) ? ui.cyan('[x]') : ui.dim('[ ]');
+        const mark = ui[o.state.color](o.state.symbol);
+        const name = pad(truncText(o.label, labelWidth), labelWidth);
+        const label = on ? ui.cyan(ui.bold(name)) : name;
+        const prefix = `  ${on ? ui.cyan('❯') : ' '} ${check} ${mark} `;
+        lines.push(`${prefix}${label}${narrow ? '' : `  ${truncText(o.state.label, width - labelWidth - 12)}`}`.trimEnd());
+        if (narrow) lines.push(`          ${truncText(o.state.label, width - 10)}`);
       });
-      lines.push('');
-      lines.push(`  ${ui.dim('↑/↓ move · space toggle · enter confirm · ctrl-c cancel')}`);
+      if (count < options.length) lines.push(`  ${ui.dim(`${start + 1}–${start + count} of ${options.length}`)}`);
+      lines.push('', ...details, '', ...footer);
 
       let out = drawn ? `\x1b[${drawn}A` : '';
-      out += lines.map((l) => `\x1b[2K${l}`).join('\n') + '\n';
+      out += '\x1b[0J' + lines.map((l) => `\x1b[2K${l}`).join('\n') + '\n';
       process.stdout.write(out);
       drawn = lines.length;
     };
 
     const finish = (value) => {
       stdin.removeListener('keypress', onKey);
+      process.stdout.removeListener('resize', paint);
       if (stdin.isTTY) stdin.setRawMode(false);
       stdin.pause();
       const picked = value === CANCELLED
@@ -939,6 +1262,7 @@ function multiSelect({ title, options }) {
     if (stdin.isTTY) stdin.setRawMode(true);
     stdin.resume();
     stdin.on('keypress', onKey);
+    process.stdout.on('resize', paint);
     process.stdout.write('\x1b[?25l');
     paint();
   });
@@ -957,8 +1281,14 @@ async function resolveModules(cmd, opts) {
       `       (run it in a terminal to choose interactively)`);
   }
   const states = seedStates();
+  const ctx = makeCtx(opts);
+  const inspection = inspectDeployment(ctx);
+  const shared = deploymentState(inspection, null);
+  const orphans = [...inspection.installed].filter((n) => !available.includes(n));
   const picked = await multiSelect({
     title: cmd === 'uninstall' ? 'Which modules to remove?' : 'Which modules?',
+    context: { scope: ctx.kind === 'user' ? 'global' : 'project', path: homePath(ctx.base) },
+    notices: [...(shared.details.length ? [shared.label] : []), ...orphans.map((n) => `${n}: source missing (uninstall ${n} to remove)`)],
     options: available.map((n) => {
       const meta = moduleMeta(n);
       const missing = missingRequirements(n);
@@ -971,7 +1301,8 @@ async function resolveModules(cmd, opts) {
       return {
         label: n,
         detail: meta.description,
-        hint: [origin, req].filter(Boolean).join(' · '),
+        hint: [origin, req, ...Object.entries(inspection.agentModules).filter(([, names]) => names.includes(n)).map(([a]) => a)].filter(Boolean).join(' · '),
+        state: deploymentState(inspection, n),
       };
     }),
   });
@@ -980,6 +1311,30 @@ async function resolveModules(cmd, opts) {
   opts.modules = picked.map((i) => available[i]);
   opts.interactive = true;
   return opts;
+}
+
+async function resolveAgents(opts) {
+  if (opts.agents || !isInteractive()) return opts;
+  const ctx = makeCtx(opts);
+  const picked = await multiSelect({
+    title: 'Install into which agents?',
+    context: { scope: ctx.kind === 'user' ? 'global' : 'project', path: homePath(ctx.base) },
+    options: AGENTS.map((agent) => {
+      const inspection = inspectDeployment({ ...ctx, agents: [agent] });
+      const states = opts.modules.map((n) => deploymentState(inspection, n));
+      const installed = opts.modules.filter((n) => inspection.installed.has(n)).length;
+      const state = states.find((s) => s.details.length) ?? states.find((s) => s.symbol === '●') ?? DEPLOYMENT_STATES.available;
+      return {
+        label: AGENT_LABELS[agent],
+        detail: agent === 'claude' ? 'Skills, agents, hooks and CLAUDE.md rules' : 'Native skills, custom agents and AGENTS.md rules',
+        hint: `${opts.modules.join(', ')} → ${agent === 'claude' ? '.claude/' : '.agents/skills/ and .codex/'}`,
+        state: { ...state, label: `${installed}/${opts.modules.length} installed${state.details?.length ? ` · ${state.label}` : ''}`, details: state.details ?? [] },
+      };
+    }),
+  });
+  if (picked === CANCELLED) throw new Error('cancelled.');
+  if (!picked.length) throw new Error('no agent chosen — nothing was written.');
+  return { ...opts, agents: picked.map((i) => AGENTS[i]), interactive: true };
 }
 
 // 配備先の既定はカレントディレクトリである。-C も -g も無いまま無関係な場所で走った
@@ -1057,51 +1412,70 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     throw new Error(`nothing installed for ${homePath(ctx.base)} — run \`agents-setup install <module>\` first.`);
   }
 
-  // 憶えている選択に今回の指定を足す(install は加算、uninstall が減算)。module の概念を
-  // 持たない旧記録(新旧どちらのレイアウトでも)は、当時の唯一の配布物とみなして引き取る。
   assertKnownModules(opts.modules);
-  const recorded = old ? old.modules ?? [SOLE_MODULE_THEN] : legacy ? [SOLE_MODULE_THEN] : [];
-  // 受け継がれた名前は、消えたのではなく行き先がある。黙って引き継がず、対応を言う。
-  const heirs = renameMap();
-  for (const n of recorded.filter((n) => heirs.has(n))) {
-    const to = heirs.get(n);
-    log.update(`module ${n} → ${to.join(' ')} (it was ${to.length > 1 ? 'split' : 'renamed'})`);
+  const previousTargets = recordedAgentModules(ctx, old);
+  const active = opts.agents ?? (Object.keys(previousTargets).length ? Object.keys(previousTargets) : defaultAgents(ctx));
+  if (legacy && !old && opts.agents && !AGENTS.every((a) => active.includes(a))) {
+    throw new Error('legacy installation has no per-agent record; run update without --agent once to migrate it.');
   }
-  const remembered = followRenames(recorded, heirs);
-  const wanted = replaceModules ? opts.modules : [...new Set([...remembered, ...opts.modules])].sort();
-  // 正本から消えた module は記録から落とす。挙げられた名前は上で検査済みなので、
-  // ここで落ちるのは「憶えていたが、もう正本に無い」物だけである。
-  // 供給元を失った module は、記録からも配達先からも消さない。置き場のディレクトリを消すのは
-  // 軽い操作で、それが他のプロジェクトのリポジトリを書き換えてよい理由にはならない。
-  // 消すのは uninstall を明示したときだけである。ここでは配れないことを言うに留める。
+  if (requireExisting && old && !active.some((a) => previousTargets[a]?.length)) {
+    throw new Error(`nothing installed for ${active.join(', ')} here — run install first.`);
+  }
   const known = new Set(moduleNames());
+  const heirs = renameMap();
+  const agentModules = { ...previousTargets };
+  const agentRulesBodies = recordedAgentBodies(old, previousTargets);
+  const rawRecorded = old?.agentModules ? active.flatMap((a) => old.agentModules[a] ?? []) : old?.modules ?? (legacy ? [SOLE_MODULE_THEN] : []);
+  for (const n of new Set(rawRecorded.filter((n) => heirs.has(n)))) {
+    log.update(`module ${n} → ${heirs.get(n).join(' ')} (it was ${heirs.get(n).length > 1 ? 'split' : 'renamed'})`);
+  }
+  for (const agent of active) {
+    const recorded = previousTargets[agent] ?? (legacy && !old ? [SOLE_MODULE_THEN] : []);
+    const remembered = followRenames(recorded, heirs);
+    const wanted = replaceModules ? remembered.filter((n) => !opts.removeModules.includes(n))
+      : [...new Set([...remembered, ...opts.modules])].sort();
+    if (!wanted.length) { delete agentModules[agent]; delete agentRulesBodies[agent]; continue; }
+    agentModules[agent] = wanted;
+    const bodies = rulesBodies(wanted.filter((n) => known.has(n)));
+    for (const n of wanted.filter((n) => !known.has(n))) {
+      if (agentRulesBodies[agent]?.[n] !== undefined) bodies[n] = agentRulesBodies[agent][n];
+    }
+    agentRulesBodies[agent] = bodies;
+  }
+  ctx.agentModules = agentModules;
+  ctx.agentRulesBodies = agentRulesBodies;
+  const wanted = [...new Set(Object.values(agentModules).flat())].sort();
   const modules = wanted.filter((n) => known.has(n));
-  const orphans = wanted.filter((n) => !known.has(n));
-  // 孤児の配達物が残るなら plugin の身元も残す — plugin.json が無いと、残した物ごと読まれない。
+  const orphans = wanted.filter((n) => !known.has(n) && active.some((a) => agentModules[a]?.includes(n)));
   const orphanHasFiles = orphans.some((n) => Object.values(old?.files || {}).some((v) => fileOwner(v) === n));
-  const entries = deliveryEntries(ctx, modules, { keepPlugin: orphanHasFiles });
+  const entries = deliveryEntries(ctx, modules, { keepPlugin: orphanHasFiles, agents: active });
+  if (active.includes('codex')) for (const n of unsupportedCodexHooks((agentModules.codex ?? []).filter((n) => known.has(n)))) {
+    log.warn(`${n}: Claude hooks need native codex/hooks.json for Codex`);
+  }
 
   // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込みと、配達先を塞ぐ旧 symlink の掃除
-  const migratedLegacy = migrateLegacy(ctx, log);
+  const migratedLegacy = (!opts.agents || opts.migrateAllLegacy || AGENTS.every((a) => active.includes(a))) ? migrateLegacy(ctx, log) : false;
   for (const p of staleSymlinkCandidates(ctx, entries)) clearStaleSymlink(ctx, p, log, migratedLegacy);
 
   // 1. module → 各ツールの置き場(所有ハッシュに基づく外科的コピー)
-  const files = {};
+  const files = Object.fromEntries(Object.entries(old?.files ?? {}).filter(([rel, v]) => !active.includes(recordAgent(rel, v))));
   const blockedUnits = new Set();
   for (const e of entries) {
-    const { dst, unit, rel } = e;
+    const { dst, rel } = e;
+    const unit = blockedPath(ctx, dst);
     // 掃除を生き延びた symlink はユーザーの構成。リンク越しに書き込まず、警告して退く
-    if (lstatOrNull(unit)?.isSymbolicLink()) {
+    if (unit) {
       if (!blockedUnits.has(unit)) {
         blockedUnits.add(unit);
         log.warn(`a symlink is in the way, leaving it alone: ${unit}`);
       }
+      if (old?.files?.[rel]) files[rel] = old.files[rel];
       continue;
     }
     const srcHash = entryHash(e);
     const st = lstatOrNull(dst);
     const was = fileHash(old?.files?.[rel]);
-    const mine = (hash) => ({ hash, module: e.module ?? null });
+    const mine = (hash) => ({ hash, module: e.module ?? null, agent: e.agent });
     if (!st) {
       writeEntry(e);
       files[rel] = mine(srcHash);
@@ -1130,58 +1504,67 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   for (const [rel, v] of Object.entries(old?.files || {})) {
     if (files[rel] !== undefined || relSet.has(rel)) continue;
     // 供給元を失った module が置いた物は、所有の記録ごと持ち越す
-    if (orphanSet.has(fileOwner(v))) { files[rel] = v; continue; }
+    const agent = recordAgent(rel, v);
+    if (orphanSet.has(fileOwner(v)) && agentModules[agent]?.includes(fileOwner(v))) { files[rel] = v; continue; }
     const hash = fileHash(v);
     const dst = path.join(ctx.base, rel);
     const st = lstatOrNull(dst);
     if (!st) continue;
-    if (sha256(dst) === hash) {
+    if (!blockedPath(ctx, dst) && sha256(dst) === hash) {
       fs.unlinkSync(dst);
       removeEmptyDirsUpTo(path.dirname(dst), pruneStop(ctx, dst));
       log.del(`${rel} (no longer delivered)`);
     } else {
       log.warn(`no longer delivered but modified in place, keeping it: ${dst}`);
+      if (fileOwner(v) && followRenames([fileOwner(v)]).some((n) => agentModules[agent]?.includes(n))) files[rel] = v;
     }
   }
 
-  // 3. 規則ブロック(旧記録から外れた先の刈り込み → 現在の対象への適用)。
-  //    供給元を失った module の分は、記録に残した本文をそのまま持ち越す。
-  const bodies = rulesBodies(modules);
-  for (const n of orphans) {
-    if (old?.rulesBodies?.[n] !== undefined) bodies[n] = old.rulesBodies[n];
+  const oldBlocks = new Map();
+  for (const r of old?.rulesBlocks ?? []) {
+    const file = path.join(ctx.base, r.file);
+    const rel = path.relative(ctx.base, sharedRulesFile(ctx, file) ?? file);
+    const previous = oldBlocks.get(rel);
+    oldBlocks.set(rel, { ...r, agents: [...new Set([...(previous?.agents ?? []), ...rulesRecordAgents(ctx, r)])] });
   }
-  const body = joinBodies(bodies);
-  const oldBlocks = new Map((old?.rulesBlocks || []).map((r) => [r.file, r]));
   const rulesRecords = [];
-  if (body !== null) {
-    for (const t of rulesTargets(ctx)) {
-      const rec = applyRulesBlock(ctx, t, body, oldBlocks.get(path.relative(ctx.base, t.file)), log);
-      if (rec) rulesRecords.push(rec);
-    }
+  for (const t of rulesTargets(ctx)) {
+    const rel = path.relative(ctx.base, t.file);
+    const before = oldBlocks.get(rel);
+    const affected = [...t.agents, ...(before?.agents ?? [])].some((a) => active.includes(a));
+    if (!affected) { if (before) rulesRecords.push({ ...before, file: rel }); continue; }
+    const bodies = targetRulesBodies(ctx, t);
+    const body = joinBodies(bodies);
+    if (body === null) continue;
+    const rec = applyRulesBlock(ctx, t, body, before, log);
+    if (rec) {
+      rulesRecords.push({ ...rec, agents: t.agents, bodies });
+      // 共通ファイルは両者が同じ内容を読む。その実際の内容を両方の記録に反映する。
+      for (const agent of t.agents) for (const name of Object.keys(agentRulesBodies[agent] ?? {})) {
+        if (bodies[name] !== undefined) agentRulesBodies[agent][name] = bodies[name];
+      }
+    } else if (before) rulesRecords.push({ ...before, file: rel });
   }
   const currentBlockFiles = new Set(rulesRecords.map((r) => r.file));
-  for (const r of old?.rulesBlocks || []) {
-    const file = path.join(ctx.base, r.file);
-    const currentFile = path.relative(ctx.base, sharedRulesFile(ctx, file) ?? file);
-    if (!currentBlockFiles.has(currentFile)) removeRulesBlock(ctx, r, log);
+  for (const [rel, r] of oldBlocks) {
+    if (currentBlockFiles.has(rel)) continue;
+    if (!r.agents.some((a) => active.includes(a))) rulesRecords.push({ ...r, file: rel });
+    else removeRulesBlock(ctx, { ...r, file: rel }, log);
   }
 
-  // 4. manifest(マシン固有の記録なので ~/.dotagents/ に置き、配備先には何も残さない)
-  writeJson(manifestPath(ctx), {
-    schema: 4,
-    kind: ctx.kind,
-    base: ctx.base,
-    modules: [...modules, ...orphans].sort(),
-    version: pkg().version,
-    installedAt: new Date().toISOString(),
-    files,
-    rulesBodies: bodies,
-    rulesBlocks: rulesRecords,
-  });
+  // Keep per-tool selections as well as the combined view used by older readers.
+  if (wanted.length || Object.keys(files).length || rulesRecords.length) {
+    writeJson(manifestPath(ctx), {
+      schema: 5, kind: ctx.kind, base: ctx.base,
+      modules: wanted, agentModules, agentRulesBodies,
+      version: pkg().version, installedAt: new Date().toISOString(), files,
+      rulesBodies: Object.assign({}, ...Object.values(agentRulesBodies)), rulesBlocks: rulesRecords,
+    });
+  } else if (old) fs.unlinkSync(manifestPath(ctx));
 
   const c = log.counts;
   console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan([...modules, ...orphans].sort().join(' ')) || ui.dim('none')}`);
-  console.log(`  ${summary(c)}`);
+  console.log(`  agents: ${active.join(', ')} · ${summary(c)}`);
   for (const n of orphans) {
     const owned = Object.keys(files).filter((rel) => fileOwner(files[rel]) === n);
     const kept = owned.filter((rel) => lstatOrNull(path.join(ctx.base, rel))).length;
@@ -1203,9 +1586,10 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   noticeOldCorpus();
   // plugin の agents / hooks は次のセッションから効く(SKILL.md だけは即時に読まれる)。
   if (c.add + c.update + c.del > 0) {
-    console.log(ui.dim('  run /reload-plugins in a running Claude Code session, or start a new one'));
+    if (active.includes('claude')) console.log(ui.dim('  run /reload-plugins in a running Claude Code session, or start a new one'));
+    if (active.includes('codex')) console.log(ui.dim('  start a new Codex session to load the installed skills, agents and rules'));
   }
-  if (c.warn > 0) process.exitCode = 1;
+  if (c.warn > 0 && !(replaceModules && !opts.modules.length && !active.some((a) => agentModules[a]?.length))) process.exitCode = 1;
 }
 
 // update は「今あるもので配り直す」。規則を新しくするのはパッケージの更新であって、
@@ -1216,71 +1600,38 @@ async function update(opts) {
 
 async function uninstall(opts) {
   const ctx = makeCtx(opts);
-  const log = makeLog();
   const m = readJson(manifestPath(ctx), null);
   const hasLegacy = !!readJson(legacyManifestPath(ctx), null);
-  if (!m && !hasLegacy) {
-    throw new Error(`nothing installed for ${homePath(ctx.base)} — nothing of ours to remove.`);
+  if (!m && !hasLegacy) throw new Error(`nothing installed for ${homePath(ctx.base)} — nothing of ours to remove.`);
+  if (!m) {
+    if (opts.agents) throw new Error('legacy installation has no per-agent record; run update before selecting an agent.');
+    migrateLegacy(ctx, makeLog());
+    return;
   }
-
-  // module 名を挙げた uninstall は減算である。残りがあるなら、残りだけを配り直す —
-  // 外れた module のファイルは「配達されなくなった物」として同じ所有権規則で刈られる。
-  if (opts.modules.length && m) {
-    // 正本から消えた module も外せる必要があるので、検査は記録に対して行う。
-    const remembered = followRenames(m.modules ?? [SOLE_MODULE_THEN]);
-    const unknown = opts.modules.filter((n) => !remembered.includes(n));
-    if (unknown.length) {
-      // 記録は追従済みなので、古い名前はここに無い。行き先を言わないと外し方が判らない。
-      const heirs = renameMap();
-      const hint = unknown.filter((n) => heirs.has(n))
-        .map((n) => `\n       ${n} is retired — its rules are now ${heirs.get(n).join(' ')}`).join('');
-      throw new Error(`not installed here: ${unknown.join(' ')} (installed: ${remembered.join(' ')})${hint}`);
-    }
-    const remaining = remembered.filter((n) => !opts.modules.includes(n));
-    if (remaining.length) {
-      return install({ ...opts, modules: remaining }, { requireExisting: true, replaceModules: true });
-    }
+  const targets = recordedAgentModules(ctx, m);
+  const agents = opts.agents ?? Object.keys(targets);
+  const remembered = [...new Set(agents.flatMap((a) => targets[a] ?? []))];
+  const unknown = opts.modules.filter((n) => !remembered.includes(n));
+  if (unknown.length) {
+    const heirs = renameMap();
+    const hint = unknown.filter((n) => heirs.has(n)).map((n) => `\n       ${n} is retired — its rules are now ${heirs.get(n).join(' ')}`).join('');
+    throw new Error(`not installed here: ${unknown.join(' ')} (installed: ${remembered.join(' ')})${hint}`);
   }
-
-  // 旧レイアウトの持ち物(リンク・断片・.agents 内のファイル)も同じ所有権規則で外す
-  migrateLegacy(ctx, log);
-
-  for (const r of m?.rulesBlocks || []) removeRulesBlock(ctx, r, log);
-  for (const [rel, v] of Object.entries(m?.files || {})) {
-    const dst = path.join(ctx.base, rel);
-    const st = lstatOrNull(dst);
-    if (!st) continue;
-    if (sha256(dst) === fileHash(v)) {
-      fs.unlinkSync(dst);
-      removeEmptyDirsUpTo(path.dirname(dst), pruneStop(ctx, dst));
-      log.del(rel);
-    } else {
-      log.warn(`modified in place, keeping it: ${dst}`);
-    }
-  }
-
-  if (m) fs.unlinkSync(manifestPath(ctx));
-  // 記録が尽きたら集約ディレクトリ自体も残さない(空のときだけ消える)
-  try { fs.rmdirSync(path.join(STATE_DIR(), 'projects')); } catch { /* 他の記録があれば残る */ }
-  try { fs.rmdirSync(STATE_DIR()); } catch { /* 同上 */ }
-
-  const c = log.counts;
-  console.log(`\n  ${ui.bold('uninstall')} ${ui.dim('→')} ${homePath(ctx.base)}`);
-  console.log(`  ${summary(c)}${ui.dim(' · your own skills and modified files were left alone')}`);
+  return install({ ...opts, agents, migrateAllLegacy: !opts.agents, modules: [], removeModules: opts.modules.length ? opts.modules : remembered },
+    { requireExisting: true, replaceModules: true });
 }
 
 function status(opts) {
   const ctx = makeCtx(opts);
-  const m = readJson(manifestPath(ctx), null);
-  const hasLegacy = !!readJson(legacyManifestPath(ctx), null);
-  let drift = 0;
-  const report = (okc, msg) => {
-    console.log(`  ${okc ? ui.green('ok') : ui.red('NG')}  ${okc ? msg : ui.bold(msg)}`);
-    if (!okc) drift++;
-  };
-
+  const inspection = inspectDeployment(ctx);
+  const m = inspection.manifest;
+  if (m && opts.agents && !inspection.installed.size) {
+    console.log(`\n  ${ui.yellow('not installed')} ${ui.dim('—')} ${opts.agents.join(', ')} at ${homePath(ctx.base)}`);
+    process.exitCode = 1;
+    return;
+  }
   if (!m) {
-    if (hasLegacy) {
+    if (inspection.hasLegacy) {
       console.log(`\n  ${ui.yellow('legacy layout')} ${ui.dim('—')} ${homePath(ctx.legacyRoot)} exists; run \`agents-setup update\` to migrate`);
     } else {
       console.log(`\n  ${ui.yellow('not installed')} ${ui.dim('—')} no manifest for ${homePath(ctx.base)}`);
@@ -1289,64 +1640,24 @@ function status(opts) {
     return;
   }
 
-  const modules = followRenames(m.modules ?? [SOLE_MODULE_THEN]);
-  console.log(`\n  ${ui.bold(m.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan(modules.join(' ')) || ui.dim('none')}`);
-  console.log(ui.dim(`  version=${m.version} commit=${(m.commit || 'unknown').slice(0, 12)} installed=${m.installedAt}`));
-  console.log(ui.dim(`  source=${m.source}`));
+  const modules = [...inspection.installed];
+  console.log(`\n  ${ui.bold(ctx.kind === 'user' ? 'global' : 'project')} ${ui.dim('→')} ${homePath(ctx.base)}`);
+  console.log(ui.dim(`  version=${m.version} installed=${m.installedAt}`));
+  console.log(ui.dim(`  agents=${(ctx.agents ?? Object.keys(inspection.agentModules)).join(', ')}`));
+  if (m.commit) console.log(ui.dim(`  commit=${m.commit.slice(0, 12)}`));
+  if (m.source) console.log(ui.dim(`  source=${m.source}`));
   console.log(ui.dim(`  home=${homePath(DOTAGENTS_HOME())}${process.env.DOTAGENTS_HOME ? ' (DOTAGENTS_HOME)' : ''}\n`));
-
-  const known = new Set(moduleNames());
-  // 供給元を失った module。配達物は残してあるが、照合する元が無いので「合っている」とは言えない。
-  const orphans = modules.filter((n) => !known.has(n));
-  const ownedByOrphan = new Set();
-  for (const n of orphans) {
-    const owned = Object.keys(m.files || {}).filter((rel) => fileOwner(m.files[rel]) === n);
-    owned.forEach((rel) => ownedByOrphan.add(rel));
-    const kept = owned.filter((rel) => lstatOrNull(path.join(ctx.base, rel))).length;
-    const lost = owned.length - kept;
-    const what = [
-      kept ? `${kept} file${kept > 1 ? 's' : ''} kept but unverifiable` : '',
-      lost ? `${lost} missing with nothing to restore from` : '',
-      !owned.length ? 'nothing delivered from it' : '',
-    ].filter(Boolean).join(', ');
-    report(false, `module ${n} — gone from ${homePath(PERSONAL_MODULES_DIR())}: ${what} (\`uninstall ${n}\` to remove)`);
+  const width = Math.max(0, ...modules.map(textWidth));
+  for (const n of modules) {
+    const state = deploymentState(inspection, n);
+    console.log(`  ${ui[state.color](state.symbol)} ${pad(n, width)}  ${state.label}`);
   }
-  // 正本に無い名前は、ここから先のどの照合にも渡さない。読むだけのコマンドが、
-  // 記録の古さで例外になって途中で黙るのが最悪である。
-  const present = modules.filter((n) => known.has(n));
-
-  // 正本との照合。消えた module の分は「配達されなくなった物」として下で報告される。
-  const entries = deliveryEntries(ctx, present);
-  for (const e of entries) {
-    const { dst, unit, rel } = e;
-    if (lstatOrNull(unit)?.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
-    const st = lstatOrNull(dst);
-    if (!st) { report(false, `${rel} — missing`); continue; }
-    if (st.isSymbolicLink()) { report(false, `${rel} — a symlink is in the way`); continue; }
-    const h = sha256(dst);
-    if (h === entryHash(e)) report(true, rel);
-    else if (h === fileHash(m.files?.[rel])) report(false, `${rel} — the package is newer, run update`);
-    else report(false, `${rel} — modified in place`);
+  console.log('');
+  for (const check of inspection.checks) {
+    const ok = !check.kinds.length;
+    console.log(`  ${ok ? ui.green('ok') : ui.red('NG')}  ${ok ? check.message : ui.bold(check.message)}`);
   }
-  const relSet = new Set(entries.map((e) => e.rel));
-  for (const rel of Object.keys(m.files || {})) {
-    // 孤児の分は module 単位で 1 行にまとめて報告済み。ここで並べ直さない。
-    if (!relSet.has(rel) && !ownedByOrphan.has(rel)) report(false, `${rel} — no longer delivered, run update to prune`);
-  }
-
-  // 規則ブロック
-  const body = joinBodies(rulesBodies(present));
-  if (body !== null) {
-    for (const t of rulesTargets(ctx)) {
-      const st = rulesBlockState(ctx, t, body);
-      if (st !== null) report(st, `rules block ${path.relative(ctx.base, t.file)}`);
-    }
-  }
-
-  // 旧レイアウトの残存
-  if (hasLegacy) report(false, `legacy layout ${homePath(ctx.legacyRoot)} — run update to migrate`);
-  if (ctx.kind === 'user' && zshenvHasMarker(ctx)) report(false, `legacy zshenv managed line — run update to prune`);
-
+  const drift = inspection.checks.filter((c) => c.kinds.length).length;
   console.log(drift === 0 ? `\n  ${ui.green('no drift')}` : `\n  ${ui.red(`drift: ${drift}`)}`);
   noticeOldCorpus();
   if (drift > 0) process.exitCode = 1;
@@ -1440,7 +1751,7 @@ const RETIRED_FLAGS = new Set(['--keep-shell']);
 // 位置引数は module 名だけ。配備先は真偽フラグ(-g)なので、-C との併用だけを矛盾として止める。
 function parseArgs(argv) {
   const opts = {
-    global: false, dir: null, dirExplicit: false, modules: [],
+    global: false, dir: null, dirExplicit: false, modules: [], agents: null,
     force: false,
     interactive: false, help: false, version: false,
   };
@@ -1451,6 +1762,13 @@ function parseArgs(argv) {
     else if (a === '--version' || a === '-v') opts.version = true;
     else if (a === '--force') opts.force = true;
     else if (a === '--global' || a === '-g') opts.global = true;
+    else if (a === '--agent') {
+      const value = argv[++i];
+      if (!value) throw new Error('--agent takes a value: claude, codex, or all');
+      const names = value === 'all' ? AGENTS : value.split(',');
+      if (names.some((n) => !AGENTS.includes(n))) throw new Error(`unknown agent: ${value} (choose claude or codex)`);
+      opts.agents = [...new Set([...(opts.agents ?? []), ...names])];
+    }
     else if (a === '--directory' || a === '-C') {
       if (argv[i + 1] === undefined) throw new Error('-C takes a value: -C <dir>');
       opts.dir = argv[++i];
@@ -1475,6 +1793,7 @@ function parseArgs(argv) {
 
   // list は位置引数を取らない
   if (CORPUS_COMMANDS.has(cmd)) {
+    if (opts.agents) throw new Error('list has no installation target; use install or status with --agent');
     if (rest.length) throw new Error(`\`${cmd}\` takes no arguments: ${rest.join(' ')}`);
     return { cmd, opts };
   }
@@ -1501,9 +1820,10 @@ function parseArgs(argv) {
 
 // 対象の説明は 4 コマンドで同一なので 1 箇所に持つ。
 const TARGET_HELP = `${ui.bold('Target')} ${ui.dim('— this project by default; the wider scope always takes a flag.')}
-  ${ui.cyan('(default)')}      the current directory (<cwd>/.claude and <cwd>/.codex)
-  ${ui.cyan('-g, --global')}   this machine (~/.claude and ~/.codex)
-  ${ui.cyan('-C <dir>')}       a specific project`;
+  ${ui.cyan('(default)')}      the current directory (.claude/, .agents/skills/, .codex/)
+  ${ui.cyan('-g, --global')}   this machine (~/.claude, ~/.agents/skills, ~/.codex)
+  ${ui.cyan('-C <dir>')}       a specific project
+  ${ui.cyan('--agent <name>')} claude, codex, or all; repeat or comma-separate to select both`;
 
 const CMD_HELP = {
   list: {
@@ -1522,22 +1842,29 @@ const CMD_HELP = {
   },
   install: {
     usage: '[module...] [options]',
-    line: 'deliver the named modules into the tool directories (.claude/ and .codex/)',
+    line: 'deliver the named modules to Claude Code, Codex, or both',
     body: [
       'Delivers to Claude as one plugin directory (.claude/skills/dotagents/), which',
       'namespaces its skills and agents as /dotagents:* and carries hooks without',
-      'touching settings.json; Codex gets the skills as plain copies. The rules arrive',
+      'touching settings.json; Codex gets native skills in .agents/skills/ and custom',
+      'agent TOML files in .codex/agents/. The rules arrive',
       'as a managed block in CLAUDE.md / AGENTS.md. Adding a module is additive: what',
       'you installed before stays. Everything is idempotent and hash-owned, so files you',
       'edited after installation are kept and reported, and your own skills are untouched.',
     ],
     options: [['--force', 'overwrite whatever sits in the way and does not match what would be delivered']],
-    notes: ['Name no module to pick interactively; a non-interactive shell stops instead of choosing for you.'],
+    notes: [
+      'Choose modules first, then Claude Code and/or Codex. --agent skips the second picker.',
+      'Non-interactive install requires module names. Without --agent it uses recorded tools;',
+      'a fresh installation uses Claude, plus Codex if .codex/ or project AGENTS.md exists.',
+      'Each tool remembers its own module set. update, uninstall and status accept --agent too.',
+    ],
     examples: [
       ['agents-setup install review', 'into the current project'],
       ['agents-setup install review -g', 'for every project on this machine'],
       ['agents-setup install review -C ~/x', 'into a specific project'],
       ['agents-setup install', 'choose the modules interactively'],
+      ['agents-setup install review --agent codex', 'Codex only, including its native review agents'],
     ],
   },
   update: {
@@ -1562,6 +1889,7 @@ const CMD_HELP = {
     notes: ['Never edit prompts in the installed tree — update overwrites them. Your own rules go in ~/.dotagents/modules/.'],
     examples: [
       ['dotagents update', 'refresh the current project'],
+      ['dotagents update --agent codex', 'refresh only Codex'],
       ['dotagents update -g --force', 'refresh this machine, discarding local edits'],
     ],
   },
@@ -1666,7 +1994,7 @@ async function main() {
     case 'list': return list();
     case 'install':
       await confirmLooseTarget(opts);
-      return install(await resolveModules(cmd, opts));
+      return install(await resolveAgents(await resolveModules(cmd, opts)));
     // update / uninstall は既存の記録に対して働く。記録が無ければそちらで止まるので、
     // 迷子のカレントディレクトリを塞ぐ関門は install にだけ要る。
     case 'update': return update(opts);

@@ -22,6 +22,8 @@ dotagents list                     # was du installieren kannst
 dotagents install review           # in das aktuelle Projekt
 dotagents install review -g        # für jedes Projekt auf dieser Maschine
 dotagents install review -C ~/x    # in ein bestimmtes Projekt
+dotagents install review --agent codex
+dotagents install review --agent claude,codex
 ```
 
 Nichts zu klonen, nichts zu holen, kein Zustand, der erst migriert werden müsste: Die Module reisen im Paket mit, also legt der erste Befehl sie ab und der nächste installiert sofort.
@@ -46,7 +48,7 @@ modules/<name>/
 
 | Art | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **ein einziges Plugin-Verzeichnis**, geladen ohne Marketplace und ohne Installationsschritt, das seinen Inhalt in den Namensraum `/dotagents:*` stellt. So kommen Hooks an, ohne dass je `settings.json` angerührt wird | nur Skills, als `.codex/skills/dotagents-*` — Codex kennt keine Plugins, daher faltet sich der Namensraum in den Verzeichnisnamen |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **ein einziges Plugin-Verzeichnis**, geladen ohne Marketplace und ohne Installationsschritt, das seinen Inhalt in den Namensraum `/dotagents:*` stellt. So kommen Hooks an, ohne dass je `settings.json` angerührt wird | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; [Codex setup](../README.md#what-a-module-is) |
 | `AGENTS.md` | ein verwalteter Block in `.claude/CLAUDE.md` | ein verwalteter Block in `AGENTS.md` |
 
 Ein Modul darf deklarieren, was es auf `PATH` erwartet. Voraussetzungen werden **erkannt, nie installiert**: `list` und `install` melden, was fehlt, und blockieren nichts — das Werkzeug später hinzuzufügen, erfordert also keine Neuinstallation.

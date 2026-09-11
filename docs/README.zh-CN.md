@@ -22,6 +22,8 @@ dotagents list                     # 你可以安装什么
 dotagents install review           # 安装进当前项目
 dotagents install review -g        # 面向本机上的每一个项目
 dotagents install review -C ~/x    # 安装进指定的项目
+dotagents install review --agent codex
+dotagents install review --agent claude,codex
 ```
 
 没有要克隆的东西,没有要取回的东西,也没有必须先迁移才能开工的状态:module 就在包里一同旅行,所以第一条命令把它们放下,下一条就能直接安装。
@@ -46,7 +48,7 @@ modules/<name>/
 
 | 种类 | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/`——**一个 plugin 目录**,既不需要 marketplace 也不需要任何安装步骤即被加载,并把它所容纳的内容置于 `/dotagents:*` 命名空间之下。hooks 正是借此在完全不触碰 `settings.json` 的情况下送达 | 仅限技能,作为 `.codex/skills/dotagents-*`——Codex 没有 plugin,因此命名空间被折叠进目录名之中 |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/`——**一个 plugin 目录**,既不需要 marketplace 也不需要任何安装步骤即被加载,并把它所容纳的内容置于 `/dotagents:*` 命名空间之下。hooks 正是借此在完全不触碰 `settings.json` 的情况下送达 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; [Codex setup](../README.md#what-a-module-is) |
 | `AGENTS.md` | `.claude/CLAUDE.md` 中的受管块 | `AGENTS.md` 中的受管块 |
 
 一个 module 可以声明它期望 `PATH` 上存在什么。这些依赖**只被检测,绝不被安装**:`list` 与 `install` 会报告缺少了什么,但不会阻断任何事情,因此日后再补上该工具也无需重新安装。

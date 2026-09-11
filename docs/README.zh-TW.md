@@ -22,6 +22,8 @@ dotagents list                     # 你可以安裝什麼
 dotagents install review           # 安裝進目前的專案
 dotagents install review -g        # 為本機上的每一個專案安裝
 dotagents install review -C ~/x    # 安裝進指定的專案
+dotagents install review --agent codex
+dotagents install review --agent claude,codex
 ```
 
 沒有要複製的東西、沒有要取回的東西,也沒有必須先遷移才能開工的狀態:module 就在套件裡一同旅行,所以第一道指令把它們放下,下一道就能直接安裝。
@@ -46,7 +48,7 @@ modules/<name>/
 
 | 種類 | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/`——**單一個 plugin 目錄**,不需要 marketplace 也不需要任何安裝步驟即被載入,並將它所容納的內容納入 `/dotagents:*` 命名空間。這正是 hooks 得以在完全不觸碰 `settings.json` 的情況下抵達的方式 | 僅限技能,以 `.codex/skills/dotagents-*` 交付——Codex 沒有 plugin,因此命名空間折進了目錄名稱之中 |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/`——**單一個 plugin 目錄**,不需要 marketplace 也不需要任何安裝步驟即被載入,並將它所容納的內容納入 `/dotagents:*` 命名空間。這正是 hooks 得以在完全不觸碰 `settings.json` 的情況下抵達的方式 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; [Codex setup](../README.md#what-a-module-is) |
 | `AGENTS.md` | `.claude/CLAUDE.md` 中的一段受管理區塊 | `AGENTS.md` 中的一段受管理區塊 |
 
 一個 module 可以宣告它期望 `PATH` 上有什麼。這些要求是**被偵測,而非被安裝**的:`list` 與 `install` 會回報缺少了什麼,但不阻擋任何事,因此日後才補上工具也無須重新安裝。
