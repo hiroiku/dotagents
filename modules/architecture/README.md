@@ -33,6 +33,14 @@ This is not a design whose violations are found in review; it is a design that *
 
 A single, predictable place for everything, with a name that states its role, serves the same end. It is human readability and, at the same time, a low search cost for an AI.
 
+## Keep contracts with their owners
+
+A type's location should make it clear who owns its meaning and where it may be used. Put types and helper functions beside the operation or port whose contract they serve, normally in the same file. If they need a separate file, keep it next to that owner. This keeps a contract and the behavior it describes together when either changes.
+
+A use-case owns both its input and output types, even when a screen consumes the output. A port in `application` owns the requests and responses for the external capability it requires. A presenter owns display-specific results; an `infrastructure` implementation keeps its database rows and SDK types internal. Business concepts remain in `domain`, subject to the existing dependency boundaries.
+
+This ownership rule avoids a separate DTO category, forwarding classes, and catch-all `dtos/`, `types/`, or `contracts/` directories. Several consumers do not turn a type into an ownerless shared contract or justify moving it to `app-kernel`. Consumers import from the owning definition through permitted dependencies; copies and re-exports do not create permission to cross a boundary. When ownership is unclear, settle the responsibility before extracting shared code. Colocation makes that responsibility visible while the dependency rules determine who may use it.
+
 ## What is borrowed, and what is not
 
 | Rule                                                              | Origin                      |

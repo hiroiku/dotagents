@@ -33,6 +33,14 @@ Das ist kein Entwurf, dessen Verstöße im Review gefunden werden, sondern einer
 
 Dass jede Sache genau einen Ort hat und der Name die Rolle nennt, dient demselben Zweck: Es ist Lesbarkeit für Menschen und zugleich niedrige Suchkosten für eine KI.
 
+## Verträge dort halten, wo sie verantwortet werden
+
+Am Ablageort eines Typs sollte erkennbar sein, wer seine Bedeutung verantwortet und wo er verwendet werden darf. Typen und Hilfsfunktionen stehen neben der Operation oder dem Port, dessen Vertrag sie dienen, in der Regel in derselben Datei. Brauchen sie eine eigene Datei, bleibt diese direkt daneben. So bleiben ein Vertrag und das Verhalten, das er beschreibt, beieinander, wenn sich eines von beiden ändert.
+
+Ein Use-Case verantwortet sowohl seine Eingabe- als auch seine Ausgabetypen, selbst wenn eine Bildschirmansicht die Ausgabe nutzt. Ein Port in `application` verantwortet die Anfragen und Antworten für die externe Funktionalität, die er benötigt. Ein Presenter verantwortet darstellungsspezifische Ergebnisse; eine Implementierung in `infrastructure` hält ihre Datenbankzeilen und SDK-Typen intern. Geschäftsbegriffe bleiben in `domain` und unterliegen den bestehenden Abhängigkeitsgrenzen.
+
+Diese Zuordnung vermeidet eine eigene DTO-Kategorie, Weiterleitungsklassen und Sammelverzeichnisse wie `dtos/`, `types/` oder `contracts/`. Mehrere Nutzer machen aus einem Typ keinen gemeinsam genutzten Vertrag ohne Verantwortlichen und rechtfertigen auch keinen Umzug nach `app-kernel`. Die Nutzer importieren die Definition von der verantwortlichen Stelle über zulässige Abhängigkeiten; Kopien und Re-Exporte geben keine Erlaubnis, eine Grenze zu überschreiten. Ist die Zuständigkeit unklar, muss die Verantwortung geklärt werden, bevor gemeinsamer Code extrahiert wird. Die räumliche Nähe macht diese Verantwortung sichtbar, während die Abhängigkeitsregeln bestimmen, wer den Code verwenden darf.
+
 ## Was übernommen ist — und was nicht
 
 | Festlegung                                                          | Herkunft                    |

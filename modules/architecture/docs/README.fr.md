@@ -33,6 +33,14 @@ Ce n'est pas une conception dont les manquements se trouvent en revue, mais une 
 
 Qu'une chose ait une place unique et qu'un nom dise son rôle sert la même fin : c'est de la lisibilité pour les humains et, en même temps, un faible coût de recherche pour une IA.
 
+## Garder les contrats près de leurs propriétaires
+
+L'emplacement d'un type doit montrer clairement qui est responsable de son sens et où il peut être utilisé. Les types et les fonctions auxiliaires se placent à côté de l'opération ou du port dont ils servent le contrat, généralement dans le même fichier. S'il leur faut un fichier séparé, celui-ci reste à côté de leur propriétaire. Ainsi, le contrat et le comportement qu'il décrit restent ensemble quand l'un ou l'autre change.
+
+Un cas d'usage possède ses types d'entrée comme de sortie, même si un écran consomme la sortie. Un port dans `application` possède les requêtes et les réponses de la capacité externe dont il a besoin. Un presenter possède les résultats propres à l'affichage ; une implémentation dans `infrastructure` garde en interne ses lignes de base de données et ses types de SDK. Les concepts métier restent dans `domain`, soumis aux frontières de dépendance existantes.
+
+Cette règle de propriété évite une catégorie de DTO à part, des classes de relais et des répertoires fourre-tout comme `dtos/`, `types/` ou `contracts/`. Plusieurs consommateurs ne font pas d'un type un contrat partagé sans propriétaire et ne justifient pas son déplacement vers `app-kernel`. Les consommateurs importent depuis la définition du propriétaire, par les dépendances autorisées ; les copies et les réexportations ne donnent pas le droit de franchir une frontière. Si la propriété est floue, il faut clarifier la responsabilité avant d'extraire du code partagé. Les placer côte à côte rend cette responsabilité visible, tandis que les règles de dépendance déterminent qui peut les utiliser.
+
 ## Ce qui est emprunté, et ce qui ne l'est pas
 
 | Règle                                                                  | Origine                       |

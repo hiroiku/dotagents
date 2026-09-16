@@ -24,6 +24,21 @@ The layers are fixed at six: `app-kernel` `domain` `application` `interface` `in
 - Bounded contexts are declared in one place. Every directory named for a context, in every layer, belongs to that set.
 - Inside `frameworks/<framework>/`, follow that framework's own conventions.
 
+## Colocating types and helpers
+
+Place types and helper functions in the same file as the operation or port that owns them. When separation is needed, keep them next to that owner. Determine ownership by responsibility, not by the number of consumers.
+
+| Type | Owner |
+|---|---|
+| Use-case inputs and outputs | The use-case |
+| Requests and responses for an external capability | The corresponding port in `application` |
+| Display-specific results | The presenter |
+| Database rows and SDK types | The corresponding `infrastructure` implementation's internals |
+
+- A use-case owns its output type even when a screen consumes it. Resolve unclear ownership before extracting shared code.
+- Do not introduce a DTO category, forwarding classes, or catch-all `dtos/`, `types/`, or `contracts/` directories. Import public types directly from their definitions along permitted dependencies; do not bypass boundaries with type copies or re-exports.
+- Multiple consumers do not justify moving a type to `app-kernel`. Business concepts belong to `domain`; colocation does not permit exposing domain types to outer layers that cannot depend on them.
+
 ## `app-kernel`
 
 The machinery this architecture itself runs on — `Result`, the base error type, the primitives every layer is written with. Being the one leaf everyone may import makes it the cheapest place to put anything shared, and that is exactly what makes it the layer to watch.

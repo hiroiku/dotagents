@@ -33,6 +33,14 @@ No es un diseño cuyas infracciones se encuentran en la revisión, sino uno que 
 
 Que cada cosa tenga un único lugar y que el nombre diga su papel sirve al mismo fin: es legibilidad para las personas y, a la vez, bajo coste de búsqueda para una IA.
 
+## Los contratos, junto a quien los posee
+
+La ubicación de un tipo debe dejar claro a quién pertenece su significado y dónde se puede usar. Los tipos y las funciones auxiliares se colocan junto a la operación o al puerto a cuyo contrato sirven, normalmente en el mismo archivo. Si necesitan un archivo aparte, se mantiene junto a quien los posee. Así, el contrato y el comportamiento que describe permanecen juntos cuando cambia cualquiera de los dos.
+
+Un caso de uso posee tanto sus tipos de entrada como los de salida, incluso cuando una pantalla consume la salida. Un puerto en `application` posee las solicitudes y las respuestas de la capacidad externa que necesita. Un presenter posee los resultados específicos de la presentación; una implementación en `infrastructure` mantiene internas sus filas de base de datos y sus tipos del SDK. Los conceptos del negocio permanecen en `domain`, sujetos a las fronteras de dependencia existentes.
+
+Esta regla de propiedad evita una categoría separada de DTO, clases de reenvío y directorios donde cabe de todo, como `dtos/`, `types/` o `contracts/`. Que haya varios consumidores no convierte un tipo en un contrato compartido sin dueño ni justifica moverlo a `app-kernel`. Los consumidores importan desde la definición de quien lo posee, a través de las dependencias permitidas; copiar o reexportar no da permiso para cruzar una frontera. Si la propiedad no está clara, se resuelve la responsabilidad antes de extraer código compartido. Colocarlos juntos hace visible esa responsabilidad, mientras que las reglas de dependencia determinan quién puede usarlos.
+
 ## Qué se toma prestado y qué no
 
 | Regla                                                                | Origen                       |
