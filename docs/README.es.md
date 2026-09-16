@@ -87,12 +87,15 @@ El instalador mismo no vive aquí; se reemplaza allí de donde vino. Los módulo
 
 ```sh
 dotagents update               # volver a entregar lo que está registrado — sin argumentos, recuerda tu elección
-dotagents uninstall <module>   # quitar un módulo, conservar el resto; sin nombrar ninguno, elimina todo
+dotagents uninstall            # elegir qué quitar entre lo instalado aquí
+dotagents uninstall <module>   # quitar un módulo, conservar el resto
 dotagents status               # verificar cada archivo entregado — exit 1 si hay deriva
 dotagents --help               # todos los comandos, opciones, ejemplos
 ```
 
-`install` es aditivo y `uninstall`, sustractivo, así que el conjunto de módulos de un despliegue se construye y se desmonta módulo a módulo. `update` parte de lo que el manifiesto recuerda: vuelve a entregar ese conjunto y poda cualquier disposición antigua que encuentre.
+`install` es aditivo y `uninstall`, sustractivo, así que el conjunto de módulos de un despliegue se construye y se desmonta módulo a módulo. Ambos tocan solo los módulos que se les indican; el resto queda tal como se entregó. `update` parte de lo que el manifiesto recuerda: vuelve a entregar ese conjunto completo y poda cualquier disposición antigua que encuentre.
+
+En una terminal, `uninstall` sin nombres muestra los módulos instalados aquí para elegir. Si la selección está instalada tanto en Claude Code como en Codex, un segundo selector pregunta de cuál quitarla. En un shell no interactivo, `uninstall` sin nombres lo elimina todo.
 
 **Solo `uninstall` retira reglas de un despliegue.** Borrar un módulo de `~/.dotagents/modules/` es un acto pequeño y cotidiano; reescribir todos los proyectos en los que lo instalaste, no. Así que cuando un módulo ya entregado se queda sin origen, `update` conserva los archivos, conserva el registro, conserva sus líneas en `CLAUDE.md`, y dice qué conservó y cómo eliminarlo. `status` informa de ese estado como deriva, porque sin un origen no hay nada con lo que verificar los archivos.
 

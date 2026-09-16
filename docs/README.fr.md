@@ -87,12 +87,15 @@ L'installeur lui-même ne vit pas ici ; il est remplacé là d'où il vient. Les
 
 ```sh
 dotagents update               # relivrer ce qui est enregistré — sans argument, il se souvient de ton choix
-dotagents uninstall <module>   # retirer un module, garder le reste ; n'en nommer aucun retire tout
+dotagents uninstall            # choisir quoi retirer parmi ce qui est installé ici
+dotagents uninstall <module>   # retirer un module, garder le reste
 dotagents status               # vérifier chaque fichier livré — exit 1 en cas de dérive
 dotagents --help               # toutes les commandes, options, exemples
 ```
 
-`install` est additif et `uninstall` soustractif, si bien que l'ensemble que détient un déploiement se construit et se défait module par module. `update` part de ce dont le manifeste se souvient : il relivre cet ensemble et élague toute ancienne disposition qu'il rencontre.
+`install` est additif et `uninstall` soustractif, si bien que l'ensemble que détient un déploiement se construit et se défait module par module. Tous deux ne touchent que les modules qu'on leur désigne ; le reste demeure tel qu'il a été livré. `update` part de ce dont le manifeste se souvient : il relivre cet ensemble tout entier et élague toute ancienne disposition qu'il rencontre.
+
+Dans un terminal, `uninstall` sans nom propose de choisir parmi les modules installés ici. Si la sélection est installée à la fois dans Claude Code et dans Codex, un second sélecteur demande d'où la retirer. Dans un shell non interactif, `uninstall` sans nom retire tout.
 
 **Seul `uninstall` retire des règles d'un déploiement.** Supprimer un module de `~/.dotagents/modules/` est un geste courant et anodin ; réécrire chacun des projets où tu l'avais installé ne l'est pas. Aussi, quand un module livré n'a plus de source, `update` conserve les fichiers, conserve l'enregistrement, conserve ses lignes dans `CLAUDE.md`, et dit ce qu'il a gardé et comment le retirer. `status` signale cet état comme un écart, car sans source il n'y a rien à quoi confronter les fichiers.
 

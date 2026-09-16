@@ -1268,6 +1268,26 @@ function multiSelect({ title, context, options, notices = [] }) {
   });
 }
 
+function pickerContext(ctx) {
+  return { scope: ctx.kind === 'user' ? 'global' : 'project', path: homePath(ctx.base) };
+}
+
+// 選択画面の 1 行。出どころは選ぶ前に要る。見本のままか、手が入っているかで意味が違う。
+function moduleOption(name, inspection, states) {
+  const agents = Object.entries(inspection.agentModules).filter(([, names]) => names.includes(name)).map(([a]) => a);
+  const state = deploymentState(inspection, name);
+  // 供給元を失った module は外す候補としてだけ並ぶ。読める説明はもう無い。
+  if (!moduleIndex().has(name)) return { label: name, detail: '', hint: agents.join(' · '), state };
+  const meta = moduleMeta(name);
+  const missing = missingRequirements(name);
+  const origin = { sample: `from ${VENDOR}`, edited: `from ${VENDOR}, edited by you` }[states.get(name)] ?? 'yours';
+  const req = !meta.requires.length ? ''
+    : missing.length
+      ? `requires ${meta.requires.join(' ')} — missing: ${missing.join(' ')}`
+      : `requires ${meta.requires.join(' ')} — found`;
+  return { label: name, detail: meta.description, hint: [origin, req, ...agents].filter(Boolean).join(' · '), state };
+}
+
 // 何を入れるかは既定値では決まらない。明示されていれば対話しない、無ければ選ばせる、
 // 選べない環境(非 TTY)なら止める。
 async function resolveModules(cmd, opts) {
@@ -1286,25 +1306,10 @@ async function resolveModules(cmd, opts) {
   const shared = deploymentState(inspection, null);
   const orphans = [...inspection.installed].filter((n) => !available.includes(n));
   const picked = await multiSelect({
-    title: cmd === 'uninstall' ? 'Which modules to remove?' : 'Which modules?',
-    context: { scope: ctx.kind === 'user' ? 'global' : 'project', path: homePath(ctx.base) },
+    title: 'Which modules?',
+    context: pickerContext(ctx),
     notices: [...(shared.details.length ? [shared.label] : []), ...orphans.map((n) => `${n}: source missing (uninstall ${n} to remove)`)],
-    options: available.map((n) => {
-      const meta = moduleMeta(n);
-      const missing = missingRequirements(n);
-      // 出どころは選ぶ前に要る。見本のままか、手が入っているかで意味が違う。
-      const origin = { sample: `from ${VENDOR}`, edited: `from ${VENDOR}, edited by you` }[states.get(n)] ?? 'yours';
-      const req = !meta.requires.length ? ''
-        : missing.length
-          ? `requires ${meta.requires.join(' ')} — missing: ${missing.join(' ')}`
-          : `requires ${meta.requires.join(' ')} — found`;
-      return {
-        label: n,
-        detail: meta.description,
-        hint: [origin, req, ...Object.entries(inspection.agentModules).filter(([, names]) => names.includes(n)).map(([a]) => a)].filter(Boolean).join(' · '),
-        state: deploymentState(inspection, n),
-      };
-    }),
+    options: available.map((n) => moduleOption(n, inspection, states)),
   });
   if (picked === CANCELLED) throw new Error('cancelled.');
   if (!picked.length) throw new Error('no module chosen — nothing was written.');
@@ -1313,28 +1318,59 @@ async function resolveModules(cmd, opts) {
   return opts;
 }
 
-async function resolveAgents(opts) {
-  if (opts.agents || !isInteractive()) return opts;
-  const ctx = makeCtx(opts);
+// 導入先の選択。行ごとに、選んだ module のうちいくつがそこに入っているかを示す。
+async function pickAgents(ctx, modules, { title, agents = AGENTS, removing = false }) {
   const picked = await multiSelect({
-    title: 'Install into which agents?',
-    context: { scope: ctx.kind === 'user' ? 'global' : 'project', path: homePath(ctx.base) },
-    options: AGENTS.map((agent) => {
+    title,
+    context: pickerContext(ctx),
+    options: agents.map((agent) => {
       const inspection = inspectDeployment({ ...ctx, agents: [agent] });
-      const states = opts.modules.map((n) => deploymentState(inspection, n));
-      const installed = opts.modules.filter((n) => inspection.installed.has(n)).length;
+      const states = modules.map((n) => deploymentState(inspection, n));
+      const installed = modules.filter((n) => inspection.installed.has(n)).length;
       const state = states.find((s) => s.details.length) ?? states.find((s) => s.symbol === '●') ?? DEPLOYMENT_STATES.available;
       return {
         label: AGENT_LABELS[agent],
         detail: agent === 'claude' ? 'Skills, agents, hooks and CLAUDE.md rules' : 'Native skills, custom agents and AGENTS.md rules',
-        hint: `${opts.modules.join(', ')} → ${agent === 'claude' ? '.claude/' : '.agents/skills/ and .codex/'}`,
-        state: { ...state, label: `${installed}/${opts.modules.length} installed${state.details?.length ? ` · ${state.label}` : ''}`, details: state.details ?? [] },
+        hint: `${modules.join(', ')} ${removing ? 'from' : '→'} ${agent === 'claude' ? '.claude/' : '.agents/skills/ and .codex/'}`,
+        state: { ...state, label: `${installed}/${modules.length} installed${state.details?.length ? ` · ${state.label}` : ''}`, details: state.details ?? [] },
       };
     }),
   });
   if (picked === CANCELLED) throw new Error('cancelled.');
-  if (!picked.length) throw new Error('no agent chosen — nothing was written.');
-  return { ...opts, agents: picked.map((i) => AGENTS[i]), interactive: true };
+  if (!picked.length) throw new Error(`no agent chosen — nothing was ${removing ? 'removed' : 'written'}.`);
+  return picked.map((i) => agents[i]);
+}
+
+async function resolveAgents(opts) {
+  if (opts.agents || !isInteractive()) return opts;
+  const agents = await pickAgents(makeCtx(opts), opts.modules, { title: 'Install into which agents?' });
+  return { ...opts, agents, interactive: true };
+}
+
+// 外す物も既定値では決めない。名前が無く端末で選べるなら、ここに配っている物から選ばせる。
+// 選べない環境で名前を挙げない uninstall は、これまでどおりすべてを外す。
+async function resolveRemovals(opts) {
+  if (opts.modules.length || !isInteractive()) return opts;
+  const ctx = makeCtx(opts);
+  const inspection = inspectDeployment(ctx);
+  // 記録が無い、または対象の導入先に何も無いときの案内は uninstall が出す。
+  if (!inspection.manifest || !inspection.installed.size) return opts;
+  const installed = [...inspection.installed].sort();
+  const states = seedStates();
+  const picked = await multiSelect({
+    title: 'Which modules to remove?',
+    context: pickerContext(ctx),
+    options: installed.map((n) => moduleOption(n, inspection, states)),
+  });
+  if (picked === CANCELLED) throw new Error('cancelled.');
+  if (!picked.length) throw new Error('no module chosen — nothing was removed.');
+  const modules = picked.map((i) => installed[i]);
+  // 選んだ module が 1 つの導入先にしか入っていなければ、選ばせる物が無い。
+  const candidates = AGENTS.filter((a) => modules.some((n) => inspection.agentModules[a]?.includes(n)));
+  if (opts.agents || candidates.length < 2) return { ...opts, modules, interactive: true };
+  const agents = await pickAgents(makeCtx(opts), modules, { title: 'Remove from which agents?', agents: candidates, removing: true });
+  // 選んだ導入先に入っていない module は、そこから外す物が無いだけである。
+  return { ...opts, agents, modules: modules.filter((n) => agents.some((a) => inspection.agentModules[a].includes(n))), interactive: true };
 }
 
 // 配備先の既定はカレントディレクトリである。-C も -g も無いまま無関係な場所で走った
@@ -1429,6 +1465,11 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   for (const n of new Set(rawRecorded.filter((n) => heirs.has(n)))) {
     log.update(`module ${n} → ${heirs.get(n).join(' ')} (it was ${heirs.get(n).length > 1 ? 'split' : 'renamed'})`);
   }
+  // 触れるのは名前を挙げた module だけである。記録に残る他の module は、正本が変わっていても
+  // 前回配った内容のまま持ち越し、配り直しは update に任せる。持ち越すには導入先ごとの記録が
+  // 要るので、それを持たない古い記録と、改名で受け継いだ名前は配り直す。
+  const redeliverAll = !old?.agentModules || (!replaceModules && !opts.modules.length);
+  const held = {};
   for (const agent of active) {
     const recorded = previousTargets[agent] ?? (legacy && !old ? [SOLE_MODULE_THEN] : []);
     const remembered = followRenames(recorded, heirs);
@@ -1436,20 +1477,27 @@ async function install(opts, { requireExisting = false, replaceModules = false }
       : [...new Set([...remembered, ...opts.modules])].sort();
     if (!wanted.length) { delete agentModules[agent]; delete agentRulesBodies[agent]; continue; }
     agentModules[agent] = wanted;
-    const bodies = rulesBodies(wanted.filter((n) => known.has(n)));
-    for (const n of wanted.filter((n) => !known.has(n))) {
+    const raw = old?.agentModules?.[agent] ?? [];
+    held[agent] = new Set(redeliverAll ? [] : wanted.filter((n) => raw.includes(n) && !opts.modules.includes(n)));
+    const fresh = (n) => known.has(n) && !held[agent].has(n);
+    const bodies = rulesBodies(wanted.filter(fresh));
+    for (const n of wanted.filter((n) => !fresh(n))) {
       if (agentRulesBodies[agent]?.[n] !== undefined) bodies[n] = agentRulesBodies[agent][n];
     }
     agentRulesBodies[agent] = bodies;
   }
+  const isHeld = (agent, name) => held[agent]?.has(name) ?? false;
   ctx.agentModules = agentModules;
   ctx.agentRulesBodies = agentRulesBodies;
   const wanted = [...new Set(Object.values(agentModules).flat())].sort();
   const modules = wanted.filter((n) => known.has(n));
+  const touched = modules.filter((n) => active.some((a) => agentModules[a]?.includes(n) && !isHeld(a, n)));
   const orphans = wanted.filter((n) => !known.has(n) && active.some((a) => agentModules[a]?.includes(n)));
   const orphanHasFiles = orphans.some((n) => Object.values(old?.files || {}).some((v) => fileOwner(v) === n));
-  const entries = deliveryEntries(ctx, modules, { keepPlugin: orphanHasFiles, agents: active });
-  if (active.includes('codex')) for (const n of unsupportedCodexHooks((agentModules.codex ?? []).filter((n) => known.has(n)))) {
+  // 衝突の検出と plugin の中身は持ち越す module も含めた全体で決め、書くのは触れる物だけにする。
+  const entries = deliveryEntries(ctx, modules, { keepPlugin: orphanHasFiles, agents: active })
+    .filter((e) => !e.module || !isHeld(e.agent, e.module));
+  if (active.includes('codex')) for (const n of unsupportedCodexHooks((agentModules.codex ?? []).filter((n) => known.has(n) && !isHeld('codex', n)))) {
     log.warn(`${n}: Claude hooks need native codex/hooks.json for Codex`);
   }
 
@@ -1503,9 +1551,10 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   const orphanSet = new Set(orphans);
   for (const [rel, v] of Object.entries(old?.files || {})) {
     if (files[rel] !== undefined || relSet.has(rel)) continue;
-    // 供給元を失った module が置いた物は、所有の記録ごと持ち越す
+    // 供給元を失った module と、今回触れない module が置いた物は、所有の記録ごと持ち越す
     const agent = recordAgent(rel, v);
-    if (orphanSet.has(fileOwner(v)) && agentModules[agent]?.includes(fileOwner(v))) { files[rel] = v; continue; }
+    const owner = fileOwner(v);
+    if ((orphanSet.has(owner) || isHeld(agent, owner)) && agentModules[agent]?.includes(owner)) { files[rel] = v; continue; }
     const hash = fileHash(v);
     const dst = path.join(ctx.base, rel);
     const st = lstatOrNull(dst);
@@ -1578,8 +1627,17 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     console.log(`    ${ui.dim(`\`agents-setup uninstall ${n}\` removes it; nothing else will`)}`);
   }
   if (orphans.length) process.exitCode = 1;
+  // 持ち越した module に更新が溜まっていれば、黙って古いままにせず、取り込み方を示す。
+  const kept = [...new Set(active.flatMap((a) => [...(held[a] ?? [])]))];
+  if (kept.length) {
+    const inspection = inspectDeployment(makeCtx({ ...opts, agents: active }));
+    const stale = kept.filter((n) => inspection.checks.some((c) => c.owners.includes(n) && c.kinds.includes('update'))).sort();
+    if (stale.length) {
+      console.log(`  ${ui.yellow('↑')} ${stale.join(' ')} ${ui.dim(`left as delivered — \`agents-setup update\` applies ${stale.length > 1 ? 'their updates' : 'its update'}`)}`);
+    }
+  }
   // 依存の不在は配備の失敗ではない。伝えるが、終了コードは変えない。
-  for (const m of modules) {
+  for (const m of touched) {
     const missing = missingRequirements(m);
     if (missing.length) console.log(`  ${ui.yellow('!')} ${m} expects ${missing.join(' ')} on PATH — install it when you need it`);
   }
@@ -1848,9 +1906,11 @@ const CMD_HELP = {
       'namespaces its skills and agents as /dotagents:* and carries hooks without',
       'touching settings.json; Codex gets native skills in .agents/skills/ and custom',
       'agent TOML files in .codex/agents/. The rules arrive',
-      'as a managed block in CLAUDE.md / AGENTS.md. Adding a module is additive: what',
-      'you installed before stays. Everything is idempotent and hash-owned, so files you',
-      'edited after installation are kept and reported, and your own skills are untouched.',
+      'as a managed block in CLAUDE.md / AGENTS.md. Adding a module is additive, and only',
+      'the modules you name or check are delivered: what you installed before stays as it',
+      'was delivered, even if its source has changed — update applies those changes.',
+      'Everything is idempotent and hash-owned, so files you edited after installation are',
+      'kept and reported, and your own skills are untouched.',
     ],
     options: [['--force', 'overwrite whatever sits in the way and does not match what would be delivered']],
     notes: [
@@ -1872,10 +1932,12 @@ const CMD_HELP = {
     line: 'redeliver whatever is recorded here, keeping what lost its source',
     body: [
       'Requires an existing installation, and works on the module set the manifest',
-      'remembers — no module names, no flags to recall. Beyond what install does, it',
-      'drops files a module no longer carries, and prunes any legacy .agents layout it',
-      'finds. A remembered name that a module now declares it replaces is followed to its',
-      'heirs, renamed or split, and the record is rewritten to say so.',
+      'remembers — no module names, no flags to recall. It is the one command that',
+      'refreshes every recorded module: install and uninstall leave the modules they are',
+      'not given as they were delivered. It drops files a module no longer carries, and',
+      'prunes any legacy .agents layout it finds. A remembered name that a module now',
+      'declares it replaces is followed to its heirs, renamed or split, and the record is',
+      'rewritten to say so.',
       '',
       'A delivered module whose source is gone from ~/.dotagents/modules/ is kept, not',
       'removed — only uninstall takes rules out of a deployment. It is reported instead.',
@@ -1897,17 +1959,19 @@ const CMD_HELP = {
     usage: '[module...] [options]',
     line: 'remove only what this installer placed and still owns (hash-matched)',
     body: [
-      'Naming modules is subtractive: the rest is redelivered and the removed module\'s',
-      'files are pruned. Naming none removes everything. Only files whose content still',
-      'matches the manifest are touched, and the managed rules blocks are stripped —',
-      'your own skills, your edits, and whatever you wrote around the blocks stay.',
+      'Naming modules is subtractive: their files are pruned and the rest stays as it was',
+      'delivered. Naming none in a terminal picks from what is installed here — modules',
+      'first, then Claude Code and/or Codex when the selection is in both. Naming none in',
+      'a non-interactive shell removes everything. Only files whose content still matches',
+      'the manifest are touched, and the managed rules blocks are stripped — your own',
+      'skills, your edits, and whatever you wrote around the blocks stay.',
     ],
     options: [],
     notes: [],
     examples: [
       ['agents-setup uninstall <module>', 'drop one module, keep the rest'],
-      ['agents-setup uninstall', 'remove everything from the current project'],
-      ['agents-setup uninstall -g', 'remove everything from this machine'],
+      ['agents-setup uninstall', 'choose what to remove from the current project'],
+      ['agents-setup uninstall -g', 'choose what to remove from this machine'],
     ],
   },
   status: {
@@ -1998,7 +2062,7 @@ async function main() {
     // update / uninstall は既存の記録に対して働く。記録が無ければそちらで止まるので、
     // 迷子のカレントディレクトリを塞ぐ関門は install にだけ要る。
     case 'update': return update(opts);
-    case 'uninstall': return uninstall(opts);
+    case 'uninstall': return uninstall(await resolveRemovals(opts));
     case 'status': return status(opts);
   }
 }

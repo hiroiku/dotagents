@@ -131,7 +131,7 @@ test('removing source rules stays visible until update removes their managed blo
 
 // Exercise the real CLI key handling and output over pipes, with only TTY capabilities
 // supplied by a preload. No shell, terminal emulator, or external dependency is needed.
-function picker(t, f, { args = ['-C', f.project], columns = 100, rows = 30, color = true } = {}) {
+function picker(t, f, { command = 'install', args = ['-C', f.project], columns = 100, rows = 30, color = true } = {}) {
   const preload = path.join(f.dir, 'tty.cjs');
   fs.writeFileSync(preload, `
 Object.defineProperty(process.stdin, 'isTTY', { value: true });
@@ -142,7 +142,7 @@ process.stdout.rows = ${rows};
 `);
   const env = { ...f.env, NO_COLOR: color ? '' : '1', TERM: 'xterm-256color' };
   delete env.FORCE_COLOR;
-  const child = spawn(process.execPath, ['--require', preload, f.cli, 'install', ...args], { env, stdio: 'pipe' });
+  const child = spawn(process.execPath, ['--require', preload, f.cli, command, ...args], { env, stdio: 'pipe' });
   t.after(() => child.kill());
   const exited = once(child, 'close');
   let output = '';
@@ -528,3 +528,100 @@ test('an untracked legacy layout must migrate before selecting only one agent', 
   assert.equal(fs.existsSync(legacy), true);
   assert.equal(fs.existsSync(codexTarget(f, 'alpha')), false);
 });
+
+test('install touches only the named modules and leaves pending updates to update', (t) => {
+  const f = fixture(t);
+  put(path.join(f.pkg, 'modules/alpha/skills/alpha/old.md'), '# retired file\n');
+  f.install('alpha', 'gamma');
+  const retired = path.join(path.dirname(f.target('alpha')), 'old.md');
+  fs.unlinkSync(path.join(f.pkg, 'modules/alpha/skills/alpha/old.md'));
+  fs.appendFileSync(f.source('alpha'), '# upstream alpha\n');
+  fs.appendFileSync(f.source('gamma', 'AGENTS.md'), '# upstream gamma\n');
+  const rules = path.join(f.project, 'AGENTS.md');
+
+  const result = f.run('install', 'beta', '-C', f.project);
+  assert.equal(result.code, 0, result.out);
+  assert.match(result.out, /alpha gamma left as delivered — `agents-setup update` applies their updates/);
+  assert.equal(fs.existsSync(f.target('beta')), true);
+  assert.doesNotMatch(read(f.target('alpha')), /upstream/);
+  assert.equal(fs.existsSync(retired), true, 'files of an untouched module are not pruned');
+  assert.doesNotMatch(read(rules), /upstream gamma/);
+  let status = f.status().out;
+  assert.match(stateLine(status, 'alpha'), /update available$/);
+  assert.match(stateLine(status, 'beta'), /installed$/);
+
+  f.install('alpha');
+  assert.match(read(f.target('alpha')), /upstream/, 'naming an installed module refreshes it');
+  assert.equal(fs.existsSync(retired), false);
+  assert.doesNotMatch(read(rules), /upstream gamma/);
+  command(f, 'update');
+  assert.match(read(rules), /upstream gamma/);
+  assert.match(f.status().out, /no drift/);
+});
+
+test('uninstall removes only the named modules and leaves pending updates to update', (t) => {
+  const f = fixture(t);
+  f.install('alpha', 'beta');
+  fs.appendFileSync(f.source('beta'), '# upstream beta\n');
+  assert.match(command(f, 'uninstall', 'alpha'), /beta left as delivered/);
+  assert.equal(fs.existsSync(f.target('alpha')), false);
+  assert.doesNotMatch(read(f.target('beta')), /upstream/);
+  assert.match(stateLine(f.status().out, 'beta'), /update available$/);
+});
+
+test('uninstall picker offers installed modules and removes only the checked ones', { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  command(f, 'install', 'alpha', 'beta', 'gamma', '--agent', 'claude');
+  const p = picker(t, f, { command: 'uninstall' });
+  let frame = await p.frame();
+  assert.match(frame.text, /Which modules to remove\?/);
+  assert.match(frame.text, /\[ \] ● alpha\s+installed/);
+  assert.doesNotMatch(frame.text, /delta/, 'modules that are not installed are not offered');
+  p.send('\x1b[B'); await p.frame(); p.send(' ');
+  frame = await p.frame();
+  assert.match(frame.text, /\[x\] ● beta/);
+  p.send('\r');
+  const done = await p.done();
+  assert.equal(done.code, 0, done.out);
+  assert.doesNotMatch(done.out, /Remove from which agents/, 'a single destination leaves nothing to choose');
+  assert.deepEqual(record(f).agentModules, { claude: ['alpha', 'gamma'] });
+  assert.equal(fs.existsSync(f.target('beta')), false);
+  assert.equal(fs.existsSync(f.target('alpha')), true);
+});
+
+test('uninstall picker asks for agents when the selection is installed in both', { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  command(f, 'install', 'alpha', '--agent', 'all');
+  command(f, 'install', 'gamma', '--agent', 'claude');
+  const p = picker(t, f, { command: 'uninstall' });
+  await p.frame(); p.send(' ');
+  await p.frame(); p.send('\x1b[B');
+  await p.frame(); p.send(' ');
+  await p.frame(); p.send('\r');
+  let frame = await p.frame();
+  assert.match(frame.text, /Remove from which agents\?/);
+  assert.match(frame.text, /\[ \] ● Claude Code\s+2\/2 installed/);
+  assert.match(frame.text, /\[ \] ● Codex\s+1\/2 installed/);
+  p.send('\x1b[B'); await p.frame(); p.send(' ');
+  frame = await p.frame();
+  assert.match(frame.text, /\[x\] ● Codex/);
+  p.send('\r');
+  const done = await p.done();
+  assert.equal(done.code, 0, done.out);
+  assert.deepEqual(record(f).agentModules, { claude: ['alpha', 'gamma'] });
+  assert.equal(fs.existsSync(codexTarget(f, 'alpha')), false);
+  assert.equal(fs.existsSync(f.target('alpha')), true);
+});
+
+for (const key of ['\x03', '\r']) {
+  test(`cancelling or confirming an empty uninstall picker removes nothing (${JSON.stringify(key)})`, { timeout: 10000 }, async (t) => {
+    const f = fixture(t);
+    f.install('alpha');
+    const before = read(manifestFile(f));
+    const p = picker(t, f, { command: 'uninstall' });
+    await p.frame(); p.send(key);
+    assert.equal((await p.done()).code, 1);
+    assert.equal(read(manifestFile(f)), before);
+    assert.equal(fs.existsSync(f.target('alpha')), true);
+  });
+}

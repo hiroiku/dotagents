@@ -87,12 +87,15 @@ installer 자체는 여기 살지 않는다. 자기가 온 곳에서 교체된�
 
 ```sh
 dotagents update               # 기록된 것을 다시 전달 — 인자 없이, 어떤 module을 골랐는지 기억한다
-dotagents uninstall <module>   # module 하나만 빼고 나머지는 남긴다; 이름 없이 쓰면 전부 제거
+dotagents uninstall            # 여기에 설치된 것 중에서 뺄 module을 고른다
+dotagents uninstall <module>   # module 하나만 빼고 나머지는 남긴다
 dotagents status               # 전달된 모든 파일을 검증 — 표류가 있으면 exit 1
 dotagents --help               # 모든 명령, 옵션, 예시
 ```
 
-`install`은 더하고(additive) `uninstall`은 빼는(subtractive) 명령이므로, 배포가 담는 집합은 module 하나씩 쌓이고 허물어진다. `update`는 manifest가 기억하는 것에서 출발한다: 그 집합을 다시 전달하고, 눈에 띄는 옛 레이아웃을 정리한다.
+`install`은 더하고(additive) `uninstall`은 빼는(subtractive) 명령이므로, 배포가 담는 집합은 module 하나씩 쌓이고 허물어진다. 둘 다 지정된 module만 건드리고, 나머지는 전달된 그대로 둔다. `update`는 manifest가 기억하는 것에서 출발한다: 그 집합 전체를 다시 전달하고, 눈에 띄는 옛 레이아웃을 정리한다.
+
+터미널에서 이름 없이 `uninstall`을 실행하면 이곳에 설치된 module을 고르는 화면이 열린다. 고른 module이 Claude Code와 Codex 양쪽에 설치되어 있으면 어느 쪽에서 뺄지 한 번 더 고른다. 비대화형 셸에서 이름 없이 실행하면 전부 제거한다.
 
 **배포처에서 규칙을 지우는 것은 `uninstall`뿐이다.** `~/.dotagents/modules/`에서 module을 지우는 일은 일상의 가벼운 조작이며, 그것을 넣어 둔 모든 프로젝트를 고쳐 써도 된다는 근거가 되지는 않는다. 그래서 전달된 module이 공급원을 잃으면 `update`는 파일을 남기고, 기록을 남기고, `CLAUDE.md`의 줄도 남긴 뒤, 무엇을 남겼는지와 어떻게 지우는지를 말한다. `status`는 그 상태를 이탈로 보고한다 — 맞춰 볼 원본이 없는 이상, 맞다고는 말할 수 없기 때문이다.
 

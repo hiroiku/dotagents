@@ -41,7 +41,7 @@ dotagents install review -g --agent codex
 
 node と bun のどちらでもよい — CLI 自身がその機械に在る runtime を選ぶ。
 
-対話選択では対象の `project / global` を上部に示し、**今回の選択** (`[ ]` / `[x]`) と **現在の導入状態** を分けて表示する。灰色の `○` は未導入、緑の `●` は導入済み、黄色の `↑` は更新待ち、青の `~` は配備先の編集、赤の `!` は欠落や配備を妨げる状態。カーソルを合わせた module の説明・出どころ・差分の理由は一覧の下に表示する。導入済みのチェックを外しても uninstall にはならない。
+対話選択では対象の `project / global` を上部に示し、**今回の選択** (`[ ]` / `[x]`) と **現在の導入状態** を分けて表示する。灰色の `○` は未導入、緑の `●` は導入済み、黄色の `↑` は更新待ち、青の `~` は配備先の編集、赤の `!` は欠落や配備を妨げる状態。カーソルを合わせた module の説明・出どころ・差分の理由は一覧の下に表示する。配るのはチェックした module だけで、チェックしていない導入済みの module は、正本が変わっていても前回配った内容のまま残り、`update` で配り直される。チェックを外しても uninstall にはならない。外すときは `uninstall` の対話選択を使う。
 
 選択画面と `status` は配布内容を同じ方法で比較する。配布元の変更と配備先の編集は両方表示でき、版番号だけが変わっても全 module を更新待ちにはしない。共通の plugin 情報の差分は別に表示し、module ごとの区切りを持たない規則ブロックの編集は `shared rules changed` として示す。`NO_COLOR` でも記号とラベルで状態を判別できる。
 
@@ -116,14 +116,17 @@ installer 自体はここに住まない。来た場所で入れ替わる。modu
 
 ```sh
 dotagents update               # 記録されている物を配り直す — 引数は不要、選んだ module を憶えている
-dotagents uninstall <module>   # module を 1 つ外し、残りは保つ。名指ししなければすべてを除去する
+dotagents uninstall            # ここに導入済みの物から、外す module を選ぶ
+dotagents uninstall <module>   # module を 1 つ外し、残りは保つ
 dotagents status               # 配備された全ファイルを検査 — 乖離があれば exit 1
 dotagents update --agent codex # Codex の配布内容だけ更新
 dotagents status --agent codex # Codex だけ検査
 dotagents --help               # 全コマンド・オプション・例
 ```
 
-`install` は加算、`uninstall` は減算であり、配備先が保持する集合は module 1 つずつ積み上げられ、取り崩される。`update` は manifest が憶えている物を起点に働く: その集合を配り直し、見つけた旧レイアウトを刈り取る。
+`install` は加算、`uninstall` は減算であり、配備先が保持する集合は module 1 つずつ積み上げられ、取り崩される。どちらも触れるのは渡された module だけで、残りは前回配った内容のまま保つ。`update` は manifest が憶えている物を起点に働く: その集合全体を配り直し、見つけた旧レイアウトを刈り取る。
+
+端末で `uninstall` を名指しせずに実行すると、対象に導入済みの module を選ぶ画面が開く。選んだ module が Claude Code と Codex の両方に入っていれば、続けてどちらから外すかを選ぶ。非対話実行で名指ししなければ、すべてを除去する。
 
 **配備先から規則を消すのは `uninstall` だけである。** `~/.dotagents/modules/` から module を消すのは日常の軽い操作であり、それを入れた全プロジェクトを書き換えてよい理由にはならない。だから配達済みの module が供給元を失ったとき、`update` はファイルを残し、記録を残し、`CLAUDE.md` の行も残し、何を残したか・どう消すかを言う。`status` はそれを乖離として報告する — 照合する元が無い以上、合っているとは言えないからである。
 

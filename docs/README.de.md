@@ -87,12 +87,15 @@ Der Installer selbst wohnt nicht hier; er wird dort ersetzt, wo er herkam. Die M
 
 ```sh
 dotagents update               # neu ausliefern, was verzeichnet ist — keine Argumente, es merkt sich deine Wahl
-dotagents uninstall <module>   # ein Modul entfernen, den Rest behalten; ohne Namen wird alles entfernt
+dotagents uninstall            # auswählen, was entfernt wird — aus dem, was hier installiert ist
+dotagents uninstall <module>   # ein Modul entfernen, den Rest behalten
 dotagents status               # jede ausgelieferte Datei prüfen — exit 1 bei Drift
 dotagents --help               # jeder Befehl, jede Option, jedes Beispiel
 ```
 
-`install` ist additiv und `uninstall` subtraktiv, daher wird die Menge, die eine Bereitstellung hält, Modul für Modul auf- und abgebaut. `update` arbeitet mit dem, woran sich das Manifest erinnert: Es liefert diese Menge neu aus und beschneidet jedes alte Layout, das es findet.
+`install` ist additiv und `uninstall` subtraktiv, daher wird die Menge, die eine Bereitstellung hält, Modul für Modul auf- und abgebaut. Beide berühren nur die Module, die ihnen genannt werden; der Rest bleibt so, wie er ausgeliefert wurde. `update` arbeitet mit dem, woran sich das Manifest erinnert: Es liefert diese ganze Menge neu aus und beschneidet jedes alte Layout, das es findet.
+
+In einem Terminal bietet `uninstall` ohne Namen die hier installierten Module zur Auswahl an. Ist die Auswahl sowohl in Claude Code als auch in Codex installiert, fragt eine zweite Auswahl, woraus sie entfernt wird. In einer nicht interaktiven Shell entfernt `uninstall` ohne Namen alles.
 
 **Nur `uninstall` entfernt Regeln aus einer Bereitstellung.** Ein Modul aus `~/.dotagents/modules/` zu löschen ist ein kleiner, alltäglicher Schritt; jedes Projekt umzuschreiben, in das du es installiert hast, ist es nicht. Verliert ein ausgeliefertes Modul also seine Quelle, behält `update` die Dateien, behält den Eintrag, behält seine Zeilen in `CLAUDE.md` — und sagt, was es behalten hat und wie es zu entfernen ist. `status` meldet diesen Zustand als Abweichung, denn ohne Quelle gibt es nichts, woran sich die Dateien prüfen ließen.
 

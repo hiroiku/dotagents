@@ -39,7 +39,7 @@ dotagents install review -g --agent codex
 
 Each agent remembers its own module set. `update`, `uninstall`, and `status` operate on all recorded agents unless narrowed with `--agent codex` or `--agent claude`. Non-interactive installation requires module names. Without `--agent`, it uses recorded agents; a fresh installation preserves the previous default of Claude plus Codex when `.codex/` or project `AGENTS.md` exists. Specify `--agent` for deterministic scripts.
 
-The interactive picker shows the target and keeps **this run's selection** (`[ ]` / `[x]`) separate from **what is already installed**: gray `○` available, green `●` installed, yellow `↑` update available, blue `~` modified locally, and red `!` missing or blocked. The focused module's description, origin, and drift details appear below the list. Unchecking an installed module does not uninstall it.
+The interactive picker shows the target and keeps **this run's selection** (`[ ]` / `[x]`) separate from **what is already installed**: gray `○` available, green `●` installed, yellow `↑` update available, blue `~` modified locally, and red `!` missing or blocked. The focused module's description, origin, and drift details appear below the list. Only the modules you check are delivered: installed modules you leave unchecked stay as they were delivered, even when their source has changed, until `update` redelivers them. Unchecking never uninstalls; `uninstall` has a picker of its own.
 
 The picker and `status` compare delivered contents, not just package versions. Source changes and local edits can both be reported; a version change alone does not mark every module as outdated. Changes to the shared plugin metadata are reported separately, and edits to a combined rules block are labeled `shared rules changed` because the block has no module boundaries. Symbols and labels remain visible with `NO_COLOR`.
 
@@ -110,14 +110,17 @@ The installer itself never lives here; it is replaced where it came from. The mo
 
 ```sh
 dotagents update               # redeliver what is recorded — no arguments, it remembers what you chose
-dotagents uninstall <module>   # drop one module, keep the rest; name none to remove everything
+dotagents uninstall            # choose what to remove from what is installed here
+dotagents uninstall <module>   # drop one module, keep the rest
 dotagents status               # verify every delivered file — exit 1 on drift
 dotagents update --agent codex # refresh only Codex
 dotagents status --agent codex # inspect only Codex
 dotagents --help               # every command, option, example
 ```
 
-`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. `update` works from what the manifest remembers: it redelivers that set and prunes any legacy layout it finds.
+`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. Both touch only the modules they are given; the rest stay as they were delivered. `update` works from what the manifest remembers: it redelivers that whole set and prunes any legacy layout it finds.
+
+In a terminal, `uninstall` with no names lists the modules installed at the target. When the selection is installed in both Claude Code and Codex, a second picker asks which to remove it from. In a non-interactive shell, naming none removes everything.
 
 **Only `uninstall` removes rules from a deployment.** Deleting a module from `~/.dotagents/modules/` is a small, everyday act; rewriting every project you installed it into is not. So when a delivered module no longer has a source, `update` keeps the files, keeps the record, keeps its lines in `CLAUDE.md`, and says what it kept and how to remove it. `status` reports the state as drift, because with no source there is nothing to verify the files against.
 

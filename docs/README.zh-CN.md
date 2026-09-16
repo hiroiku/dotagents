@@ -87,12 +87,15 @@ module 只能住在一个地方:`~/.dotagents/modules/`。范例并不是从包�
 
 ```sh
 dotagents update               # 把记录在案的内容重新交付一遍——无需参数,它记得你选择了哪些 module
-dotagents uninstall <module>   # 移除一个 module,其余保持不变;不指名则移除全部
+dotagents uninstall            # 从此处已安装的内容中选择要移除的 module
+dotagents uninstall <module>   # 移除一个 module,其余保持不变
 dotagents status               # 校验每一个已交付的文件——存在漂移时以退出码 1 结束
 dotagents --help               # 全部命令、选项、示例
 ```
 
-`install` 是增量式的,`uninstall` 是削减式的,因此一次部署所持有的集合是逐个 module 地建立与拆除的。`update` 以 manifest 所记得的内容为准:重新交付那一组,并清理它所发现的任何旧布局。
+`install` 是增量式的,`uninstall` 是削减式的,因此一次部署所持有的集合是逐个 module 地建立与拆除的。两者都只触及被指定的 module,其余保持上次交付时的样子。`update` 以 manifest 所记得的内容为准:重新交付那一整组,并清理它所发现的任何旧布局。
+
+在终端中不指名执行 `uninstall`,会列出此处已安装的 module 供选择。所选 module 同时装在 Claude Code 和 Codex 中时,会再询问要从哪一方移除。在非交互式 shell 中不指名,则移除全部。
 
 **只有 `uninstall` 会从部署处移除规则。** 从 `~/.dotagents/modules/` 删掉一个 module 是日常的、轻微的动作,它不足以成为改写你装过它的每一个项目的理由。所以当一个已交付的 module 失去了来源,`update` 会保留文件、保留记录,也保留 `CLAUDE.md` 里的那些行,并说明它保留了什么、以及要怎样移除。`status` 会把这种状态报告为偏离——既然没有可比对的来源,就不能说它是对的。
 
