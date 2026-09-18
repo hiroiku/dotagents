@@ -55,7 +55,7 @@ Un módulo puede declarar qué espera en el `PATH`. Los requisitos se **detectan
 
 También puede declarar qué nombre retirado ha heredado (`replaces`), de modo que un registro que recuerda el nombre viejo siga las reglas hasta donde hayan ido — renombradas, o repartidas entre varias. El instalador no guarda ninguna tabla propia: quien dice adónde fue un nombre es el corpus, y cuando la migración ha cumplido su curso lo que se borra es la línea del módulo, no código del instalador.
 
-[modules/](../modules/) es la definición canónica de ese conjunto. El instalador no mantiene ninguna lista: ni de los archivos, ni de los módulos; lee lo que haya en `~/.dotagents/modules/`. El conjunto es tanto un punto de partida como una opción por defecto, no algo que debas tomar entero: [review](../modules/review/README.md) entrega la verificación a un contexto que no escribió el código; [code](../modules/code/README.md), para qué sirve un comentario; [git](../modules/git/README.md) · [testing](../modules/testing/README.md) · [prompting](../modules/prompting/README.md), las convenciones que un modelo no puede adivinar, cada una leída en el momento en que se aplica; [architecture](../modules/architecture/docs/README.es.md), una regla de dependencias que es acertada para unos proyectos y no para otros; [github](../modules/github/README.md), qué mecanismo de un issue carga cada significado y el ciclo que va de tomarlo a recoger lo que queda.
+[modules/](../modules/) es la definición canónica de ese conjunto. El instalador no mantiene ninguna lista: ni de los archivos, ni de los módulos; lee lo que haya en `~/.dotagents/modules/`. El conjunto es tanto un punto de partida como una opción por defecto, no algo que debas tomar entero: [review](../modules/review/README.md) entrega la verificación a un contexto que no escribió el código; [code](../modules/code/README.md), para qué sirve un comentario; [git](../modules/git/README.md) · [testing](../modules/testing/README.md) · [prompting](../modules/prompting/README.md), las convenciones que un modelo no puede adivinar, cada una a mano en el momento en que se aplica; [architecture](../modules/architecture/docs/README.es.md), una regla de dependencias que es acertada para unos proyectos y no para otros; [github](../modules/github/README.md), qué mecanismo de un issue carga cada significado y el ciclo que va de tomarlo a recoger lo que queda.
 
 Los módulos están cortados de modo que uno de ellos pueda no servirte sin arrastrar a los demás. Aquí no hay ningún lote: instala `git` y `testing` en una máquina donde los roles de revisión no encajan, o solo `review` en el único repositorio que los necesita.
 
@@ -132,8 +132,9 @@ test/                 pruebas de contrato del instalador (npm test · bun test)
 modules/              el conjunto de muestra que viaja con ella — de hiroiku
 ├── review/           revisión adversarial, OWASP, WCAG — en su propio contexto
 ├── code/             para qué sirve un comentario
-├── git/              títulos de commit, squash, rebase
+├── git/              títulos de commit, squash, rebase, worktrees
 ├── testing/          las doce propiedades de una buena prueba
+├── gate/             un hook que detiene las comprobaciones completas a mitad del trabajo y los comandos que solo esperan
 ├── prompting/        qué leer antes de editar un prompt
 ├── architecture/     una regla de dependencias que impone la compilación
 └── github/           qué puede cargar un issue, y el ciclo a su alrededor

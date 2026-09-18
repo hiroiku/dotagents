@@ -309,7 +309,7 @@ test('分解された module: 憶えていた名前が消えても、行き先�
   const r = run(home, ['update', '-g']);
   assert.match(r.out, /module harness → code git prompting review testing/, '行き先を黙って引き継がない');
   assert.deepEqual(userManifest(home).modules, LEGACY, '記録は今の語彙に直る');
-  assert.ok(fs.existsSync(path.join(home, PLUGIN, 'skills/git/SKILL.md')), '配達は保たれる — 名前が変わっただけである');
+  assert.ok(fs.existsSync(path.join(home, PLUGIN, 'skills/testing/SKILL.md')), '配達は保たれる — 名前が変わっただけである');
   assert.match(run(home, ['status', '-g']).out, /no drift/);
 });
 
@@ -389,7 +389,7 @@ test('出どころ: 置き場は 1 つなので、見本のままか・手を入
   fs.mkdirSync(path.join(mine, 'skills', 'mine-skill'), { recursive: true });
   fs.writeFileSync(path.join(mine, 'module.json'), JSON.stringify({ description: '私的な module' }) + '\n');
   fs.writeFileSync(path.join(mine, 'skills', 'mine-skill', 'SKILL.md'), '---\ndescription: mine\n---\n\n# mine\n');
-  fs.appendFileSync(path.join(personalModules(home), 'git', 'skills', 'git', 'SKILL.md'), '\n- 社内では squash しない\n');
+  fs.appendFileSync(path.join(personalModules(home), 'git', 'AGENTS.md'), '\n- 社内では squash しない\n');
 
   const lines = run(home, ['list']).out.split('\n');
   const noteFor = (name) => lines[lines.findIndex((l) => l.startsWith(`  ${name} `)) + 1] ?? '';
@@ -441,7 +441,7 @@ test('見本は置き場へ実体で置かれる: 消したら戻らず、編集
   // 消したものは、見本が新しくなっても戻らない
   fs.rmSync(path.join(personalModules(home), 'github'), { recursive: true });
   // 編集したものは残る
-  const edited = path.join(personalModules(home), 'git', 'skills', 'git', 'SKILL.md');
+  const edited = path.join(personalModules(home), 'git', 'AGENTS.md');
   fs.appendFileSync(edited, '\n- 社内では squash しない\n');
 
   const again = run(home, ['list']);

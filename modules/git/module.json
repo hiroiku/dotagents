@@ -1,5 +1,5 @@
 {
-  "description": "コミット、worktree の統合、PR と CI の扱いを、Git の操作時に読み込む。",
+  "description": "コミット、worktree と統合、PR と CI の扱いを、すべてのセッションに常設する。",
   "requires": [
     "git"
   ],

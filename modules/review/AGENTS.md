@@ -1,3 +1,3 @@
-## Review
+## レビュー
 
-When implementation or a fix is done, delegate verification to the applicable review agents before reporting completion.
+実装や修正を終えたら、完了を報告する前に、該当するレビューエージェントに検証を任せる。依頼に書く実行方法は、要件を満たしていないことを示せるテストや操作に絞ったコマンドにする。

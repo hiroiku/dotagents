@@ -1,3 +1,3 @@
-## Code
+## コード
 
-Comments explain the intent of the code they sit on. No history, no ADRs, no provisions for the future.
+コメントには、そのコードの意図を書く。経緯、ADR、将来への備えは書かない。

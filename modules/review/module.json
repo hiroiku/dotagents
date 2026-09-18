@@ -1,5 +1,5 @@
 {
-  "description": "Verification handed to a context that did not write the code: adversarial review, OWASP Top 10, WCAG 2.2 AA — roles that read and run, never edit.",
+  "description": "コードを書いていない文脈に検証を任せる。反証のレビュー、OWASP Top 10、WCAG 2.2 AA の 3 つの役割は、読んで実行するだけで編集しない。",
   "replaces": [
     "harness"
   ]

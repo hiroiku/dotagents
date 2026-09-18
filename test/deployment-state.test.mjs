@@ -259,7 +259,7 @@ test('Codex-only creates native skills, agents and project rules in a fresh proj
   const f = fixture(t);
   fs.unlinkSync(path.join(f.project, 'AGENTS.md'));
   const module = path.join(f.pkg, 'modules', 'gamma');
-  put(path.join(module, 'agents', 'review.md'), '---\nname: review\ndescription: "Review code and tests"\ntools: Read, Glob, Grep, Bash\nmodel: claude-only-model\n---\n\nRead files, then report findings.\n');
+  put(path.join(module, 'agents', 'review.md'), '---\nname: review\ndescription: "Review code and tests"\ntools: Read, Glob, Grep, Bash, Skill\nmodel: claude-only-model\n---\n\nRead files, then report findings.\n');
   put(path.join(f.pkg, 'modules/alpha/skills/alpha/SKILL.md'), '---\nname: alpha\ndescription: Alpha skill\n---\n\n# alpha v1\n');
   command(f, 'install', 'alpha', 'gamma', '--agent', 'codex');
   assert.equal(fs.existsSync(path.join(f.project, '.claude')), false);

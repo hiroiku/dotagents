@@ -1,5 +1,5 @@
 {
-  "description": "Rules that govern the writing of code and have no moment to be triggered on, so they are injected into every session. Today: what a comment is for.",
+  "description": "呼び出しの契機を持たないコードの書き方の規則を、すべてのセッションに常設する。現在はコメントに書く内容。",
   "replaces": [
     "harness"
   ]

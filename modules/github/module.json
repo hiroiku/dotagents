@@ -1,4 +1,4 @@
 {
-  "description": "How to work through GitHub: issues decomposed into sub-issues, meanings put on the axis a query can filter, a Projects status that never lags the work, one worktree and branch per issue, pull requests linked back to what they close. Install it where the tracker is GitHub.",
+  "description": "GitHub での進め方。issue の sub-issue への分解、クエリーで絞れる軸への意味づけ、作業に遅れない Projects のステータス、issue ごとの worktree とブランチ、閉じる issue へ紐づける PR。トラッカーが GitHub のプロジェクトに入れる。",
   "requires": ["gh"]
 }

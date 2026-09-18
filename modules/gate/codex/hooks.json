@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'for d in \"$(git rev-parse --show-toplevel 2>/dev/null)\" \"$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/..\" \"$HOME\"; do f=\"$d/.codex/dotagents/gate/verify-gate.mjs\"; if [ -f \"$f\" ]; then exec \"$(command -v bun || command -v node)\" \"$f\"; fi; done'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'for d in \"$(git rev-parse --show-toplevel 2>/dev/null)\" \"$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/..\" \"$HOME\"; do f=\"$d/.codex/dotagents/gate/verify-gate.mjs\"; if [ -f \"$f\" ]; then exec \"$(command -v bun || command -v node)\" \"$f\"; fi; done'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -8,7 +8,9 @@ The failure mode peculiar to AI agents is not lying but omission: a context that
 
 So verification goes to agents whose context is clean. They receive the requirements, how to locate the target, and how to run it — never the implementer's own report, which is the very thing under suspicion.
 
-That is what the module's single ubiquitous line buys: _when implementation or a fix is done, delegate verification to the applicable review agents before reporting completion._ It is injected into every session rather than left to a trigger, because the moment it applies — the end of the work, when the session is convinced it is finished — is exactly the moment nothing will go looking for a rule.
+That is what the module's ubiquitous rule buys: _when implementation or a fix is done, delegate verification to the applicable review agents before reporting completion._ It is injected into every session rather than left to a trigger, because the moment it applies — the end of the work, when the session is convinced it is finished — is exactly the moment nothing will go looking for a rule.
+
+The same rule asks the delegation to name how to run the target narrowly: the tests and operations that would falsify a requirement. Reviewers run within that scope and reach for a full-suite run only when a finding needs it. Re-running every check the implementer already ran on the same code falsifies nothing and costs minutes per review.
 
 ## Two passes, in order
 
@@ -17,7 +19,7 @@ That is what the module's single ubiquitous line buys: _when implementation or a
 1. **Existence** — start from each requirement and find the implementation that satisfies it. An omission is invisible in a diff, so the scan runs from the requirements toward the code, not from the diff outward.
 2. **Correctness** — examine whether what was found is done right.
 
-Reviewers read and run; they do not edit. `Read, Glob, Grep, Bash` is the whole toolset — what a role must not do is enforced by the tools it is not given, not by a sentence it must remember.
+Reviewers read and run; they do not edit. `Read, Glob, Grep, Bash, Skill` is the whole toolset — what a role must not do is enforced by the tools it is not given, not by a sentence it must remember. `Skill` is there because a subagent with an explicit tool list sees no skills without it: the reviewer reaches the project's skills — how to narrow a run, the design rules it verifies against — the same way the implementer did.
 
 ## Requirement anchors, not checklists
 

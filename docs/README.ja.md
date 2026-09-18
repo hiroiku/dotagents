@@ -64,7 +64,7 @@ modules/<name>/
 |---|---|---|
 | `skills/` | `.claude/skills/dotagents/skills/` — `/dotagents:*` | `.agents/skills/dotagents-*/` — スキルの `name` も `dotagents-*` にする |
 | `agents/*.md` | plugin 内の `agents/` | `.codex/agents/dotagents-*.toml` に変換。同梱レビュー役は `read-only` sandbox |
-| `hooks/` | plugin 内の `hooks/` | Claude 固有の hook は自動変換しない。`codex/hooks.json` にネイティブ形式を用意する |
+| `hooks/` | plugin 内の `hooks/` | Claude 固有の hook は自動変換しない。`codex/hooks.json` にネイティブ形式を用意する。そのとき `hooks/` の実行ファイルは `.codex/dotagents/<module>/` に届き、定義から呼べる |
 | `codex/` | 配布しない | `.codex/` へネイティブ設定を配る。`codex/agents/dotagents-<name>.toml` は同名の変換結果より優先 |
 | `AGENTS.md` | `.claude/CLAUDE.md` 内の管理ブロック | プロジェクトは `AGENTS.md`、`-g` は `~/.codex/AGENTS.md`。無ければ作成 |
 
@@ -84,7 +84,7 @@ module は `PATH` に期待する物を宣言してよい。要件は**検出さ
 
 退役した名前を受け継いだのなら、それも宣言してよい(`replaces`)。古い名前を憶えている記録は、規則が行った先まで — 改名であれ、複数への分割であれ — ついていく。installer は対応表を持たない: どこへ行ったかを言うのは正本であり、移行が済んだと判断したときに消すのは module の 1 行であって、installer ではない。
 
-[modules/](../modules/) がその一式の正本の定義である。installer は列挙を持たない。ファイルの列挙も、module の列挙も持たず、`~/.dotagents/modules/` に在る物をそのまま読む。この一式は既定であると同時に出発点でもあり、丸ごと受け取るべき物ではない: [review](../modules/review/README.md) はコードを書かなかった context へ検証を渡し、[code](../modules/code/README.md) はコメントが何のためにあるかを、[git](../modules/git/README.md)・[testing](../modules/testing/README.md)・[prompting](../modules/prompting/README.md) はモデルには推測できない慣習を、それぞれ効く瞬間に読ませる形で携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を、[github](../modules/github/README.md) は issue のどの仕組みがどの意味を担うかと、着手から後片付けまでの一巡りを携える。
+[modules/](../modules/) がその一式の正本の定義である。installer は列挙を持たない。ファイルの列挙も、module の列挙も持たず、`~/.dotagents/modules/` に在る物をそのまま読む。この一式は既定であると同時に出発点でもあり、丸ごと受け取るべき物ではない: [review](../modules/review/README.md) はコードを書かなかった context へ検証を渡し、[code](../modules/code/README.md) はコメントが何のためにあるかを、[git](../modules/git/README.md)・[testing](../modules/testing/README.md)・[prompting](../modules/prompting/README.md) はモデルには推測できない慣習を、それぞれ効く瞬間に手元にある形で携え、[architecture](../modules/architecture/docs/README.ja.md) はプロジェクトによって適する物にも適さない物にもなる依存規則を、[github](../modules/github/README.md) は issue のどの仕組みがどの意味を担うかと、着手から後片付けまでの一巡りを携える。
 
 module は、そのうちの 1 つが自分に合わなくても、残りを道連れにしないように切ってある。ここに束は無い: レビュー役が馴染まない機械へ `git` と `testing` だけを入れることも、必要な 1 つのリポジトリへ `review` だけを入れることもできる。
 
@@ -163,8 +163,9 @@ test/                 installer の契約テスト(npm test · bun test)
 modules/              一緒に旅する見本の一式 — 配布元は hiroiku
 ├── review/           反証としてのレビュー、OWASP、WCAG — 自分の context で
 ├── code/             コメントが何のためにあるか
-├── git/              コミットタイトル、squash、rebase
+├── git/              コミットタイトル、squash、rebase、worktree
 ├── testing/          良いテストの 12 の性質
+├── gate/             作業中の全体検査と待つだけのコマンドを止める hook
 ├── prompting/        プロンプトを編集する前に読む物
 ├── architecture/     ビルドが強制する依存規則
 └── github/           issue が何を担えるか、着手から後片付けまで

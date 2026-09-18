@@ -1,6 +1,6 @@
 # github
 
-A module about working through GitHub: which mechanism carries which meaning, and what the loop around one issue looks like from picking it up to cleaning up after it. The rules themselves are in [skills/issues/SKILL.md](skills/issues/SKILL.md), with a Japanese copy in [docs/SKILL.ja.md](docs/SKILL.ja.md).
+A module about working through GitHub: which mechanism carries which meaning, and what the loop around one issue looks like from picking it up to cleaning up after it. The rules themselves are in [skills/issues/SKILL.md](skills/issues/SKILL.md), written in Japanese.
 
 ## Everything becomes a label
 

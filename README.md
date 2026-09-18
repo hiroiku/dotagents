@@ -64,7 +64,7 @@ modules/<name>/
 |---|---|---|
 | `skills/` | `.claude/skills/dotagents/skills/` — `/dotagents:*` | `.agents/skills/dotagents-*/`; the skill `name` is also namespaced as `dotagents-*` |
 | `agents/*.md` | `agents/` inside the plugin | Converted to `.codex/agents/dotagents-*.toml`; bundled reviewers use a `read-only` sandbox |
-| `hooks/` | `hooks/` inside the plugin | Claude hooks are not automatically translated; supply native `codex/hooks.json` |
+| `hooks/` | `hooks/` inside the plugin | Claude hooks are not automatically translated; supply native `codex/hooks.json`. The executables in `hooks/` then arrive in `.codex/dotagents/<module>/` for it to call |
 | `codex/` | Not delivered | Native assets copied into `.codex/`; `codex/agents/dotagents-<name>.toml` overrides the generated role of the same name |
 | `AGENTS.md` | A managed block in `.claude/CLAUDE.md` | A managed block in project `AGENTS.md`, or `~/.codex/AGENTS.md` with `-g`; created if absent |
 
@@ -78,7 +78,7 @@ A module may declare what it expects on `PATH`. Requirements are **detected, nev
 
 It may also declare a retired name it took over (`replaces`), so a record that remembers the old one follows the rules to wherever they went — renamed, or split across several. The installer keeps no table of its own: the corpus says where a name went, and when the migration has run its course the line is deleted from the module, not from the installer.
 
-[modules/](./modules/) is the canonical definition of that set. The installer holds no list: not of the files, and not of the modules either — it reads whatever is in `~/.dotagents/modules/`. The set is a starting point as much as a default, not something you are meant to take whole: [review](./modules/review/README.md) hands verification to a context that did not write the code, [code](./modules/code/README.md) what a comment is for, [git](./modules/git/README.md) · [testing](./modules/testing/README.md) · [prompting](./modules/prompting/README.md) the conventions a model cannot guess, each read at the moment it applies, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others, [github](./modules/github/README.md) which mechanism of an issue carries which meaning, and the loop from picking one up to cleaning up after it.
+[modules/](./modules/) is the canonical definition of that set. The installer holds no list: not of the files, and not of the modules either — it reads whatever is in `~/.dotagents/modules/`. The set is a starting point as much as a default, not something you are meant to take whole: [review](./modules/review/README.md) hands verification to a context that did not write the code, [code](./modules/code/README.md) what a comment is for, [git](./modules/git/README.md) · [testing](./modules/testing/README.md) · [prompting](./modules/prompting/README.md) the conventions a model cannot guess, each in reach at the moment it applies, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others, [github](./modules/github/README.md) which mechanism of an issue carries which meaning, and the loop from picking one up to cleaning up after it.
 
 Modules are cut so that one of them can be wrong for you without taking the rest with it. Nothing here is a bundle: install `git` and `testing` on a machine where the review roles would not fit, or `review` alone into the one repository that needs it.
 
@@ -157,8 +157,9 @@ test/                 contract tests for the installer (npm test · bun test)
 modules/              the sample set that travels with it — from hiroiku
 ├── review/           adversarial review, OWASP, WCAG — in a context of their own
 ├── code/             what a comment is for
-├── git/              commit titles, squash, rebase
+├── git/              commit titles, squash, rebase, worktrees
 ├── testing/          the twelve properties of a good test
+├── gate/             a hook that stops full-scope checks mid-work and wait-only commands
 ├── prompting/        what to read before editing a prompt
 ├── architecture/     a dependency rule the build can enforce
 └── github/           what an issue can carry, and the loop around one

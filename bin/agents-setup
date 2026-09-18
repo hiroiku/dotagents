@@ -12,7 +12,8 @@
 // 配達先:
 // - Claude: .claude/skills/dotagents/ 1 つに plugin として。skills・agents・hooks が
 //   名前空間 /dotagents:* の下に入り、settings.json を触らずにフックまで届く。
-// - Codex : .agents/skills/dotagents-<name>/ と .codex/agents/*.toml へ。
+// - Codex : .agents/skills/dotagents-<name>/ と .codex/agents/*.toml へ。codex/ はそのまま .codex/ へ、
+//   codex/hooks.json を持つ module の hooks/ の実行ファイルは .codex/dotagents/<module>/ へ。
 // - AGENTS.md: 各ツールの規則ファイルへマーカー付きの管理ブロックとして。
 //
 // install はハッシュが一致するファイルにしか触れず、uninstall は manifest の記録だけを外す。
@@ -456,6 +457,7 @@ const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs'])
 // - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
 // - skills/<name>/ → Codex : .agents/skills/dotagents-<name>/
 // - agents/*.md    → Codex : .codex/agents/dotagents-<name>.toml
+// - hooks/ の実行ファイル → Codex : .codex/dotagents/<module>/(codex/hooks.json がある module だけ)
 // - AGENTS.md      → コピーではなく規則ファイルへの管理ブロック(rulesTargets)
 function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } = {}) {
   const entries = [];
@@ -508,6 +510,15 @@ function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } =
             add({ agent, module: m, src: path.join(native, rel), dst: path.join(ctx.codexDir, rel), unit: ctx.codexDir });
           }
         }
+        // hook の定義はツールごとに書くが、定義が呼ぶ実行ファイルはツールをまたいで同じ物を使える。
+        // Codex 向けの定義を持つ module に限り、hooks/ の実行ファイルを .codex/dotagents/<module>/ へ届ける。
+        const hooks = path.join(root, 'hooks');
+        if (lstatOrNull(path.join(native, 'hooks.json'))?.isFile() && lstatOrNull(hooks)?.isDirectory()) {
+          const unit = path.join(ctx.codexDir, PLUGIN, m);
+          for (const rel of walk(hooks).filter((rel) => rel !== 'hooks.json')) {
+            add({ agent, module: m, src: path.join(hooks, rel), dst: path.join(unit, rel), unit });
+          }
+        }
       }
     }
     if (agent === 'claude' && (entries.length > before || (keepPlugin && names.length))) {
@@ -535,7 +546,7 @@ function codexAgent(file, nativeRoot) {
   const description = scalar('description');
   if (!/^[a-zA-Z0-9_-]+$/.test(name) || !description) throw new Error(`invalid agent name or description: ${file}`);
   const tools = scalar('tools').split(',').map((t) => t.trim());
-  const readOnly = tools.length > 0 && tools.every((t) => ['Read', 'Glob', 'Grep', 'Bash', 'WebFetch', 'WebSearch'].includes(t));
+  const readOnly = tools.length > 0 && tools.every((t) => ['Read', 'Glob', 'Grep', 'Bash', 'WebFetch', 'WebSearch', 'Skill'].includes(t));
   const fields = { name, description, ...(readOnly ? { sandbox_mode: 'read-only' } : {}), developer_instructions: match[2].trim() };
   return { name, content: Object.entries(fields).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join('\n') + '\n' };
 }
