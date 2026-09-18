@@ -1,6 +1,6 @@
 {
   "name": "@hiroiku/dotagents",
-  "version": "5.6.0",
+  "version": "5.7.0",
   "description": "AI エージェント規則のパッケージマネージャ。module を ~/.dotagents/modules に置き、Claude Code と Codex へ選んで配る",
   "license": "MIT",
   "repository": {
