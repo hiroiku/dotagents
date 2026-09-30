@@ -12,14 +12,22 @@ import path from 'node:path';
 const REPO = path.resolve(new URL('..', import.meta.url).pathname);
 const CLI = path.join(REPO, 'bin', 'agents-setup');
 const GATE = path.join(REPO, 'modules', 'gate', 'hooks', 'verify-gate.mjs');
-const { before, after, describe, findWait, createStore, FINAL, HEAVY_SECONDS } = await import(GATE);
+const { before, after, describe, findWait, createStore, FINAL, REPEAT, HEAVY_SECONDS } = await import(GATE);
 
 delete process.env.DOTAGENTS_HOME;
 
 // 記録を持つだけの store。実測の値を直接与えて、判定だけを確かめる。
-function memoryStore(seconds = {}) {
+function memoryStore(seconds = {}, { state = null, last = {} } = {}) {
   const started = [];
-  return { scope: () => '.', seconds: (key) => seconds[key] ?? null, start: (id, key) => started.push({ id, key }), finish() {}, started };
+  return {
+    scope: () => '.',
+    seconds: (key) => seconds[key] ?? null,
+    state: () => state,
+    lastState: (key) => last[key] ?? null,
+    start: (id, key, now, at) => started.push({ id, key, state: at }),
+    finish() {},
+    started,
+  };
 }
 const pre = (command, { store = memoryStore(), ...rest } = {}) =>
   before({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 't1', transcript_path: '/t.jsonl', cwd: '/', tool_input: { command }, ...rest }, store);
@@ -78,6 +86,49 @@ test('初めての検査、軽かった検査、仕上げの宣言、絞った�
   assert.equal(pre('make check', { store: memoryStore({ 'make check': HEAVY_SECONDS - 1 }) }), null);
   assert.equal(pre(`${FINAL} make check`, { store: memoryStore({ 'make check': 300 }) }), null);
   assert.equal(pre('pytest tests/test_user.py', { store: memoryStore({ 'pytest tests/test_user.py': 300 }) }), null);
+});
+
+test('前回から作業ツリーが変わっていない重い検査は、仕上げの宣言があっても止める', () => {
+  const heavy = { 'make check': HEAVY_SECONDS + 10 };
+  const same = memoryStore(heavy, { state: 'abc', last: { 'make check': 'abc' } });
+  const denied = pre(`${FINAL} make check`, { store: same });
+  assert.match(denied.reason, /前回の結果/);
+  assert.ok(denied.reason.includes(REPEAT), '同じ状態でも結果が変わりうるときの手を添える');
+  assert.equal(pre(`${REPEAT} ${FINAL} make check`, { store: same }), null, '宣言を付けた再実行は通す');
+  assert.equal(pre(`${FINAL} make check`, { store: memoryStore(heavy, { state: 'def', last: { 'make check': 'abc' } }) }), null,
+    '変更があれば通す');
+  assert.equal(pre(`${FINAL} make check`, { store: memoryStore(heavy, { state: null, last: { 'make check': 'abc' } }) }), null,
+    '状態を読めない場所では判定しない');
+  const light = memoryStore({ 'make check': HEAVY_SECONDS - 1 }, { state: 'abc', last: { 'make check': 'abc' } });
+  assert.equal(pre('make check', { store: light }), null, '軽い検査は繰り返しても止めない');
+  assert.deepEqual(light.started.map((s) => s.state), [null], '軽い検査では状態を読まない');
+});
+
+test('作業ツリーの状態は、変更したファイルの中身が違えば違う値になる', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
+  const repo = tempRepo();
+  const store = createStore({ cwd: repo }, { DOTAGENTS_HOME: home });
+  const first = store.state(null);
+  assert.ok(first, 'git のある場所では状態を読める');
+  assert.equal(store.state(null), first, '何もしなければ同じ値');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one');
+  const added = store.state(null);
+  assert.notEqual(added, first, '追跡していないファイルが増えれば変わる');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'two longer');
+  assert.notEqual(store.state(null), added, '中身が変われば変わる');
+  assert.equal(createStore({ cwd: os.tmpdir() }, { DOTAGENTS_HOME: home }).state(null), null, 'git の無い場所では読めない');
+});
+
+test('作業ツリーの状態は、検査ごとに、実行した時点のものを覚える', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
+  const store = createStore({ cwd: tempRepo() }, { DOTAGENTS_HOME: home });
+  assert.equal(store.lastState('make check'), null, '実行していない検査の状態は無い');
+  store.start('a', 'make check', 0, 'abc');
+  store.finish('a', 90_000);
+  assert.equal(store.lastState('make check'), 'abc');
+  store.start('b', 'make check', 0, null);
+  store.finish('b', 90_000);
+  assert.equal(store.lastState('make check'), null, '状態を読めなかった実行は、覚えている状態を捨てる');
 });
 
 test('フォアグラウンドで通した検査だけ、終わりの時間を測れるよう開始を記録する', () => {

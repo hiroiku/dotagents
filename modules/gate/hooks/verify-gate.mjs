@@ -5,9 +5,13 @@
 // 語で、重いかどうかは同じリポジトリーの同じ場所で直近にかかった実測の時間で見分ける。初めて見る検査は
 // 通して時間を記録し、記録がそろってから判定に使う。
 //
+// 重い検査は、前回の実行からの作業ツリーの状態も見る。HEAD もコミットしていない変更も前回と同じなら、
+// 結果は前回と変わらないので止める。同じ状態でも結果が変わりうる検査だけ、宣言を付けて通す。
+//
 // Claude Code と Codex は同じ入出力(stdin の JSON と hookSpecificOutput)を使うので、1 つで両方に効く。
 // 判定できない入力や記録の失敗は必ず通す — ゲートの誤りで作業そのものを止めないため。
 
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,6 +20,9 @@ import { pathToFileURL } from 'node:url';
 
 // 変更が仕上がってから実行する検査であることの宣言。付ける瞬間に、作業が本当に仕上がったかを判断させる。
 export const FINAL = 'DOTAGENTS_VERIFY=final';
+
+// 前回と同じ状態でも結果が変わりうる検査であることの宣言。ネットワークに依存する検査や、不安定なテストの確認に使う。
+export const REPEAT = 'DOTAGENTS_REPEAT=1';
 
 // 直近の実行の中央値がこれ以上の検査を、作業中へ回したときに止める。記録が 2 回そろうまで判定せず、
 // 中央値を使うのは、キャッシュの切れた 1 回や権限の確認を待った 1 回で、普段は軽い検査まで止めないため。
@@ -27,6 +34,8 @@ const LONG_SLEEP_SECONDS = 30;
 const POLL_INTERVAL_SECONDS = 3;
 // 実行が終わらなかった呼び出しの記録を、この時間が過ぎたら片付ける。
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+// 作業ツリーの状態を読むのに待つ上限。超えたら状態を見ずに通す。
+const STATE_TIMEOUT_MS = 5000;
 
 // 検査を表す語。テスト、静的検査、型チェックの名前は、どのエコシステムでもこれらの語を含む。
 // latest と inspect は、語を含んでいても検査ではない。
@@ -298,6 +307,30 @@ function locate(cwd) {
   }
 }
 
+// 作業ツリーの状態を 1 つの値にまとめる。HEAD と、コミットしていない変更(追跡していないファイルを含む)の
+// 名前・大きさ・更新時刻から作る。git が答えないときは null を返し、同じ状態かどうかを判定しない。
+function fingerprint(top) {
+  const git = (args) => {
+    const r = spawnSync('git', ['-C', top, ...args], { encoding: 'utf8', timeout: STATE_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
+    return r.status === 0 ? r.stdout : null;
+  };
+  const head = git(['rev-parse', 'HEAD']);
+  const status = git(['status', '--porcelain=v1', '-z', '-uall', '--no-renames']);
+  if (head === null || status === null) return null;
+  const hash = crypto.createHash('sha256').update(head).update(status);
+  for (const entry of status.split('\0')) {
+    const rel = entry.slice(3);
+    if (!rel) continue;
+    try {
+      const st = fs.statSync(path.join(top, rel));
+      hash.update(`\0${st.size}\0${st.mtimeMs}`);
+    } catch {
+      hash.update('\0-');
+    }
+  }
+  return hash.digest('hex').slice(0, 32);
+}
+
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
 }
@@ -322,11 +355,16 @@ export function createStore(input, env = process.env) {
   const home = env.DOTAGENTS_HOME ? path.resolve(env.DOTAGENTS_HOME) : path.join(os.homedir(), '.dotagents');
   const dir = path.join(home, 'cache', 'gate', crypto.createHash('sha256').update(root).digest('hex').slice(0, 16));
   const durations = path.join(dir, 'durations.json');
+  // 検査が走る場所と、その作業ツリーの最上位。
+  const at = (cd) => {
+    const where = cd ? path.resolve(cwd, cd.replace(/^~(?=$|\/)/, os.homedir())) : cwd;
+    return { where, top: cd ? locate(where).top : top };
+  };
   return {
     // 同じコマンドでも、実行する場所(作業ツリーの最上位からの相対)が違えば別の検査として測る。
     scope(cd) {
-      const where = cd ? path.resolve(cwd, cd.replace(/^~(?=$|\/)/, os.homedir())) : cwd;
-      const rel = path.relative(cd ? locate(where).top : top, where);
+      const { where, top: base } = at(cd);
+      const rel = path.relative(base, where);
       return rel.startsWith('..') || path.isAbsolute(rel) ? where : rel || '.';
     },
     // 直近の実行の中央値。記録がそろうまでは判定しない。
@@ -334,7 +372,10 @@ export function createStore(input, env = process.env) {
       const runs = readJson(durations, {})[key]?.runs ?? [];
       return runs.length >= RUNS_NEEDED ? median(runs) : null;
     },
-    start(id, key, now) { writeJson(pendingFile(dir, id), { key, at: now }); },
+    // いまの作業ツリーの状態と、この検査を最後に実行したときの状態。
+    state(cd) { return fingerprint(at(cd).top); },
+    lastState(key) { return readJson(durations, {})[key]?.state ?? null; },
+    start(id, key, now, state = null) { writeJson(pendingFile(dir, id), { key, at: now, state }); },
     finish(id, now) {
       const file = pendingFile(dir, id);
       const pending = readJson(file, null);
@@ -342,7 +383,7 @@ export function createStore(input, env = process.env) {
       fs.rmSync(file, { force: true });
       const all = readJson(durations, {});
       const runs = [...(all[pending.key]?.runs ?? []), Math.round((now - pending.at) / 1000)].slice(-RUNS_KEPT);
-      all[pending.key] = { runs, at: now };
+      all[pending.key] = { runs, at: now, state: pending.state ?? null };
       writeJson(durations, all);
       for (const f of fs.readdirSync(path.dirname(file))) {
         const p = path.join(path.dirname(file), f);
@@ -358,6 +399,12 @@ function heavyMessage(command, seconds) {
   return `直近の実行で ${seconds} 秒ほどかかっている検査を、対象を絞らずに実行しようとしています(\`${command.trim()}\`)。` +
     '作業中は、変更したファイルに関係する範囲に絞って実行してください。絞り方はプロジェクトの指示か testing スキルにあります。' +
     `変更が仕上がってから実行する検査(仕上げの検査、レビューで全体の結果を確かめる検査)なら、コマンドの先頭に \`${FINAL}\` を付けて実行し直してください。`;
+}
+
+function repeatMessage(command) {
+  return `前回の実行から作業ツリーが変わっていない検査を、もう一度実行しようとしています(\`${command.trim()}\`)。` +
+    'HEAD もコミットしていない変更も前回と同じなので、結果は前回と変わりません。前回の結果をそのまま使ってください。' +
+    `ネットワークに依存する検査や、不安定なテストの確認のように、同じ状態でも結果が変わりうる場合だけ、コマンドの先頭に \`${REPEAT}\` を付けて実行し直してください。`;
 }
 
 function waitMessage(kind, main) {
@@ -394,11 +441,17 @@ export function before(input, store, now = Date.now()) {
   const scope = store.scope(check.cd);
   const key = scope === '.' ? check.key : `${scope}: ${check.key}`;
   const seconds = store.seconds(key);
-  if (!command.includes(FINAL) && !check.targeted && seconds !== null && seconds >= HEAVY_SECONDS) {
-    return { reason: heavyMessage(command, seconds) };
+  // 状態を読むのは重い検査のときだけにする。軽い検査のたびに git を呼ぶと、その分だけ全体が遅くなる。
+  let state = null;
+  if (seconds !== null && seconds >= HEAVY_SECONDS) {
+    state = store.state(check.cd);
+    if (state !== null && !command.includes(REPEAT) && store.lastState(key) === state) {
+      return { reason: repeatMessage(command) };
+    }
+    if (!command.includes(FINAL) && !check.targeted) return { reason: heavyMessage(command, seconds) };
   }
   // background の呼び出しは起動した時点で終わるので、所要時間を測れない。
-  if (!background && input.tool_use_id) store.start(input.tool_use_id, key, now);
+  if (!background && input.tool_use_id) store.start(input.tool_use_id, key, now, state);
   return null;
 }
 
