@@ -22,8 +22,8 @@ function memoryStore(seconds = {}, { state = null, last = {} } = {}) {
   return {
     scope: () => '.',
     seconds: (key) => seconds[key] ?? null,
-    state: () => state,
-    lastState: (key) => last[key] ?? null,
+    state: () => (state === null ? null : { tree: '/repo', value: state }),
+    unchanged: (key, s) => last[key] === s.value,
     start: (id, key, now, at) => started.push({ id, key, state: at }),
     finish() {},
     started,
@@ -62,6 +62,9 @@ test('同じ検査は、場所の移動や出力の整形が違っても同じ�
   assert.equal(describe('cd /repo/.worktrees/issue-1 && cargo test 2>&1 | tail -30').key, key);
   assert.equal(describe(`${FINAL} cargo test`).key, key);
   assert.equal(describe("bash -lc 'cargo test'").key, key);
+  assert.equal(describe('git log --oneline -1 && cargo test').key, key, '検査でない部分を前に付けても同じ検査');
+  assert.equal(describe('python3 - && node --version && cargo test').key, key);
+  assert.equal(describe('cargo clippy && cargo test').key, 'cargo clippy && cargo test', '検査を 2 つ並べたものは別の検査');
   assert.equal(describe('cd crates/api && cargo test').cd, 'crates/api', '移動先は場所として別に返す');
   assert.equal(describe('cargo test > out.log 2>&1 &'), null, 'background で切り離した検査は待たないので読まない');
 });
@@ -108,27 +111,44 @@ test('作業ツリーの状態は、変更したファイルの中身が違え�
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
   const repo = tempRepo();
   const store = createStore({ cwd: repo }, { DOTAGENTS_HOME: home });
-  const first = store.state(null);
+  const first = store.state(null)?.value;
   assert.ok(first, 'git のある場所では状態を読める');
-  assert.equal(store.state(null), first, '何もしなければ同じ値');
+  assert.equal(store.state(null).tree, repo, 'どの worktree の状態かを持つ');
+  assert.equal(store.state(null).value, first, '何もしなければ同じ値');
   fs.writeFileSync(path.join(repo, 'a.txt'), 'one');
-  const added = store.state(null);
+  const added = store.state(null).value;
   assert.notEqual(added, first, '追跡していないファイルが増えれば変わる');
   fs.writeFileSync(path.join(repo, 'a.txt'), 'two longer');
-  assert.notEqual(store.state(null), added, '中身が変われば変わる');
+  assert.notEqual(store.state(null).value, added, '中身が変われば変わる');
   assert.equal(createStore({ cwd: os.tmpdir() }, { DOTAGENTS_HOME: home }).state(null), null, 'git の無い場所では読めない');
 });
 
-test('作業ツリーの状態は、検査ごとに、実行した時点のものを覚える', () => {
+test('作業ツリーの状態は、検査と worktree ごとに、実行した時点のものを覚える', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
-  const store = createStore({ cwd: tempRepo() }, { DOTAGENTS_HOME: home });
-  assert.equal(store.lastState('make check'), null, '実行していない検査の状態は無い');
-  store.start('a', 'make check', 0, 'abc');
-  store.finish('a', 90_000);
-  assert.equal(store.lastState('make check'), 'abc');
-  store.start('b', 'make check', 0, null);
-  store.finish('b', 90_000);
-  assert.equal(store.lastState('make check'), null, '状態を読めなかった実行は、覚えている状態を捨てる');
+  const env = { DOTAGENTS_HOME: home };
+  const repo = tempRepo();
+  const tree = path.join(repo, '.worktrees', 'issue-3');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'issue-3', tree], { cwd: repo });
+  const main = createStore({ cwd: repo }, env);
+  const other = createStore({ cwd: tree }, env);
+  const here = main.state(null);
+  assert.equal(main.unchanged('make check', here), false, '実行していない検査は、同じ状態とみなさない');
+  main.start('a', 'make check', 0, here);
+  main.finish('a', 90_000);
+  assert.equal(main.unchanged('make check', main.state(null)), true);
+  other.start('b', 'make check', 0, other.state(null));
+  other.finish('b', 90_000);
+  assert.equal(main.unchanged('make check', main.state(null)), true, '別の worktree の実行で上書きしない');
+  assert.equal(other.unchanged('make check', other.state(null)), true);
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'edit');
+  assert.equal(main.unchanged('make check', main.state(null)), false, '変更があれば同じ状態ではない');
+  assert.equal(other.unchanged('make check', other.state(null)), true, '別の worktree の変更には左右されない');
+
+  execFileSync('git', ['worktree', 'remove', '--force', tree], { cwd: repo });
+  main.start('c', 'make check', 0, main.state(null));
+  main.finish('c', 90_000);
+  const kept = JSON.parse(fs.readFileSync(path.join(home, 'cache', 'gate', fs.readdirSync(path.join(home, 'cache', 'gate'))[0], 'durations.json'), 'utf8'));
+  assert.deepEqual(Object.keys(kept['make check'].states), [repo], '消えた worktree の状態は持ち越さない');
 });
 
 test('フォアグラウンドで通した検査だけ、終わりの時間を測れるよう開始を記録する', () => {

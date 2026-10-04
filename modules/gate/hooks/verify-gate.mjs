@@ -227,11 +227,11 @@ export function describe(command) {
     if (checkIndex(t) >= 0) break;
     if (['cd', 'pushd'].includes(t[0]) && t[1] && !/[$`]/.test(t[1]) && t[1] !== '-') cd = cd && !path.isAbsolute(t[1]) && !t[1].startsWith('~') ? path.join(cd, t[1]) : t[1];
   }
-  const parts = all.filter((t) => t.length && !NOISE.has(t[0]));
-  const checks = parts.filter((t) => checkIndex(t) >= 0);
+  const checks = all.filter((t) => t.length && !NOISE.has(t[0]) && checkIndex(t) >= 0);
   if (!checks.length) return null;
   return {
-    key: parts.map((t) => t.join(' ')).join(' && '),
+    // 検査でない部分(git log、python3 - など)を前に付けても、同じ検査として測る。
+    key: checks.map((t) => t.join(' ')).join(' && '),
     targeted: checks.every(narrows),
     cd,
   };
@@ -372,9 +372,14 @@ export function createStore(input, env = process.env) {
       const runs = readJson(durations, {})[key]?.runs ?? [];
       return runs.length >= RUNS_NEEDED ? median(runs) : null;
     },
-    // いまの作業ツリーの状態と、この検査を最後に実行したときの状態。
-    state(cd) { return fingerprint(at(cd).top); },
-    lastState(key) { return readJson(durations, {})[key]?.state ?? null; },
+    // いまの作業ツリーの状態。worktree ごとに別の値として扱う。
+    state(cd) {
+      const tree = at(cd).top;
+      const value = fingerprint(tree);
+      return value === null ? null : { tree, value };
+    },
+    // この検査を、同じ worktree で最後に実行したときと同じ状態か。並行する別の worktree の実行には左右されない。
+    unchanged(key, state) { return readJson(durations, {})[key]?.states?.[state.tree] === state.value; },
     start(id, key, now, state = null) { writeJson(pendingFile(dir, id), { key, at: now, state }); },
     finish(id, now) {
       const file = pendingFile(dir, id);
@@ -383,7 +388,10 @@ export function createStore(input, env = process.env) {
       fs.rmSync(file, { force: true });
       const all = readJson(durations, {});
       const runs = [...(all[pending.key]?.runs ?? []), Math.round((now - pending.at) / 1000)].slice(-RUNS_KEPT);
-      all[pending.key] = { runs, at: now, state: pending.state ?? null };
+      // 消えた worktree の状態は持ち越さない。
+      const states = Object.fromEntries(Object.entries(all[pending.key]?.states ?? {}).filter(([tree]) => fs.existsSync(tree)));
+      if (pending.state) states[pending.state.tree] = pending.state.value;
+      all[pending.key] = { runs, at: now, states };
       writeJson(durations, all);
       for (const f of fs.readdirSync(path.dirname(file))) {
         const p = path.join(path.dirname(file), f);
@@ -445,7 +453,7 @@ export function before(input, store, now = Date.now()) {
   let state = null;
   if (seconds !== null && seconds >= HEAVY_SECONDS) {
     state = store.state(check.cd);
-    if (state !== null && !command.includes(REPEAT) && store.lastState(key) === state) {
+    if (state && !command.includes(REPEAT) && store.unchanged(key, state)) {
       return { reason: repeatMessage(command) };
     }
     if (!command.includes(FINAL) && !check.targeted) return { reason: heavyMessage(command, seconds) };
