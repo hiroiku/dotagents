@@ -48,8 +48,15 @@ modules/<name>/
 
 | Art | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **ein einziges Plugin-Verzeichnis**, geladen ohne Marketplace und ohne Installationsschritt, das seinen Inhalt in den Namensraum `/dotagents:*` stellt. So kommen Hooks an, ohne dass je `settings.json` angerührt wird | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; [Codex setup](../README.md#what-a-module-is) |
-| `AGENTS.md` | ein verwalteter Block in `.claude/CLAUDE.md` | ein verwalteter Block in `AGENTS.md` |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **ein einziges Plugin-Verzeichnis**, geladen ohne Marketplace und ohne Installationsschritt, das seinen Inhalt in den Namensraum `/dotagents:*` stellt. So kommen Hooks an, ohne dass je `settings.json` angerührt wird | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; das native `codex/hooks.json` jedes Moduls wird in `.codex/hooks.json` zusammengeführt; [Codex setup](../README.md#what-a-module-is) |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`, beim Sitzungsstart von einem `SessionStart`-Hook in `.codex/hooks.json` eingelesen |
+
+### Zwei Regeln bestimmen, wohin alles kommt
+
+1. **Die eigenen Anweisungen des Projekts liegen in der `AGENTS.md` in der Projektwurzel.** Sie gehören dem Projekt, gleich welcher Agent sie liest, und dotagents schreibt nie dorthin. Claude Code, Codex, Cursor und OpenCode lesen alle diese Datei — Claude Code nur, wenn das Projekt keine `CLAUDE.md` hat, worauf `status` hinweist.
+2. **Alles, was dotagents ausliefert, liegt im eigenen Verzeichnis eines Agenten** — `.claude/`, `.agents/`, `.codex/`. Nichts wird in die Wurzel gelegt, und keine deiner Dateien wird bearbeitet.
+
+Darum kommt die `AGENTS.md` eines Moduls als eigene Datei an. Claude Code lädt `.claude/rules/` beim Start neben deinen Anweisungen. Codex liest pro Verzeichnis nur eine Anweisungsdatei, daher werden seine Regeln stattdessen von einem `SessionStart`-Hook übergeben — beim Start, nach `/clear` und erneut nach einer Kompaktierung. Mit `-g` gehen dieselben Dateien nach `~/.claude/rules/dotagents/` und `~/.codex/dotagents/`, und deine `~/.claude/CLAUDE.md` und `~/.codex/AGENTS.md` bleiben deine. Andere Agenten, die die `AGENTS.md` des Projekts lesen, sehen die Anweisungen des Projekts, aber nicht die ausgelieferten Regeln.
 
 Ein Modul darf deklarieren, was es auf `PATH` erwartet. Voraussetzungen werden **erkannt, nie installiert**: `list` und `install` melden, was fehlt, und blockieren nichts — das Werkzeug später hinzuzufügen, erfordert also keine Neuinstallation.
 
@@ -97,7 +104,7 @@ dotagents --help               # jeder Befehl, jede Option, jedes Beispiel
 
 In einem Terminal bietet `uninstall` ohne Namen die hier installierten Module zur Auswahl an. Ist die Auswahl sowohl in Claude Code als auch in Codex installiert, fragt eine zweite Auswahl, woraus sie entfernt wird. In einer nicht interaktiven Shell entfernt `uninstall` ohne Namen alles.
 
-**Nur `uninstall` entfernt Regeln aus einer Bereitstellung.** Ein Modul aus `~/.dotagents/modules/` zu löschen ist ein kleiner, alltäglicher Schritt; jedes Projekt umzuschreiben, in das du es installiert hast, ist es nicht. Verliert ein ausgeliefertes Modul also seine Quelle, behält `update` die Dateien, behält den Eintrag, behält seine Zeilen in `CLAUDE.md` — und sagt, was es behalten hat und wie es zu entfernen ist. `status` meldet diesen Zustand als Abweichung, denn ohne Quelle gibt es nichts, woran sich die Dateien prüfen ließen.
+**Nur `uninstall` entfernt Regeln aus einer Bereitstellung.** Ein Modul aus `~/.dotagents/modules/` zu löschen ist ein kleiner, alltäglicher Schritt; jedes Projekt umzuschreiben, in das du es installiert hast, ist es nicht. Verliert ein ausgeliefertes Modul also seine Quelle, behält `update` die Dateien — seine Regeln eingeschlossen —, behält den Eintrag und sagt, was es behalten hat und wie es zu entfernen ist. `status` meldet diesen Zustand als Abweichung, denn ohne Quelle gibt es nichts, woran sich die Dateien prüfen ließen.
 
 **Nichts bewegt sich von selbst.** Ausgeliefert werden die Texte, die deine Agenten regieren, also geschieht die Auslieferung nie automatisch und nie stillschweigend: Jeder Befehl zeigt, was er platziert, behalten und entfernt hat.
 
@@ -121,6 +128,8 @@ Ein Weg, nicht zwei. Zwei hieße, dass einer von beiden veraltet — und **der C
 ## Was der Installer anrührt — und was nicht
 
 Alles ist idempotent und **Hash-besessen**: Der Installer rührt nur an, was er selbst platziert hat und noch erkennt. Deine eigenen Skills werden nie berührt, Dateien, die du an Ort und Stelle bearbeitet hast, werden behalten und gemeldet (`--force` zum Überschreiben), und `uninstall` entfernt genau das, was die Aufzeichnung als platziert verzeichnet — nichts sonst. Diese Aufzeichnung lebt in `~/.dotagents/state/`, nie in einem Projekt.
+
+Versionen vor 6.0 schrieben die Regeln als markierten Block in eine Regeldatei wie `CLAUDE.md` oder `AGENTS.md`. `update` entfernt diesen Block und lässt den Rest der Datei, wie er war — sobald jeder Agent, der den Block gelesen hat, seine Regeln am neuen Ort hat.
 
 Plugins im Projekt-Geltungsbereich werden nur geladen, wenn Claude Code in der Repository-Wurzel startet, und erst, nachdem du den Workspace-Trust-Dialog bestätigt hast. Änderungen an Agents und Hooks wirken ab der nächsten Sitzung oder nach `/reload-plugins`; Bearbeitungen an einer `SKILL.md` werden sofort übernommen.
 

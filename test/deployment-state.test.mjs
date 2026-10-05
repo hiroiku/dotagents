@@ -47,6 +47,9 @@ function fixture(t) {
   return { dir, home, project, pkg, cli, env, run, source, target, status, install };
 }
 
+const rulesFile = (f, name) => path.join(f.project, '.claude/rules/dotagents', `${name}.md`);
+const codexRulesFile = (f, name, base = f.project) => path.join(base, '.codex/dotagents', name, 'AGENTS.md');
+
 function stateLine(output, name) {
   const line = output.split('\n').find((line) => new RegExp(`^\\s*[○●↑~!] ${name}\\s`).test(line));
   assert.ok(line, `No module summary for ${name}:\n${output}`);
@@ -103,30 +106,33 @@ test('new deliveries are updates; deleted recorded files are missing; symlinks a
   assert.match(result.out, /a symlink is in the way/);
 });
 
-test('shared rules report edits without attributing them to an unrelated file module', (t) => {
+test('rules are files of their own module, and the project instructions are not drift', (t) => {
   const f = fixture(t);
   f.install('alpha', 'gamma', 'delta');
-  const rules = path.join(f.project, 'AGENTS.md');
-  fs.appendFileSync(rules, '\n# outside the managed block\n');
-  assert.equal(f.status().code, 0, 'unmanaged rules are not drift');
-  fs.writeFileSync(rules, fs.readFileSync(rules, 'utf8').replace('# gamma v1', '# local rules edit'));
+  const project = path.join(f.project, 'AGENTS.md');
+  fs.appendFileSync(project, '\n# edited by the project\n');
+  assert.equal(f.status().code, 0, 'the project instructions belong to the project');
+  fs.appendFileSync(rulesFile(f, 'gamma'), '# local rules edit\n');
   fs.appendFileSync(f.source('gamma', 'AGENTS.md'), '# upstream rules change\n');
   const result = f.status();
   assert.match(stateLine(result.out, 'alpha'), /installed$/);
-  assert.match(stateLine(result.out, 'gamma'), /shared rules changed \+ update available/);
-  assert.match(stateLine(result.out, 'delta'), /shared rules changed$/);
-  assert.match(result.out, /shared rules differ \(modified in place\)/);
-  fs.unlinkSync(rules);
+  assert.match(stateLine(result.out, 'gamma'), /modified locally \+ update available/);
+  assert.match(stateLine(result.out, 'delta'), /installed$/);
+  assert.match(result.out, /rules\/dotagents\/gamma.md — source changed, run update; modified in place/);
+  fs.unlinkSync(rulesFile(f, 'gamma'));
   assert.match(stateLine(f.status().out, 'gamma'), /missing files/);
 });
 
-test('removing source rules stays visible until update removes their managed block', (t) => {
+test('removing source rules stays visible until update removes the delivered rules file', (t) => {
   const f = fixture(t);
   f.install('gamma');
   fs.unlinkSync(f.source('gamma', 'AGENTS.md'));
   const result = f.status();
   assert.equal(result.code, 1);
   assert.match(stateLine(result.out, 'gamma'), /update available/);
+  f.run('update', '-C', f.project);
+  assert.equal(fs.existsSync(rulesFile(f, 'gamma')), false);
+  assert.match(f.status().out, /no drift/);
 });
 
 // Exercise the real CLI key handling and output over pipes, with only TTY capabilities
@@ -209,7 +215,7 @@ test('picker and status agree on update, edit, and missing indicators', { timeou
   f.install('alpha', 'beta', 'gamma');
   fs.appendFileSync(f.source('alpha'), '# source change\n');
   fs.appendFileSync(f.target('beta'), '# local change\n');
-  fs.unlinkSync(path.join(f.project, 'AGENTS.md'));
+  fs.unlinkSync(rulesFile(f, 'gamma'));
   const p = picker(t, f);
   const frame = await p.frame();
   assert.match(frame.text, /\[ \] ↑ alpha\s+update available/);
@@ -269,7 +275,12 @@ test('Codex-only creates native skills, agents and project rules in a fresh proj
     const [key, value] = line.split(' = '); return [key, JSON.parse(value)];
   }));
   assert.deepEqual(fields, { name: 'dotagents-review', description: 'Review code and tests', sandbox_mode: 'read-only', developer_instructions: 'Read files, then report findings.' });
-  assert.match(read(path.join(f.project, 'AGENTS.md')), /# gamma v1/);
+  assert.equal(read(codexRulesFile(f, 'gamma')), '# gamma v1\n');
+  const session = JSON.parse(read(path.join(f.project, '.codex/hooks.json'))).hooks.SessionStart;
+  assert.equal(session.length, 1);
+  assert.equal(session[0].matcher, '^(startup|clear|compact)$');
+  assert.match(session[0].hooks[0].command, /git rev-parse --show-toplevel/);
+  assert.equal(fs.existsSync(path.join(f.project, 'AGENTS.md')), false, 'the project instructions are not created');
   assert.deepEqual(record(f).agentModules, { codex: ['alpha', 'gamma'] });
   assert.match(command(f, 'status', '--agent', 'codex'), /no drift/);
 });
@@ -277,7 +288,8 @@ test('Codex-only creates native skills, agents and project rules in a fresh proj
 test('each tool remembers its own modules across install, update and uninstall', (t) => {
   const f = fixture(t);
   command(f, 'install', 'alpha', 'gamma', '--agent', 'claude');
-  assert.equal(read(path.join(f.project, 'AGENTS.md')), '# project rules\n');
+  assert.equal(read(rulesFile(f, 'gamma')), '# gamma v1\n');
+  assert.equal(fs.existsSync(path.join(f.project, '.codex')), false);
   fs.appendFileSync(f.source('alpha'), '# upstream alpha\n');
   command(f, 'install', 'beta', 'delta', '--agent', 'codex');
   assert.doesNotMatch(read(f.target('alpha')), /upstream/);
@@ -290,15 +302,18 @@ test('each tool remembers its own modules across install, update and uninstall',
   assert.doesNotMatch(read(f.target('alpha')), /upstream/);
   command(f, 'update');
   assert.match(read(f.target('alpha')), /upstream/);
-  const codexRules = read(path.join(f.project, 'AGENTS.md'));
+  assert.equal(fs.existsSync(codexRulesFile(f, 'gamma')), false);
+  assert.equal(read(codexRulesFile(f, 'delta')), '# delta v1\n');
   command(f, 'uninstall', '--agent', 'claude');
   assert.equal(fs.existsSync(f.target('alpha')), false);
+  assert.equal(fs.existsSync(rulesFile(f, 'gamma')), false);
   assert.match(read(codexTarget(f, 'beta')), /beta v1/);
-  assert.equal(read(path.join(f.project, 'AGENTS.md')), codexRules);
+  assert.equal(read(codexRulesFile(f, 'delta')), '# delta v1\n');
   assert.deepEqual(record(f).agentModules, { codex: ['beta', 'delta'] });
   command(f, 'uninstall');
-  assert.equal(read(path.join(f.project, 'AGENTS.md')), '# project rules\n');
   assert.equal(fs.existsSync(codexTarget(f, 'beta')), false);
+  assert.equal(fs.existsSync(path.join(f.project, '.codex/hooks.json')), false);
+  assert.equal(read(path.join(f.project, 'AGENTS.md')), '# project rules\n', 'the project instructions were never touched');
 });
 
 test('same module can be independently removed from one tool', (t) => {
@@ -326,7 +341,7 @@ test('default updates keep recorded targets even when another tool directory app
   assert.equal(read(manifestFile(f)), before);
 });
 
-test('shared canonical rules retain both module sets and do not roll back a shared update', (t) => {
+test('each tool updates its own rules files, and the project links stay as they are', (t) => {
   const f = fixture(t);
   const canonical = path.join(f.project, '.agents/AGENTS.md');
   put(canonical, '# personal rules\n');
@@ -338,17 +353,15 @@ test('shared canonical rules retain both module sets and do not roll back a shar
   command(f, 'install', 'gamma', 'delta', '--agent', 'codex');
   fs.appendFileSync(f.source('gamma', 'AGENTS.md'), '# gamma v2\n');
   command(f, 'update', '--agent', 'claude');
-  assert.match(read(canonical), /gamma v2/);
-  assert.match(read(canonical), /delta v1/);
-  assert.match(command(f, 'status', '--agent', 'codex'), /no drift/);
-  command(f, 'uninstall', '--agent', 'claude');
-  assert.match(read(canonical), /gamma v2/);
-  command(f, 'uninstall', 'gamma', '--agent', 'codex');
-  assert.doesNotMatch(read(canonical), /gamma/);
-  assert.match(read(canonical), /delta v1/);
-  command(f, 'uninstall', '--agent', 'codex');
+  assert.match(read(rulesFile(f, 'gamma')), /gamma v2/);
+  assert.doesNotMatch(read(codexRulesFile(f, 'gamma')), /gamma v2/);
+  assert.match(stateLine(f.run('status', '-C', f.project, '--agent', 'codex').out, 'gamma'), /update available$/);
+  command(f, 'update', '--agent', 'codex');
+  assert.match(read(codexRulesFile(f, 'gamma')), /gamma v2/);
+  command(f, 'uninstall');
   assert.equal(read(canonical), '# personal rules\n');
   assert.equal(fs.readlinkSync(path.join(f.project, 'AGENTS.md')), '.agents/AGENTS.md');
+  assert.equal(fs.readlinkSync(path.join(f.project, '.claude/CLAUDE.md')), '../.agents/AGENTS.md');
 });
 
 test('Codex update migrates schema 4 skill paths without touching Claude or edited old skills', (t) => {
@@ -404,6 +417,7 @@ test('native Codex assets stay out of Claude and preserve existing user configur
   assert.equal(fs.existsSync(path.join(f.project, plugin, 'codex')), false);
   const result = f.run('install', 'gamma', '--agent', 'codex', '-C', f.project);
   assert.equal(result.code, 1);
+  assert.match(result.out, /not delivered by dotagents, leaving it/);
   assert.equal(read(path.join(f.project, '.codex/hooks.json')), '{"user":"keep"}\n');
   assert.match(read(path.join(f.project, '.codex/agents/custom.toml')), /name = "custom"/);
 });
@@ -475,11 +489,15 @@ test('global Codex installation creates its directories and leaves global Claude
   const result = f.run('install', 'alpha', 'gamma', '-g', '--agent', 'codex');
   assert.equal(result.code, 0, result.out);
   assert.match(read(path.join(f.home, '.agents/skills/dotagents-alpha/SKILL.md')), /name: dotagents-alpha/);
-  assert.match(read(path.join(f.home, '.codex/AGENTS.md')), /gamma v1/);
+  assert.equal(read(codexRulesFile(f, 'gamma', f.home)), '# gamma v1\n');
+  const command = JSON.parse(read(path.join(f.home, '.codex/hooks.json'))).hooks.SessionStart[0].hooks[0].command;
+  assert.match(command, /d="\$HOME"/, 'global rules are read from the home directory');
+  assert.equal(fs.existsSync(path.join(f.home, '.codex/AGENTS.md')), false, 'the global instructions are left to the user');
   assert.equal(fs.existsSync(path.join(f.home, '.claude')), false);
   assert.equal(f.run('status', '-g', '--agent', 'codex').code, 0);
   assert.equal(f.run('uninstall', '-g', '--agent', 'codex').code, 0);
-  assert.equal(fs.existsSync(path.join(f.home, '.codex/AGENTS.md')), false);
+  assert.equal(fs.existsSync(path.join(f.home, '.codex/dotagents')), false);
+  assert.equal(fs.existsSync(path.join(f.home, '.codex/hooks.json')), false);
 });
 
 test('native role override supports metadata that is not automatically convertible', (t) => {
@@ -537,7 +555,7 @@ test('install touches only the named modules and leaves pending updates to updat
   fs.unlinkSync(path.join(f.pkg, 'modules/alpha/skills/alpha/old.md'));
   fs.appendFileSync(f.source('alpha'), '# upstream alpha\n');
   fs.appendFileSync(f.source('gamma', 'AGENTS.md'), '# upstream gamma\n');
-  const rules = path.join(f.project, 'AGENTS.md');
+  const rules = rulesFile(f, 'gamma');
 
   const result = f.run('install', 'beta', '-C', f.project);
   assert.equal(result.code, 0, result.out);

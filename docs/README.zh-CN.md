@@ -48,8 +48,15 @@ modules/<name>/
 
 | 种类 | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/`——**一个 plugin 目录**,既不需要 marketplace 也不需要任何安装步骤即被加载,并把它所容纳的内容置于 `/dotagents:*` 命名空间之下。hooks 正是借此在完全不触碰 `settings.json` 的情况下送达 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; [Codex setup](../README.md#what-a-module-is) |
-| `AGENTS.md` | `.claude/CLAUDE.md` 中的受管块 | `AGENTS.md` 中的受管块 |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/`——**一个 plugin 目录**,既不需要 marketplace 也不需要任何安装步骤即被加载,并把它所容纳的内容置于 `/dotagents:*` 命名空间之下。hooks 正是借此在完全不触碰 `settings.json` 的情况下送达 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml` + `.codex/hooks.json`(由原生的 `codex/hooks.json` 合并而成); [Codex setup](../README.md#what-a-module-is) |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`,在会话开始时由 `.codex/hooks.json` 中的 `SessionStart` hook 读入 |
+
+### 两条规则决定一切放在哪里
+
+1. **项目自身的指示放在项目根目录的 `AGENTS.md` 中。** 无论由哪个代理来读,它都属于项目,dotagents 从不往那里写。Claude Code、Codex、Cursor 与 OpenCode 都会读取这个文件——Claude Code 只在项目没有 `CLAUDE.md` 时才读,`status` 会指出这一点。
+2. **dotagents 交付的一切都位于各个代理自己的目录之内**——`.claude/`、`.agents/`、`.codex/`。根目录下什么也不放,你的任何文件也都不会被改动。
+
+因此,module 的 `AGENTS.md` 以一个独立的文件送达。Claude Code 在启动时把 `.claude/rules/` 与你的指示一并加载。Codex 每个目录只读取一个指示文件,所以它的规则改由 `SessionStart` hook 递交——在启动时、在 `/clear` 之后,并在压缩之后再次递交。使用 `-g` 时,同样的文件会进入 `~/.claude/rules/dotagents/` 与 `~/.codex/dotagents/`,而你的 `~/.claude/CLAUDE.md` 与 `~/.codex/AGENTS.md` 仍然属于你。读取项目 `AGENTS.md` 的其他代理能看到项目的指示,却看不到交付的规则。
 
 一个 module 可以声明它期望 `PATH` 上存在什么。这些依赖**只被检测,绝不被安装**:`list` 与 `install` 会报告缺少了什么,但不会阻断任何事情,因此日后再补上该工具也无需重新安装。
 
@@ -97,7 +104,7 @@ dotagents --help               # 全部命令、选项、示例
 
 在终端中不指名执行 `uninstall`,会列出此处已安装的 module 供选择。所选 module 同时装在 Claude Code 和 Codex 中时,会再询问要从哪一方移除。在非交互式 shell 中不指名,则移除全部。
 
-**只有 `uninstall` 会从部署处移除规则。** 从 `~/.dotagents/modules/` 删掉一个 module 是日常的、轻微的动作,它不足以成为改写你装过它的每一个项目的理由。所以当一个已交付的 module 失去了来源,`update` 会保留文件、保留记录,也保留 `CLAUDE.md` 里的那些行,并说明它保留了什么、以及要怎样移除。`status` 会把这种状态报告为偏离——既然没有可比对的来源,就不能说它是对的。
+**只有 `uninstall` 会从部署处移除规则。** 从 `~/.dotagents/modules/` 删掉一个 module 是日常的、轻微的动作,它不足以成为改写你装过它的每一个项目的理由。所以当一个已交付的 module 失去了来源,`update` 会连同规则一起保留文件、保留记录,并说明它保留了什么、以及要怎样移除。`status` 会把这种状态报告为偏离——既然没有可比对的来源,就不能说它是对的。
 
 **没有任何东西会自行移动。** 交付的是治理你的代理行为的文本,因此交付既不会自动发生,也不会悄无声息:每条命令都会说明它放置了什么、保留了什么、移除了什么。
 
@@ -121,6 +128,8 @@ dotagents update -g             # 以及 dotagents update -C <项目>
 ## 安装程序会触碰什么、不会触碰什么
 
 一切都是幂等且**由哈希所有**的:安装程序只会触及自己放置且仍然识别的内容。你自己的技能永远不会被触碰,你就地编辑过的文件会被保留并报告(可用 `--force` 覆盖),而 `uninstall` 只会移除记录所载明的、由它放置的内容——除此之外一概不动。这份记录存放在 `~/.dotagents/state/` 中,从不落入项目。
+
+6.0 之前的版本把规则作为一个带标记的块,写进 `CLAUDE.md` 或 `AGENTS.md` 这类规则文件之中。等到曾读取该块的每个代理都在新的位置拿到了自己的规则,`update` 就会剥除那个块,文件的其余部分则保持原样。
 
 项目作用域的 plugin 只在 Claude Code 于仓库根目录启动时才会加载,并且要在你接受工作区信任对话框之后。对代理与 hooks 的改动会在下一次会话或执行 `/reload-plugins` 之后生效;对 `SKILL.md` 的编辑则会立即被采纳。
 

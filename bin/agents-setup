@@ -9,15 +9,17 @@
 // dotagents installer — modules/ から選んだ物を各ツールが読む場所へ実ファイルで配り、
 // manifest(~/.dotagents/)で所有権を管理する。
 //
-// 配達先:
+// 配達先はツールのディレクトリーの中だけである。プロジェクトのルートには何も置かず、プロジェクトの
+// ファイルも書き換えない。プロジェクト固有の指示はルートの AGENTS.md にあり、どのツールもそれを読む。
 // - Claude: .claude/skills/dotagents/ 1 つに plugin として。skills・agents・hooks が
 //   名前空間 /dotagents:* の下に入り、settings.json を触らずにフックまで届く。
+//   module の AGENTS.md は .claude/rules/dotagents/<module>.md へ。
 // - Codex : .agents/skills/dotagents-<name>/ と .codex/agents/*.toml へ。codex/ はそのまま .codex/ へ、
-//   codex/hooks.json を持つ module の hooks/ の実行ファイルは .codex/dotagents/<module>/ へ。
-// - AGENTS.md: 各ツールの規則ファイルへマーカー付きの管理ブロックとして。
+//   hooks/ の実行ファイルと module の AGENTS.md は .codex/dotagents/<module>/ へ。
+//   .codex/hooks.json は module の codex/hooks.json を合わせて生成し、SessionStart で規則を読ませる。
 //
 // install はハッシュが一致するファイルにしか触れず、uninstall は manifest の記録だけを外す。
-// 旧レイアウト(.agents・symlink・zshenv 行・settings 断片・名前空間の外の素のコピー)は
+// 旧レイアウト(.agents・symlink・zshenv 行・settings 断片・名前空間の外の素のコピー・規則ファイルの中の管理ブロック)は
 // install / update が同じ所有権規則で刈り込む。
 
 const fs = require('node:fs');
@@ -94,8 +96,8 @@ function readJson(file, fallback) {
 }
 
 // 書き込みは同じディレクトリの一時ファイルへ行い、rename(2) で入れ替える。POSIX の rename は
-// 原子的なので、途中で死んでも半分書けたファイルが残らない。配布物より、ユーザー自身の記述と
-// 同居する CLAUDE.md が切り詰められる方が重い — どちらも同じ経路を通す。
+// 原子的なので、途中で死んでも半分書けたファイルが残らない。旧・規則ブロックを剥がすときは
+// ユーザー自身の記述を書き直すので、配布物と同じ経路を通す。
 function writeFileAtomic(file, data, mode) {
   const tmp = path.join(path.dirname(file), `.${path.basename(file)}.dotagents-${process.pid}`);
   try {
@@ -204,10 +206,9 @@ function recordAgent(rel, record) {
   return record?.agent ?? (rel.startsWith('.claude/') ? 'claude' : 'codex');
 }
 
+// ルートの AGENTS.md はどのツールも読むプロジェクトの指示なので、Codex を使う印にはならない。
 function defaultAgents(ctx) {
-  const codex = lstatOrNull(ctx.codexDir)?.isDirectory() ||
-    (ctx.kind === 'project' && lstatOrNull(path.join(ctx.base, 'AGENTS.md')));
-  return codex ? [...AGENTS] : ['claude'];
+  return lstatOrNull(ctx.codexDir)?.isDirectory() ? [...AGENTS] : ['claude'];
 }
 
 // 旧記録は実際に配った先から読み替える。新しいディレクトリの有無で、更新先を増やさない。
@@ -226,19 +227,6 @@ function recordedAgentModules(ctx, manifest) {
       ? modules : followRenames([...new Set([...owned, ...rules])]);
   }
   return result;
-}
-
-function recordedAgentBodies(manifest, agentModules) {
-  return Object.fromEntries(Object.entries(agentModules).map(([agent, names]) => [agent,
-    manifest?.agentRulesBodies?.[agent] ?? Object.fromEntries(Object.entries(manifest?.rulesBodies ?? {})
-      .filter(([n]) => names.includes(n))),
-  ]));
-}
-
-function rulesRecordAgents(ctx, record) {
-  if (record.agents) return record.agents;
-  if (record.file === path.join('.agents', 'AGENTS.md')) return [...AGENTS];
-  return [recordAgent(record.file, record)];
 }
 
 // 記録は本拠地の直下に置いていた。modules/ と並ぶようになったので state/ へ移す。
@@ -455,10 +443,12 @@ const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs'])
 
 // 配達先の導出:
 // - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
+// - AGENTS.md      → Claude: .claude/rules/dotagents/<module>.md
+//                    Codex : .codex/dotagents/<module>/AGENTS.md(.codex/hooks.json の SessionStart が読ませる)
 // - skills/<name>/ → Codex : .agents/skills/dotagents-<name>/
 // - agents/*.md    → Codex : .codex/agents/dotagents-<name>.toml
 // - hooks/ の実行ファイル → Codex : .codex/dotagents/<module>/(codex/hooks.json がある module だけ)
-// - AGENTS.md      → コピーではなく規則ファイルへの管理ブロック(rulesTargets)
+// - codex/hooks.json → Codex : module ごとの定義を合わせた .codex/hooks.json
 function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } = {}) {
   const entries = [];
   const seen = new Map();
@@ -477,12 +467,22 @@ function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } =
     const before = entries.length;
     for (const m of present) {
       const root = moduleDir(m);
+      const rules = path.join(root, 'AGENTS.md');
+      const hasRules = lstatOrNull(rules)?.isFile();
       if (agent === 'claude') {
         for (const rel of walk(root)) {
           if (NOT_DELIVERED.has(rel.split(path.sep)[0]) || rel.startsWith('codex/')) continue;
           add({ agent, module: m, src: path.join(root, rel), dst: path.join(pluginRoot, rel), unit: pluginRoot });
         }
+        if (hasRules) {
+          const unit = path.join(ctx.claudeDir, 'rules', PLUGIN);
+          add({ agent, module: m, src: rules, dst: path.join(unit, `${m}.md`), unit });
+        }
       } else {
+        if (hasRules) {
+          const unit = path.join(ctx.codexDir, PLUGIN, m);
+          add({ agent, module: m, src: rules, dst: path.join(unit, 'AGENTS.md'), unit });
+        }
         const skills = path.join(root, 'skills');
         if (lstatOrNull(skills)?.isDirectory()) {
           for (const skill of fs.readdirSync(skills, { withFileTypes: true }).filter((e) => e.isDirectory())) {
@@ -506,7 +506,7 @@ function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } =
         // pretending that Claude-specific configuration is portable.
         const native = path.join(root, 'codex');
         if (lstatOrNull(native)?.isDirectory()) {
-          for (const rel of walk(native)) {
+          for (const rel of walk(native).filter((rel) => rel !== 'hooks.json')) {
             add({ agent, module: m, src: path.join(native, rel), dst: path.join(ctx.codexDir, rel), unit: ctx.codexDir });
           }
         }
@@ -525,8 +525,37 @@ function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } =
       add({ agent, module: null, content: pluginManifest(present),
         dst: path.join(pluginRoot, '.claude-plugin', 'plugin.json'), unit: pluginRoot });
     }
+    if (agent === 'codex' && names.length) {
+      add({ agent, module: null, content: codexHooks(ctx, present), dst: path.join(ctx.codexDir, 'hooks.json'), unit: ctx.codexDir });
+    }
   }
   return entries;
+}
+
+// .codex/hooks.json は Codex が名前を決めている 1 つのファイルなので、module ごとにはコピーできない。
+// module の codex/hooks.json を合わせ、規則を読ませる SessionStart を足して生成する。
+//
+// 規則を SessionStart の出力で届けるのは、Codex が 1 つのディレクトリーから AGENTS.md を 1 つしか
+// 読まず、ルートの AGENTS.md はプロジェクトの物だからである。出力は開発者向けの指示として入る。
+// 圧縮の後は compact で読ませ直し、resume では前の会話に残っているので読ませない。
+// 規則の量で切り詰められないよう、出力の上限は既定(約 2,500 トークン)より広げる。
+function codexHooks(ctx, modules) {
+  const hooks = {};
+  for (const m of modules) {
+    const file = path.join(moduleDir(m), 'codex', 'hooks.json');
+    if (!lstatOrNull(file)?.isFile()) continue;
+    for (const [event, groups] of Object.entries(readJson(file, {}).hooks ?? {})) (hooks[event] ??= []).push(...groups);
+  }
+  // 自分の置き場の規則だけを読む。プロジェクトは worktree の最上位か共有の本体、-g はホーム。
+  const read = `set -- "$d"/.codex/${PLUGIN}/*/AGENTS.md; if [ -f "$1" ]; then exec cat "$@"; fi`;
+  const command = ctx.kind === 'user'
+    ? `sh -c 'd="$HOME"; ${read}'`
+    : `sh -c 'for d in "$(git rev-parse --show-toplevel 2>/dev/null)" "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/.."; do ${read}; done'`;
+  (hooks.SessionStart ??= []).push({
+    matcher: '^(startup|clear|compact)$',
+    hooks: [{ type: 'command', command, timeout: 10, additionalContextLimit: 20000 }],
+  });
+  return JSON.stringify({ hooks }, null, 2) + '\n';
 }
 
 function codexAgent(file, nativeRoot) {
@@ -593,15 +622,13 @@ function removeLink(l, log) {
   }
 }
 
-// 共通正本へのリンクを除き、旧 .agents を指すリンクと切れたリンクは除去する。
+// 旧 .agents を指すリンクと切れたリンクは除去する。
 // 配布先を実ファイルへ移行するため、所有記録に無い旧リンクも対象とする。
 // それ以外の生きた symlink はユーザーの構成として残し、後段が conflict として警告する。
-function clearStaleSymlink(ctx, p, log, migratedLegacy = false) {
+function clearStaleSymlink(ctx, p, log) {
   if (blockedPath(ctx, p, false)) return;
   const st = lstatOrNull(p);
   if (!st?.isSymbolicLink()) return;
-  // プロジェクトの共通正本へのリンクは、配布先の構成として保持する。
-  if (!migratedLegacy && projectRulesLinkTarget(ctx, p)) return;
   const resolved = path.resolve(path.dirname(p), fs.readlinkSync(p));
   const inLegacy = resolved === ctx.legacyRoot || resolved.startsWith(ctx.legacyRoot + path.sep);
   if (inLegacy || !fs.existsSync(p)) {
@@ -610,12 +637,11 @@ function clearStaleSymlink(ctx, p, log, migratedLegacy = false) {
   }
 }
 
-// 掃除の対象 = これから配達する場所と、そこへ至る経路すべて(規則ファイル・各配達単位・
-// 配達先までの各段)。経路の途中に行き先の無いリンクが 1 つ挟まるだけで、その先は
+// 掃除の対象 = これから配達する場所と、そこへ至る経路すべて(各配達単位・配達先までの各段)。経路の途中に行き先の無いリンクが 1 つ挟まるだけで、その先は
 // ディレクトリを作ることさえできない — 配達単位だけを見ていては届かない。
 // 上の段から順に外す(浅い順)ので、先に外れた段の下は素直に作れる。
 function staleSymlinkCandidates(ctx, entries) {
-  const out = new Set(rulesTargets(ctx).filter((t) => t.agents.some((a) => !ctx.agents || ctx.agents.includes(a))).map((t) => t.file));
+  const out = new Set();
   for (const e of entries) {
     out.add(e.unit);
     let cur = ctx.base;
@@ -717,84 +743,14 @@ function removeCodexHooks(ctx, fragments, log) {
   }
 }
 
-// ---------------------------------------------------------------- 規則ブロック
+// ---------------------------------------------------------------- 旧・規則ブロック(刈り込み専用)
 
-// module の AGENTS.md は、各ツールの規則ファイルへマーカー付きの管理ブロックとして届ける。
-// 規則ファイルはユーザー自身の記述と同居するので、コピーではなくブロックである。
-// マーカー間は installer の管理領域: install / update が書き直し、uninstall が除去する。
-// - Claude: <claudeDir>/CLAUDE.md — 無ければ作る
-// - Codex(user): ~/.codex/AGENTS.md — .codex/ がある環境でだけ、無ければ作る
-// - Codex(project): <project>/AGENTS.md — 既存のファイルにだけ足す(プロジェクトの
-//   ルートに新しいファイルを作って見た目を変えない)
-// - project の両規則ファイルから .agents/AGENTS.md へのリンクは、共通正本へ1度だけ届ける。
-const BLOCK_BEGIN = '<!-- agents-harness:begin -->';
+// 5.x までは module の AGENTS.md を、各ツールの規則ファイル(.claude/CLAUDE.md、ルートの AGENTS.md、
+// .agents/AGENTS.md)へマーカー付きのブロックとして書き込んでいた。いまは規則もファイルとして
+// ツールのディレクトリーへ配る。記録に残るブロックは剥がし、自分が作ったファイルが空になれば消す。
 const BLOCK_END = '<!-- agents-harness:end -->';
 // 目印は agents-harness:begin までで、行の残りは飾りである。
 const hasBlock = (text) => /^[ \t]*<!-- agents-harness:begin/m.test(text);
-
-// module ごとの本文を返す。1 本の文字列ではなく分けて持つのは、供給元を失った module の
-// 遍在則を、記録から復元して残せるようにするためである — CLAUDE.md へ注がれる規則が
-// 「置き場のディレクトリを消した」だけで黙って抜けるのは、最も避けたい失われ方である。
-function rulesBodies(modules) {
-  const bodies = {};
-  for (const m of modules) {
-    const src = path.join(moduleDir(m), 'AGENTS.md');
-    if (lstatOrNull(src)) bodies[m] = fs.readFileSync(src, 'utf8').trim();
-  }
-  return bodies;
-}
-
-function joinBodies(bodies) {
-  const keys = Object.keys(bodies).sort();
-  return keys.length ? keys.map((k) => bodies[k]).join('\n\n') : null;
-}
-
-function desiredBlock(body) { return [BLOCK_BEGIN, body, BLOCK_END].join('\n'); }
-
-// プロジェクト内の明示された共通正本だけを扱い、任意のリンク先へは配布しない。
-function projectRulesLinkTarget(ctx, file) {
-  if (ctx.kind !== 'project') return null;
-  if (file !== path.join(ctx.base, 'AGENTS.md') && file !== path.join(ctx.claudeDir, 'CLAUDE.md')) return null;
-  if (!lstatOrNull(file)?.isSymbolicLink()) return null;
-  const canonical = path.join(ctx.base, '.agents', 'AGENTS.md');
-  return path.resolve(path.dirname(file), fs.readlinkSync(file)) === canonical ? canonical : null;
-}
-
-function sharedRulesFile(ctx, file) {
-  if (ctx.kind !== 'project') return null;
-  const canonical = path.join(ctx.base, '.agents', 'AGENTS.md');
-  if (file !== canonical && !projectRulesLinkTarget(ctx, file)) return null;
-  // 正本や親ディレクトリが別のリンクなら、その先の所有権は引き受けない。
-  if (!lstatOrNull(path.dirname(canonical))?.isDirectory() || !lstatOrNull(canonical)?.isFile()) return null;
-  if (file === path.join(ctx.claudeDir, 'CLAUDE.md') && !lstatOrNull(ctx.claudeDir)?.isDirectory()) return null;
-  return canonical;
-}
-
-function rulesTargets(ctx) {
-  const targets = [];
-  const agents = Object.keys(ctx.agentModules ?? Object.fromEntries(defaultAgents(ctx).map((a) => [a, []])));
-  if (agents.includes('claude')) targets.push({ file: path.join(ctx.claudeDir, 'CLAUDE.md'), create: true, agents: ['claude'] });
-  if (agents.includes('codex')) targets.push({ file: path.join(ctx.kind === 'user' ? ctx.codexDir : ctx.base, 'AGENTS.md'), create: true, agents: ['codex'] });
-  const unique = new Map();
-  for (const t of targets) {
-    const shared = sharedRulesFile(ctx, t.file);
-    const file = shared ?? t.file;
-    const existing = unique.get(file);
-    if (existing) existing.agents.push(...t.agents);
-    else unique.set(file, { ...t, file, create: shared ? false : t.create });
-  }
-  return [...unique.values()];
-}
-
-function targetRulesBodies(ctx, target) {
-  const bodies = {};
-  // A user-selected common rules file serves both tools. Keep the other tool's
-  // recorded rules when changing only one installation.
-  const active = ctx.agents ?? ctx.inspectionAgents ?? AGENTS;
-  const agents = [...target.agents].sort((a, b) => Number(active.includes(a)) - Number(active.includes(b)));
-  for (const agent of agents) Object.assign(bodies, ctx.agentRulesBodies?.[agent] ?? {});
-  return bodies;
-}
 
 function stripBlock(lines) {
   const kept = [];
@@ -807,51 +763,33 @@ function stripBlock(lines) {
   return kept;
 }
 
-// 戻り値は manifest への記録 { file(base 相対), createdFile } / null(対象外)。
-// createdFile はファイルごと自分が作った事実 — uninstall がブロックを剥いで空になった
-// ファイルを消してよいかの根拠になる。
-function applyRulesBlock(ctx, t, body, oldRecord, log) {
-  const st = lstatOrNull(t.file);
-  if (!st && !t.create) return null;
-  const rel = path.relative(ctx.base, t.file);
-  if (blockedPath(ctx, t.file)) {
-    // リンク越しに書くとリンク先(ユーザーの実体)を書き換えてしまう
-    log.warn(`a symlink or non-file is in the way, leaving it alone: ${t.file}`);
-    return null;
-  }
-  const desired = desiredBlock(body);
-  const text = st ? fs.readFileSync(t.file, 'utf8') : '';
-  if (text.includes(desired)) {
-    log.ok(`rules block ${rel}`);
-    return { file: rel, createdFile: oldRecord?.createdFile === true };
-  }
-  const kept = stripBlock(text.split('\n'));
-  while (kept.length && kept[kept.length - 1] === '') kept.pop();
-  fs.mkdirSync(path.dirname(t.file), { recursive: true });
-  writeFileAtomic(t.file, [...kept, ...(kept.length ? [''] : []), desired, ''].join('\n'));
-  if (st) log.update(`rules block ${rel}`);
-  else log.add(`rules block ${rel}`);
-  return { file: rel, createdFile: st ? oldRecord?.createdFile === true : true };
+function rulesRecordAgents(record) {
+  if (record.agents) return record.agents;
+  if (record.file === path.join('.agents', 'AGENTS.md')) return [...AGENTS];
+  return [recordAgent(record.file, record)];
 }
 
+// リンク越しには書かない。剥がせなかったブロックは記録に残し、status が報告し続ける。
 function removeRulesBlock(ctx, record, log) {
-  const recordedFile = path.join(ctx.base, record.file);
-  const shared = sharedRulesFile(ctx, recordedFile);
-  if (ctx.kind === 'project' && recordedFile === path.join(ctx.base, '.agents', 'AGENTS.md') && !shared) return;
-  const file = shared ?? recordedFile;
-  if (blockedPath(ctx, file)) return;
-  if (!lstatOrNull(file)?.isFile()) return;
+  const file = path.join(ctx.base, record.file);
+  if (blockedPath(ctx, file)) {
+    if (!lstatOrNull(file)) return true;
+    log.warn(`a symlink is in the way, leaving the old rules block: ${file}`);
+    return false;
+  }
+  if (!lstatOrNull(file)?.isFile()) return true;
   const text = fs.readFileSync(file, 'utf8');
-  if (!hasBlock(text)) return; // ブロックが無ければユーザーのファイルに触れない
+  if (!hasBlock(text)) return true; // ブロックが無ければプロジェクトのファイルに触れない
   const kept = stripBlock(text.split('\n'));
   while (kept.length && kept[kept.length - 1] === '') kept.pop();
-  if (record.createdFile === true && !shared && kept.join('\n').trim() === '') {
+  if (record.createdFile === true && kept.join('\n').trim() === '') {
     fs.unlinkSync(file);
     log.del(`rules block ${record.file} (removed the file — it was ours)`);
-    return;
+    return true;
   }
   writeFileAtomic(file, kept.length ? kept.join('\n') + '\n' : '');
   log.del(`rules block ${record.file}`);
+  return true;
 }
 
 // ---------------------------------------------------------------- 配備状態(読み取り専用)
@@ -864,24 +802,14 @@ function inspectDeployment(ctx) {
   const agentModules = recordedAgentModules(ctx, full);
   const agents = ctx.agents ?? Object.keys(agentModules);
   ctx.agentModules = agentModules;
-  ctx.agentRulesBodies = recordedAgentBodies(full, agentModules);
-  ctx.inspectionAgents = agents;
   const known = new Set(moduleNames());
-  for (const agent of agents) {
-    const names = agentModules[agent] ?? [];
-    const bodies = rulesBodies(names.filter((n) => known.has(n)));
-    for (const n of names.filter((n) => !known.has(n))) {
-      if (ctx.agentRulesBodies[agent]?.[n] !== undefined) bodies[n] = ctx.agentRulesBodies[agent][n];
-    }
-    ctx.agentRulesBodies[agent] = bodies;
-  }
   const names = [...new Set(agents.flatMap((a) => agentModules[a] ?? []))].sort();
   const installed = new Set(names);
   const checks = [];
   const add = (owners, kinds, message) => checks.push({ owners, kinds, message });
   const manifest = full ? { ...full,
     files: Object.fromEntries(Object.entries(full.files ?? {}).filter(([rel, v]) => agents.includes(recordAgent(rel, v)))),
-    rulesBlocks: (full.rulesBlocks ?? []).filter((r) => rulesRecordAgents(ctx, r).some((a) => agents.includes(a))),
+    rulesBlocks: (full.rulesBlocks ?? []).filter((r) => rulesRecordAgents(r).some((a) => agents.includes(a))),
   } : null;
   if (!manifest) {
     if (hasLegacy) add([], ['update'], `legacy layout ${homePath(ctx.legacyRoot)} — run update to migrate`);
@@ -929,7 +857,7 @@ function inspectDeployment(ctx) {
       }
       const reasons = [];
       if (kinds.includes('update')) reasons.push('source changed, run update');
-      if (kinds.includes('modified')) reasons.push('modified in place');
+      if (kinds.includes('modified')) reasons.push(was ? 'modified in place' : 'not delivered by dotagents');
       add(owners, kinds, e.rel + (reasons.length ? ` — ${reasons.join('; ')}` : ''));
     }
   }
@@ -948,45 +876,10 @@ function inspectDeployment(ctx) {
     add(owners, kinds, `${rel} — ${reason}`);
   }
 
-  inspectRules(ctx, manifest, present, orphans, add);
+  for (const r of manifest.rulesBlocks) add([], ['update'], `rules block ${r.file} — the old layout, run update to remove`);
   if (hasLegacy) add([], ['update'], `legacy layout ${homePath(ctx.legacyRoot)} — run update to migrate`);
   if (ctx.kind === 'user' && zshenvHasMarker(ctx)) add([], ['update'], 'legacy zshenv managed line — run update to prune');
   return { manifest, hasLegacy, installed, checks, agentModules };
-}
-
-function inspectRules(ctx, manifest, present, orphans, add) {
-  const targets = new Map(rulesTargets(ctx).filter((t) => t.agents.some((a) => ctx.inspectionAgents.includes(a))).map((t) => [t.file, t]));
-  const records = new Map();
-  for (const r of manifest.rulesBlocks ?? []) {
-    const recorded = path.join(ctx.base, r.file);
-    const file = sharedRulesFile(ctx, recorded) ?? recorded;
-    records.set(file, r);
-    if (!targets.has(file)) targets.set(file, { file, create: false, agents: rulesRecordAgents(ctx, r) });
-  }
-  for (const t of targets.values()) {
-    const bodies = targetRulesBodies(ctx, t);
-    const previous = records.get(t.file)?.bodies ?? (records.has(t.file) ? manifest.rulesBodies : {});
-    const body = joinBodies(bodies);
-    const oldBody = previous ? joinBodies(previous) : null;
-    const owners = followRenames([...new Set([...Object.keys(bodies), ...Object.keys(previous ?? {})])]);
-    if (body === null && oldBody === null && !records.has(t.file)) continue;
-    const changed = previous ? owners.filter((n) => bodies[n] !== previous[n]) : [];
-    const rel = `rules block ${path.relative(ctx.base, t.file)}`;
-    const st = lstatOrNull(t.file);
-    if (!st && body === null) continue;
-    if (!st) {
-      add(owners, [records.has(t.file) ? 'missing' : 'update'], `${rel} — ${records.has(t.file) ? 'missing' : 'new delivery, run update'}`);
-      continue;
-    }
-    if (blockedPath(ctx, t.file)) { add(owners, ['blocked'], `${rel} — a symlink or non-file is in the way`); continue; }
-    const text = fs.readFileSync(t.file, 'utf8');
-    const matches = (b) => b === null ? !hasBlock(text) : text.includes(desiredBlock(b));
-    if (matches(body)) { add(owners, [], rel); continue; }
-    if (previous && changed.length) add(changed, ['update'], `${rel} — source changed, run update`);
-    if (!previous || !matches(oldBody)) {
-      add(owners, ['shared'], `${rel} — shared rules differ${previous ? ' (modified in place)' : ' (no previous content recorded)'}; inspect with status`);
-    }
-  }
 }
 
 const DEPLOYMENT_STATES = {
@@ -994,7 +887,6 @@ const DEPLOYMENT_STATES = {
   installed: { symbol: '●', label: 'installed', color: 'green' },
   update: { symbol: '↑', label: 'update available', color: 'yellow' },
   modified: { symbol: '~', label: 'modified locally', color: 'blue' },
-  shared: { symbol: '~', label: 'shared rules changed', color: 'blue' },
   missing: { symbol: '!', label: 'missing files', color: 'red' },
   blocked: { symbol: '!', label: 'blocked', color: 'red' },
   gone: { symbol: '!', label: 'source missing', color: 'red' },
@@ -1003,7 +895,7 @@ const DEPLOYMENT_STATES = {
 function deploymentState(inspection, name) {
   const checks = inspection.checks.filter((c) => c.kinds.length && (name === null ? !c.owners.length : c.owners.includes(name)));
   const kinds = new Set(checks.flatMap((c) => c.kinds));
-  const priority = ['gone', 'blocked', 'missing', 'modified', 'shared', 'update'];
+  const priority = ['gone', 'blocked', 'missing', 'modified', 'update'];
   const states = priority.filter((kind) => kinds.has(kind));
   const primary = states[0] ?? (inspection.installed.has(name) ? 'installed' : 'available');
   return {
@@ -1341,7 +1233,7 @@ async function pickAgents(ctx, modules, { title, agents = AGENTS, removing = fal
       const state = states.find((s) => s.details.length) ?? states.find((s) => s.symbol === '●') ?? DEPLOYMENT_STATES.available;
       return {
         label: AGENT_LABELS[agent],
-        detail: agent === 'claude' ? 'Skills, agents, hooks and CLAUDE.md rules' : 'Native skills, custom agents and AGENTS.md rules',
+        detail: agent === 'claude' ? 'Skills, agents, hooks and rules (.claude/rules/)' : 'Native skills, custom agents, hooks and rules (SessionStart)',
         hint: `${modules.join(', ')} ${removing ? 'from' : '→'} ${agent === 'claude' ? '.claude/' : '.agents/skills/ and .codex/'}`,
         state: { ...state, label: `${installed}/${modules.length} installed${state.details?.length ? ` · ${state.label}` : ''}`, details: state.details ?? [] },
       };
@@ -1418,8 +1310,7 @@ function migrateLegacy(ctx, log) {
   removeSettings(ctx, m.fragments, log);
   removeCodexHooks(ctx, m.fragments, log);
   if (m.fragments?.refBlock) {
-    // 旧・参照ブロック(マーカーは現行の規則ブロックと同一)。剥ぐだけでよい:
-    // 対象が rulesTargets に含まれるなら、新しい規則ブロックが同じ場所に入り直す。
+    // 旧・参照ブロック(マーカーは旧・規則ブロックと同一)。剥ぐだけでよい。
     const file = path.join(ctx.base, 'AGENTS.md');
     if (lstatOrNull(file)?.isFile()) {
       const text = fs.readFileSync(file, 'utf8');
@@ -1471,7 +1362,6 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   const known = new Set(moduleNames());
   const heirs = renameMap();
   const agentModules = { ...previousTargets };
-  const agentRulesBodies = recordedAgentBodies(old, previousTargets);
   const rawRecorded = old?.agentModules ? active.flatMap((a) => old.agentModules[a] ?? []) : old?.modules ?? (legacy ? [SOLE_MODULE_THEN] : []);
   for (const n of new Set(rawRecorded.filter((n) => heirs.has(n)))) {
     log.update(`module ${n} → ${heirs.get(n).join(' ')} (it was ${heirs.get(n).length > 1 ? 'split' : 'renamed'})`);
@@ -1486,20 +1376,13 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     const remembered = followRenames(recorded, heirs);
     const wanted = replaceModules ? remembered.filter((n) => !opts.removeModules.includes(n))
       : [...new Set([...remembered, ...opts.modules])].sort();
-    if (!wanted.length) { delete agentModules[agent]; delete agentRulesBodies[agent]; continue; }
+    if (!wanted.length) { delete agentModules[agent]; continue; }
     agentModules[agent] = wanted;
     const raw = old?.agentModules?.[agent] ?? [];
     held[agent] = new Set(redeliverAll ? [] : wanted.filter((n) => raw.includes(n) && !opts.modules.includes(n)));
-    const fresh = (n) => known.has(n) && !held[agent].has(n);
-    const bodies = rulesBodies(wanted.filter(fresh));
-    for (const n of wanted.filter((n) => !fresh(n))) {
-      if (agentRulesBodies[agent]?.[n] !== undefined) bodies[n] = agentRulesBodies[agent][n];
-    }
-    agentRulesBodies[agent] = bodies;
   }
   const isHeld = (agent, name) => held[agent]?.has(name) ?? false;
   ctx.agentModules = agentModules;
-  ctx.agentRulesBodies = agentRulesBodies;
   const wanted = [...new Set(Object.values(agentModules).flat())].sort();
   const modules = wanted.filter((n) => known.has(n));
   const touched = modules.filter((n) => active.some((a) => agentModules[a]?.includes(n) && !isHeld(a, n)));
@@ -1513,8 +1396,8 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   }
 
   // 0. 旧レイアウト(.agents + symlink + 断片)の刈り込みと、配達先を塞ぐ旧 symlink の掃除
-  const migratedLegacy = (!opts.agents || opts.migrateAllLegacy || AGENTS.every((a) => active.includes(a))) ? migrateLegacy(ctx, log) : false;
-  for (const p of staleSymlinkCandidates(ctx, entries)) clearStaleSymlink(ctx, p, log, migratedLegacy);
+  if (!opts.agents || opts.migrateAllLegacy || AGENTS.every((a) => active.includes(a))) migrateLegacy(ctx, log);
+  for (const p of staleSymlinkCandidates(ctx, entries)) clearStaleSymlink(ctx, p, log);
 
   // 1. module → 各ツールの置き場(所有ハッシュに基づく外科的コピー)
   const files = Object.fromEntries(Object.entries(old?.files ?? {}).filter(([rel, v]) => !active.includes(recordAgent(rel, v))));
@@ -1551,7 +1434,7 @@ async function install(opts, { requireExisting = false, replaceModules = false }
       files[rel] = mine(srcHash);
       log.update(`${rel}(--force で上書き)`);
     } else {
-      log.warn(`modified in place, leaving it (use --force to overwrite): ${dst}`);
+      log.warn(`${was ? 'modified in place' : 'not delivered by dotagents'}, leaving it (use --force to overwrite): ${dst}`);
       if (was) files[rel] = mine(was); // 所有記録は保持し、状態は status が報告する
     }
   }
@@ -1580,45 +1463,22 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     }
   }
 
-  const oldBlocks = new Map();
+  const codexHooksRel = path.relative(ctx.base, codexHooksPath(ctx));
+  const codexHooksChanged = files[codexHooksRel] !== undefined && fileHash(files[codexHooksRel]) !== fileHash(old?.files?.[codexHooksRel]);
+
+  // 3. 旧・規則ブロックを剥がす。複数のツールが読んでいたブロックは、そのすべてを配り直すときに
+  //    剥がす — 片方だけ配り直すと、もう片方は新しい置き場に規則が届くまで規則を失うからである。
+  const rulesBlocks = [];
   for (const r of old?.rulesBlocks ?? []) {
-    const file = path.join(ctx.base, r.file);
-    const rel = path.relative(ctx.base, sharedRulesFile(ctx, file) ?? file);
-    const previous = oldBlocks.get(rel);
-    oldBlocks.set(rel, { ...r, agents: [...new Set([...(previous?.agents ?? []), ...rulesRecordAgents(ctx, r)])] });
-  }
-  const rulesRecords = [];
-  for (const t of rulesTargets(ctx)) {
-    const rel = path.relative(ctx.base, t.file);
-    const before = oldBlocks.get(rel);
-    const affected = [...t.agents, ...(before?.agents ?? [])].some((a) => active.includes(a));
-    if (!affected) { if (before) rulesRecords.push({ ...before, file: rel }); continue; }
-    const bodies = targetRulesBodies(ctx, t);
-    const body = joinBodies(bodies);
-    if (body === null) continue;
-    const rec = applyRulesBlock(ctx, t, body, before, log);
-    if (rec) {
-      rulesRecords.push({ ...rec, agents: t.agents, bodies });
-      // 共通ファイルは両者が同じ内容を読む。その実際の内容を両方の記録に反映する。
-      for (const agent of t.agents) for (const name of Object.keys(agentRulesBodies[agent] ?? {})) {
-        if (bodies[name] !== undefined) agentRulesBodies[agent][name] = bodies[name];
-      }
-    } else if (before) rulesRecords.push({ ...before, file: rel });
-  }
-  const currentBlockFiles = new Set(rulesRecords.map((r) => r.file));
-  for (const [rel, r] of oldBlocks) {
-    if (currentBlockFiles.has(rel)) continue;
-    if (!r.agents.some((a) => active.includes(a))) rulesRecords.push({ ...r, file: rel });
-    else removeRulesBlock(ctx, { ...r, file: rel }, log);
+    if (!rulesRecordAgents(r).every((a) => active.includes(a)) || !removeRulesBlock(ctx, r, log)) rulesBlocks.push(r);
   }
 
-  // Keep per-tool selections as well as the combined view used by older readers.
-  if (wanted.length || Object.keys(files).length || rulesRecords.length) {
+  if (wanted.length || Object.keys(files).length || rulesBlocks.length) {
     writeJson(manifestPath(ctx), {
-      schema: 5, kind: ctx.kind, base: ctx.base,
-      modules: wanted, agentModules, agentRulesBodies,
+      schema: 6, kind: ctx.kind, base: ctx.base,
+      modules: wanted, agentModules,
       version: pkg().version, installedAt: new Date().toISOString(), files,
-      rulesBodies: Object.assign({}, ...Object.values(agentRulesBodies)), rulesBlocks: rulesRecords,
+      ...(rulesBlocks.length ? { rulesBlocks } : {}),
     });
   } else if (old) fs.unlinkSync(manifestPath(ctx));
 
@@ -1657,6 +1517,8 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   if (c.add + c.update + c.del > 0) {
     if (active.includes('claude')) console.log(ui.dim('  run /reload-plugins in a running Claude Code session, or start a new one'));
     if (active.includes('codex')) console.log(ui.dim('  start a new Codex session to load the installed skills, agents and rules'));
+    // Codex は定義が変わった hook を、信頼し直すまで動かさない。規則も SessionStart で届くので止まる。
+    if (codexHooksChanged) console.log(ui.dim(`  run /hooks in Codex to trust the changed ${codexHooksRel} — its rules and hooks stay off until then`));
   }
   if (c.warn > 0 && !(replaceModules && !opts.modules.length && !active.some((a) => agentModules[a]?.length))) process.exitCode = 1;
 }
@@ -1728,6 +1590,15 @@ function status(opts) {
   }
   const drift = inspection.checks.filter((c) => c.kinds.length).length;
   console.log(drift === 0 ? `\n  ${ui.green('no drift')}` : `\n  ${ui.red(`drift: ${drift}`)}`);
+  // ルートの AGENTS.md はプロジェクトの指示で、配備の外にある。ただ Claude Code は CLAUDE.md が
+  // 1 つでもあると AGENTS.md を読まないので、中身の違う CLAUDE.md があれば知らせる。差分には数えない。
+  if (ctx.kind === 'project' && inspection.agentModules.claude) {
+    const real = (rel) => { try { return fs.realpathSync(path.join(ctx.base, rel)); } catch { return null; } };
+    const agentsMd = real('AGENTS.md');
+    const shadows = ['CLAUDE.md', path.join('.claude', 'CLAUDE.md'), 'CLAUDE.local.md']
+      .filter((rel) => agentsMd && lstatOrNull(path.join(ctx.base, rel)) && real(rel) !== agentsMd);
+    if (shadows.length) console.log(`  ${ui.yellow('!')} ${shadows.join(', ')} ${ui.dim('— Claude Code reads this instead of AGENTS.md')}`);
+  }
   noticeOldCorpus();
   if (drift > 0) process.exitCode = 1;
 }
@@ -1916,8 +1787,10 @@ const CMD_HELP = {
       'Delivers to Claude as one plugin directory (.claude/skills/dotagents/), which',
       'namespaces its skills and agents as /dotagents:* and carries hooks without',
       'touching settings.json; Codex gets native skills in .agents/skills/ and custom',
-      'agent TOML files in .codex/agents/. The rules arrive',
-      'as a managed block in CLAUDE.md / AGENTS.md. Adding a module is additive, and only',
+      'agent TOML files in .codex/agents/. The rules arrive as files: .claude/rules/dotagents/',
+      'for Claude, and .codex/dotagents/ for Codex, read by a SessionStart hook in',
+      '.codex/hooks.json. Nothing is written at the project root — the AGENTS.md there is',
+      'your project\'s own, and every tool reads it. Adding a module is additive, and only',
       'the modules you name or check are delivered: what you installed before stays as it',
       'was delivered, even if its source has changed — update applies those changes.',
       'Everything is idempotent and hash-owned, so files you edited after installation are',
@@ -1927,8 +1800,10 @@ const CMD_HELP = {
     notes: [
       'Choose modules first, then Claude Code and/or Codex. --agent skips the second picker.',
       'Non-interactive install requires module names. Without --agent it uses recorded tools;',
-      'a fresh installation uses Claude, plus Codex if .codex/ or project AGENTS.md exists.',
+      'a fresh installation uses Claude, plus Codex if .codex/ exists.',
       'Each tool remembers its own module set. update, uninstall and status accept --agent too.',
+      'Codex leaves .codex/hooks.json off until you trust it with /hooks, again after each change.',
+      'Keep your own Codex hooks in .codex/config.toml; dotagents leaves that file alone.',
     ],
     examples: [
       ['agents-setup install review', 'into the current project'],
@@ -1974,8 +1849,7 @@ const CMD_HELP = {
       'delivered. Naming none in a terminal picks from what is installed here — modules',
       'first, then Claude Code and/or Codex when the selection is in both. Naming none in',
       'a non-interactive shell removes everything. Only files whose content still matches',
-      'the manifest are touched, and the managed rules blocks are stripped — your own',
-      'skills, your edits, and whatever you wrote around the blocks stay.',
+      'the manifest are touched — your own skills, your edits, and your AGENTS.md stay.',
     ],
     options: [],
     notes: [],
@@ -1987,7 +1861,7 @@ const CMD_HELP = {
   },
   status: {
     usage: '[options]',
-    line: 'verify the manifest, the delivered files and the rules blocks (exit 1 on drift)',
+    line: 'verify the manifest and the delivered files (exit 1 on drift)',
     body: [
       'Compares the installed files against both the manifest and the modules recorded',
       'here, and reports every difference: missing files, edits made in place, package',

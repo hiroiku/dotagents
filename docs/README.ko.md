@@ -48,8 +48,15 @@ modules/<name>/
 
 | 종류 | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **하나의 plugin 디렉터리**로, marketplace도 설치 단계도 없이 읽히며, 담긴 것을 `/dotagents:*`라는 네임스페이스에 넣는다. 훅이 `settings.json`을 한 번도 건드리지 않고 도착하는 것은 이 덕분이다 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; [Codex setup](../README.md#what-a-module-is) |
-| `AGENTS.md` | `.claude/CLAUDE.md` 안의 관리 블록 | `AGENTS.md` 안의 관리 블록 |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **하나의 plugin 디렉터리**로, marketplace도 설치 단계도 없이 읽히며, 담긴 것을 `/dotagents:*`라는 네임스페이스에 넣는다. 훅이 `settings.json`을 한 번도 건드리지 않고 도착하는 것은 이 덕분이다 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml` + `.codex/hooks.json`(네이티브 `codex/hooks.json`을 병합한 것); [Codex setup](../README.md#what-a-module-is) |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md` — 세션이 시작될 때 `.codex/hooks.json`의 `SessionStart` 훅을 통해 읽힌다 |
+
+### 모든 것의 자리는 두 규칙이 정한다
+
+1. **프로젝트 고유의 지시는 프로젝트 루트의 `AGENTS.md`에 둔다.** 어느 에이전트가 읽든 그것은 프로젝트의 것이며, dotagents는 그곳에 절대 쓰지 않는다. Claude Code, Codex, Cursor, OpenCode 모두 그 파일을 읽는다 — Claude Code는 프로젝트에 `CLAUDE.md`가 없을 때만 읽으며, `status`가 이를 짚어 준다.
+2. **dotagents가 전달하는 것은 모두 각 에이전트 자신의 디렉터리 안에 놓인다** — `.claude/`, `.agents/`, `.codex/`. 루트에는 아무것도 놓지 않으며, 당신의 파일은 하나도 고치지 않는다.
+
+그래서 module의 `AGENTS.md`는 독립된 파일 하나로 도착한다. Claude Code는 시작할 때 `.claude/rules/`를 당신의 지시와 나란히 읽어 들인다. Codex는 디렉터리마다 지시 파일을 하나만 읽으므로, 그 규칙은 대신 `SessionStart` 훅이 건넨다 — 시작할 때, `/clear` 뒤에, 그리고 압축 뒤에 다시. `-g`이면 같은 파일이 `~/.claude/rules/dotagents/`와 `~/.codex/dotagents/`로 가고, `~/.claude/CLAUDE.md`와 `~/.codex/AGENTS.md`는 당신의 것으로 남는다. 프로젝트의 `AGENTS.md`를 읽는 다른 에이전트에게는 프로젝트의 지시는 보이지만 전달된 규칙은 보이지 않는다.
 
 module은 `PATH`에 무엇을 기대하는지 선언할 수 있다. 요구 사항은 **감지될 뿐, 절대 설치되지 않는다**: `list`와 `install`은 빠진 것을 보고할 뿐 아무것도 막지 않으므로, 나중에 도구를 추가하더라도 재설치는 필요 없다.
 
@@ -97,7 +104,7 @@ dotagents --help               # 모든 명령, 옵션, 예시
 
 터미널에서 이름 없이 `uninstall`을 실행하면 이곳에 설치된 module을 고르는 화면이 열린다. 고른 module이 Claude Code와 Codex 양쪽에 설치되어 있으면 어느 쪽에서 뺄지 한 번 더 고른다. 비대화형 셸에서 이름 없이 실행하면 전부 제거한다.
 
-**배포처에서 규칙을 지우는 것은 `uninstall`뿐이다.** `~/.dotagents/modules/`에서 module을 지우는 일은 일상의 가벼운 조작이며, 그것을 넣어 둔 모든 프로젝트를 고쳐 써도 된다는 근거가 되지는 않는다. 그래서 전달된 module이 공급원을 잃으면 `update`는 파일을 남기고, 기록을 남기고, `CLAUDE.md`의 줄도 남긴 뒤, 무엇을 남겼는지와 어떻게 지우는지를 말한다. `status`는 그 상태를 이탈로 보고한다 — 맞춰 볼 원본이 없는 이상, 맞다고는 말할 수 없기 때문이다.
+**배포처에서 규칙을 지우는 것은 `uninstall`뿐이다.** `~/.dotagents/modules/`에서 module을 지우는 일은 일상의 가벼운 조작이며, 그것을 넣어 둔 모든 프로젝트를 고쳐 써도 된다는 근거가 되지는 않는다. 그래서 전달된 module이 공급원을 잃으면 `update`는 규칙까지 포함해 파일을 남기고, 기록을 남긴 뒤, 무엇을 남겼는지와 어떻게 지우는지를 말한다. `status`는 그 상태를 이탈로 보고한다 — 맞춰 볼 원본이 없는 이상, 맞다고는 말할 수 없기 때문이다.
 
 **스스로 움직이는 것은 없다.** 전달하는 것은 에이전트를 지배하는 문서이므로, 전달이 저절로 일어나지도, 소리 없이 일어나지도 않는다. 어떤 명령이든 무엇을 놓았고, 무엇을 남겼고, 무엇을 지웠는지 그때마다 밝힌다.
 
@@ -121,6 +128,8 @@ dotagents update -g             # 그리고 dotagents update -C <프로젝트>
 ## installer가 건드리는 것과 건드리지 않는 것
 
 모든 것은 멱등이며 **해시로 소유**된다: 자신이 배치했고 지금도 인식할 수 있는 것만 건드린다. 직접 작성한 스킬은 절대 건드리지 않고, 그 자리에서 수정한 파일은 그대로 두고 보고하며(`--force`로 덮어쓰기), `uninstall`이 제거하는 것도 기록이 배치했다고 말하는 것뿐이다 — 그 외에는 건드리지 않는다. 그 기록은 `~/.dotagents/state/`에 살며, 프로젝트에는 절대 놓이지 않는다.
+
+6.0 이전 버전은 규칙을 `CLAUDE.md`나 `AGENTS.md` 같은 규칙 파일 안에 표시를 단 블록으로 써 넣었다. 그 블록을 읽던 모든 에이전트가 새 자리에서 규칙을 받게 되면, `update`는 그 블록을 걷어 내고 파일의 나머지는 원래대로 둔다.
 
 프로젝트 범위의 plugin은 Claude Code가 저장소 루트에서 시작했을 때, 그리고 workspace 신뢰 대화상자를 수락한 뒤에만 읽힌다. 에이전트와 훅의 변경은 다음 세션부터, 또는 `/reload-plugins` 이후에 반영된다; `SKILL.md`의 편집은 즉시 반영된다.
 

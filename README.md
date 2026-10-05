@@ -37,11 +37,11 @@ dotagents install git --agent claude,codex
 dotagents install review -g --agent codex
 ```
 
-Each agent remembers its own module set. `update`, `uninstall`, and `status` operate on all recorded agents unless narrowed with `--agent codex` or `--agent claude`. Non-interactive installation requires module names. Without `--agent`, it uses recorded agents; a fresh installation preserves the previous default of Claude plus Codex when `.codex/` or project `AGENTS.md` exists. Specify `--agent` for deterministic scripts.
+Each agent remembers its own module set. `update`, `uninstall`, and `status` operate on all recorded agents unless narrowed with `--agent codex` or `--agent claude`. Non-interactive installation requires module names. Without `--agent`, it uses recorded agents; a fresh installation uses Claude, plus Codex when `.codex/` exists. Specify `--agent` for deterministic scripts.
 
 The interactive picker shows the target and keeps **this run's selection** (`[ ]` / `[x]`) separate from **what is already installed**: gray `○` available, green `●` installed, yellow `↑` update available, blue `~` modified locally, and red `!` missing or blocked. The focused module's description, origin, and drift details appear below the list. Only the modules you check are delivered: installed modules you leave unchecked stay as they were delivered, even when their source has changed, until `update` redelivers them. Unchecking never uninstalls; `uninstall` has a picker of its own.
 
-The picker and `status` compare delivered contents, not just package versions. Source changes and local edits can both be reported; a version change alone does not mark every module as outdated. Changes to the shared plugin metadata are reported separately, and edits to a combined rules block are labeled `shared rules changed` because the block has no module boundaries. Symbols and labels remain visible with `NO_COLOR`.
+The picker and `status` compare delivered contents, not just package versions. Source changes and local edits can both be reported; a version change alone does not mark every module as outdated. Changes to the files generated from several modules — the plugin metadata and Codex's `hooks.json` — are reported separately. Symbols and labels remain visible with `NO_COLOR`.
 
 Node or Bun, whichever the machine has — the CLI runs on either runtime.
 
@@ -64,15 +64,22 @@ modules/<name>/
 |---|---|---|
 | `skills/` | `.claude/skills/dotagents/skills/` — `/dotagents:*` | `.agents/skills/dotagents-*/`; the skill `name` is also namespaced as `dotagents-*` |
 | `agents/*.md` | `agents/` inside the plugin | Converted to `.codex/agents/dotagents-*.toml`; bundled reviewers use a `read-only` sandbox |
-| `hooks/` | `hooks/` inside the plugin | Claude hooks are not automatically translated; supply native `codex/hooks.json`. The executables in `hooks/` then arrive in `.codex/dotagents/<module>/` for it to call |
+| `hooks/` | `hooks/` inside the plugin | Claude hooks are not automatically translated; supply native `codex/hooks.json`, which is merged into `.codex/hooks.json`. The executables in `hooks/` then arrive in `.codex/dotagents/<module>/` for it to call |
 | `codex/` | Not delivered | Native assets copied into `.codex/`; `codex/agents/dotagents-<name>.toml` overrides the generated role of the same name |
-| `AGENTS.md` | A managed block in `.claude/CLAUDE.md` | A managed block in project `AGENTS.md`, or `~/.codex/AGENTS.md` with `-g`; created if absent |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`, read at session start by a `SessionStart` hook in `.codex/hooks.json` |
+
+### Two rules decide where everything goes
+
+1. **The project's own instructions live in `AGENTS.md` at the project root.** They belong to the project, whichever agent reads them, and dotagents never writes there. Claude Code, Codex, Cursor and OpenCode all read that file — Claude Code only when the project has no `CLAUDE.md`, which `status` points out.
+2. **Everything dotagents delivers lives inside an agent's own directory** — `.claude/`, `.agents/`, `.codex/`. Nothing is placed at the root, and no file of yours is edited.
+
+So a module's `AGENTS.md` arrives as a file of its own. Claude Code loads `.claude/rules/` at launch alongside your instructions. Codex reads one instruction file per directory, so its rules are handed over by a `SessionStart` hook instead — at startup, after `/clear`, and again after compaction. With `-g`, the same files go to `~/.claude/rules/dotagents/` and `~/.codex/dotagents/`, and your `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` stay yours. Other agents that read the project `AGENTS.md` see the project's instructions but not the delivered rules.
 
 Codex delivery follows the official [skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills) and [custom agent](https://learn.chatgpt.com/docs/agent-configuration/subagents) formats. With `-g`, skills live in `~/.agents/skills/` and agents in `~/.codex/agents/`. `update` migrates the previous `.codex/skills/dotagents-*` layout, retaining and reporting edited old files. Installations still using the legacy `.agents/.dotagents.json` record need one `update` without `--agent` before selecting individual agents.
 
 All bundled modules support Codex. Agent conversion reads single-line `name`, `description`, and `tools` metadata and uses the Markdown body as `developer_instructions`. Claude model names are omitted so Codex inherits its own settings. Supply native TOML for more advanced metadata or tool controls. Native assets follow the same hash ownership rules; conflicting user configuration is preserved and reported.
 
-Start a new Codex session after installation. Custom hooks require Codex’s native [`/hooks` trust flow](https://learn.chatgpt.com/docs/hooks); the installer does not change trust settings.
+Start a new Codex session after installation. Codex leaves `.codex/hooks.json` — and with it the rules — off until you trust it through its native [`/hooks` flow](https://learn.chatgpt.com/docs/hooks), and again after every change; the installer says when that is due and never changes trust settings itself. Keep your own Codex hooks in `.codex/config.toml`: `.codex/hooks.json` is generated, and one dotagents did not write is kept and reported rather than overwritten.
 
 A module may declare what it expects on `PATH`. Requirements are **detected, never installed**: `list` and `install` report what is missing and block nothing, so adding the tool later needs no reinstall.
 
@@ -122,7 +129,7 @@ dotagents --help               # every command, option, example
 
 In a terminal, `uninstall` with no names lists the modules installed at the target. When the selection is installed in both Claude Code and Codex, a second picker asks which to remove it from. In a non-interactive shell, naming none removes everything.
 
-**Only `uninstall` removes rules from a deployment.** Deleting a module from `~/.dotagents/modules/` is a small, everyday act; rewriting every project you installed it into is not. So when a delivered module no longer has a source, `update` keeps the files, keeps the record, keeps its lines in `CLAUDE.md`, and says what it kept and how to remove it. `status` reports the state as drift, because with no source there is nothing to verify the files against.
+**Only `uninstall` removes rules from a deployment.** Deleting a module from `~/.dotagents/modules/` is a small, everyday act; rewriting every project you installed it into is not. So when a delivered module no longer has a source, `update` keeps the files — its rules included — keeps the record, and says what it kept and how to remove it. `status` reports the state as drift, because with no source there is nothing to verify the files against.
 
 **Nothing moves on its own.** What arrives are the texts that govern your agents, so the delivery is never automatic and never silent: every command prints what it placed, kept and removed.
 
@@ -146,6 +153,8 @@ One path, not two. Two would mean one of them going stale — and the code that 
 ## What the installer will and will not touch
 
 Everything is idempotent and **hash-owned**: it touches only what it placed and still recognizes. Your own skills are never touched, files you edited in place are kept and reported (`--force` to overwrite), and `uninstall` removes exactly what the record says it placed — nothing else. That record lives in `~/.dotagents/state/`, never in a project.
+
+Versions before 6.0 wrote the rules as a marked block inside a rules file such as `CLAUDE.md` or `AGENTS.md`. `update` strips that block and leaves the rest of the file as it was, once every agent that read the block has its rules in the new place.
 
 Project-scope plugins load only when Claude Code starts at the repository root, and only after you accept the workspace trust dialog. Changes to agents and hooks take effect on the next session or after `/reload-plugins`; edits to a `SKILL.md` are picked up immediately.
 

@@ -26,4 +26,4 @@ Writing a comment has no moment. There is no command, no file, no phase of work 
 
 **Named for the layer, not for the rule.** `comments` would name what is in it today. What belongs here is anything that governs how code gets written and has no moment to be triggered on — the module is `code` so the next such rule has a place to land.
 
-This module declares no external requirements, and delivers no skills or agents: it is a few lines of prose that arrive as a managed block in `CLAUDE.md` / `AGENTS.md`.
+This module declares no external requirements, and delivers no skills or agents: it is a few lines of prose that arrive as a file of rules: `.claude/rules/dotagents/code.md` for Claude Code, `.codex/dotagents/code/AGENTS.md` for Codex.
