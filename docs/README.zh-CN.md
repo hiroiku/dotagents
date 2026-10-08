@@ -48,8 +48,8 @@ modules/<name>/
 
 | 种类 | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/`——**一个 plugin 目录**,既不需要 marketplace 也不需要任何安装步骤即被加载,并把它所容纳的内容置于 `/dotagents:*` 命名空间之下。hooks 正是借此在完全不触碰 `settings.json` 的情况下送达 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml` + `.codex/hooks.json`(由原生的 `codex/hooks.json` 合并而成); [Codex setup](../README.md#what-a-module-is) |
-| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`,在会话开始时由 `.codex/hooks.json` 中的 `SessionStart` hook 读入 |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/`——**一个 plugin 目录**,既不需要 marketplace 也不需要任何安装步骤即被加载,并把它所容纳的内容置于 `/dotagents:*` 命名空间之下。hooks 正是借此在完全不触碰 `settings.json` 的情况下送达 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml` + dotagents Codex plugin(由原生的 `codex/hooks.json` 合并而成,每台机器一个); [Codex setup](../README.md#what-a-module-is) |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`,在会话开始时由 dotagents Codex plugin 中的 `SessionStart` hook 读入 |
 
 ### 两条规则决定一切放在哪里
 
@@ -83,6 +83,7 @@ module 只能住在一个地方:`~/.dotagents/modules/`。范例并不是从包�
 ```
 ~/.dotagents/         属于你的一切,尽在一处
 ├── modules/          所有 module——范例也放在这里
+├── codex/            install 交给 Codex 的 plugin
 └── state/            什么被放到了哪里,以及你改过哪些范例
 ```
 

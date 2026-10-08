@@ -48,8 +48,8 @@ modules/<name>/
 
 | 종류 | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **하나의 plugin 디렉터리**로, marketplace도 설치 단계도 없이 읽히며, 담긴 것을 `/dotagents:*`라는 네임스페이스에 넣는다. 훅이 `settings.json`을 한 번도 건드리지 않고 도착하는 것은 이 덕분이다 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml` + `.codex/hooks.json`(네이티브 `codex/hooks.json`을 병합한 것); [Codex setup](../README.md#what-a-module-is) |
-| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md` — 세션이 시작될 때 `.codex/hooks.json`의 `SessionStart` 훅을 통해 읽힌다 |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **하나의 plugin 디렉터리**로, marketplace도 설치 단계도 없이 읽히며, 담긴 것을 `/dotagents:*`라는 네임스페이스에 넣는다. 훅이 `settings.json`을 한 번도 건드리지 않고 도착하는 것은 이 덕분이다 | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml` + dotagents Codex plugin(네이티브 `codex/hooks.json`을 병합한 것, 머신마다 하나); [Codex setup](../README.md#what-a-module-is) |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md` — 세션이 시작될 때 dotagents Codex plugin의 `SessionStart` 훅을 통해 읽힌다 |
 
 ### 모든 것의 자리는 두 규칙이 정한다
 
@@ -83,6 +83,7 @@ module이 살 수 있는 곳은 하나, `~/.dotagents/modules/`뿐이다. 본보
 ```
 ~/.dotagents/         당신의 것이 한자리에
 ├── modules/          모든 module — 본보기도 여기에 놓인다
+├── codex/            install이 Codex에 넘기는 plugin
 └── state/            무엇이 어디에 놓였는지, 본보기 중 무엇을 바꿨는지
 ```
 

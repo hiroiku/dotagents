@@ -6,6 +6,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import { installCodexStub } from './codex-stub.mjs';
+
+installCodexStub();
 
 const CLI = path.resolve(new URL('../bin/agents-setup', import.meta.url).pathname);
 const plugin = '.claude/skills/dotagents';
@@ -49,6 +52,7 @@ function fixture(t) {
 
 const rulesFile = (f, name) => path.join(f.project, '.claude/rules/dotagents', `${name}.md`);
 const codexRulesFile = (f, name, base = f.project) => path.join(base, '.codex/dotagents', name, 'AGENTS.md');
+const codexPluginHooks = (f) => JSON.parse(fs.readFileSync(path.join(f.env.DOTAGENTS_HOME, 'codex/plugins/dotagents/hooks/hooks.json'), 'utf8')).hooks;
 
 function stateLine(output, name) {
   const line = output.split('\n').find((line) => new RegExp(`^\\s*[○●↑~!] ${name}\\s`).test(line));
@@ -276,10 +280,10 @@ test('Codex-only creates native skills, agents and project rules in a fresh proj
   }));
   assert.deepEqual(fields, { name: 'dotagents-review', description: 'Review code and tests', sandbox_mode: 'read-only', developer_instructions: 'Read files, then report findings.' });
   assert.equal(read(codexRulesFile(f, 'gamma')), '# gamma v1\n');
-  const session = JSON.parse(read(path.join(f.project, '.codex/hooks.json'))).hooks.SessionStart;
-  assert.equal(session.length, 1);
-  assert.equal(session[0].matcher, '^(startup|clear|compact)$');
-  assert.match(session[0].hooks[0].command, /git rev-parse --show-toplevel/);
+  const session = codexPluginHooks(f).SessionStart.at(-1);
+  assert.equal(session.matcher, '^(startup|clear|compact)$');
+  assert.match(session.hooks[1].command, /git rev-parse --show-toplevel/);
+  assert.equal(fs.existsSync(path.join(f.project, '.codex/hooks.json')), false, 'hooks live in the machine-wide Codex plugin');
   assert.equal(fs.existsSync(path.join(f.project, 'AGENTS.md')), false, 'the project instructions are not created');
   assert.deepEqual(record(f).agentModules, { codex: ['alpha', 'gamma'] });
   assert.match(command(f, 'status', '--agent', 'codex'), /no drift/);
@@ -312,7 +316,7 @@ test('each tool remembers its own modules across install, update and uninstall',
   assert.deepEqual(record(f).agentModules, { codex: ['beta', 'delta'] });
   command(f, 'uninstall');
   assert.equal(fs.existsSync(codexTarget(f, 'beta')), false);
-  assert.equal(fs.existsSync(path.join(f.project, '.codex/hooks.json')), false);
+  assert.equal(fs.existsSync(path.join(f.env.DOTAGENTS_HOME, 'codex')), false, 'no Codex deployment is left, so the plugin is removed');
   assert.equal(read(path.join(f.project, 'AGENTS.md')), '# project rules\n', 'the project instructions were never touched');
 });
 
@@ -415,10 +419,8 @@ test('native Codex assets stay out of Claude and preserve existing user configur
   put(path.join(f.project, '.codex/hooks.json'), '{"user":"keep"}\n');
   command(f, 'install', 'gamma', '--agent', 'claude');
   assert.equal(fs.existsSync(path.join(f.project, plugin, 'codex')), false);
-  const result = f.run('install', 'gamma', '--agent', 'codex', '-C', f.project);
-  assert.equal(result.code, 1);
-  assert.match(result.out, /not delivered by dotagents, leaving it/);
-  assert.equal(read(path.join(f.project, '.codex/hooks.json')), '{"user":"keep"}\n');
+  command(f, 'install', 'gamma', '--agent', 'codex');
+  assert.equal(read(path.join(f.project, '.codex/hooks.json')), '{"user":"keep"}\n', 'the project hooks file stays the project\'s own');
   assert.match(read(path.join(f.project, '.codex/agents/custom.toml')), /name = "custom"/);
 });
 
@@ -490,14 +492,14 @@ test('global Codex installation creates its directories and leaves global Claude
   assert.equal(result.code, 0, result.out);
   assert.match(read(path.join(f.home, '.agents/skills/dotagents-alpha/SKILL.md')), /name: dotagents-alpha/);
   assert.equal(read(codexRulesFile(f, 'gamma', f.home)), '# gamma v1\n');
-  const command = JSON.parse(read(path.join(f.home, '.codex/hooks.json'))).hooks.SessionStart[0].hooks[0].command;
-  assert.match(command, /d="\$HOME"/, 'global rules are read from the home directory');
+  assert.match(codexPluginHooks(f).SessionStart.at(-1).hooks[0].command, /d="\$HOME"/, 'global rules are read from the home directory');
   assert.equal(fs.existsSync(path.join(f.home, '.codex/AGENTS.md')), false, 'the global instructions are left to the user');
   assert.equal(fs.existsSync(path.join(f.home, '.claude')), false);
   assert.equal(f.run('status', '-g', '--agent', 'codex').code, 0);
   assert.equal(f.run('uninstall', '-g', '--agent', 'codex').code, 0);
   assert.equal(fs.existsSync(path.join(f.home, '.codex/dotagents')), false);
   assert.equal(fs.existsSync(path.join(f.home, '.codex/hooks.json')), false);
+  assert.equal(fs.existsSync(path.join(f.env.DOTAGENTS_HOME, 'codex')), false);
 });
 
 test('native role override supports metadata that is not automatically convertible', (t) => {

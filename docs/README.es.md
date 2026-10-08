@@ -48,8 +48,8 @@ modules/<name>/
 
 | Tipo | Claude Code | Codex |
 |---|---|---|
-| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **un único directorio de plugin**, cargado sin marketplace y sin paso de instalación, que pone lo que contiene en el espacio de nombres `/dotagents:*`. Así es como llegan los hooks sin tocar nunca `settings.json` | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; el `codex/hooks.json` nativo de cada módulo se fusiona en `.codex/hooks.json`; [Codex setup](../README.md#what-a-module-is) |
-| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`, leído al inicio de la sesión por un hook `SessionStart` de `.codex/hooks.json` |
+| `skills/` · `agents/` · `hooks/` | `.claude/skills/dotagents/` — **un único directorio de plugin**, cargado sin marketplace y sin paso de instalación, que pone lo que contiene en el espacio de nombres `/dotagents:*`. Así es como llegan los hooks sin tocar nunca `settings.json` | `.agents/skills/dotagents-*/` + `.codex/agents/dotagents-*.toml`; el `codex/hooks.json` nativo de cada módulo se fusiona en el plugin dotagents para Codex, uno por máquina; [Codex setup](../README.md#what-a-module-is) |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`, leído al inicio de la sesión por un hook `SessionStart` del plugin dotagents para Codex |
 
 ### Dos reglas deciden dónde va cada cosa
 
@@ -83,6 +83,7 @@ Una vez colocado, el módulo es tuyo:
 ```
 ~/.dotagents/         todo lo que es tuyo, en un solo lugar
 ├── modules/          todos los módulos — la muestra también se coloca aquí
+├── codex/            el plugin que install entrega a Codex
 └── state/            qué se colocó dónde, y qué muestras has cambiado
 ```
 

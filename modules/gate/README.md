@@ -37,5 +37,5 @@ Claude Code は単独の長い sleep を本体で止めるので、sleep だけ�
 ## 配備
 
 - Claude Code: plugin の `hooks/` に届き、`PreToolUse`・`PostToolUse`・`PostToolUseFailure` で動く。
-- Codex: `codex/hooks.json` が `.codex/hooks.json` に、実行ファイルが `.codex/dotagents/gate/` に届く。Codex の `/hooks` で信頼すると動く。既に `.codex/hooks.json` がある場所では、installer は既存の設定を保ち、その旨を報告するので、手で統合する。
+- Codex: `codex/hooks.json` がマシンに 1 つの dotagents の Codex plugin に、実行ファイルが `.codex/dotagents/gate/` に届く。Codex の `/hooks` で信頼すると動く。信頼はマシンごとに 1 度で済み、プロジェクトの `.codex/hooks.json` には触れない。
 - 実行には bun か node を使う。bun を優先するのは、Bash の呼び出しごとに起動するため、起動の速さが効くからである。

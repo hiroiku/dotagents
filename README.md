@@ -41,7 +41,7 @@ Each agent remembers its own module set. `update`, `uninstall`, and `status` ope
 
 The interactive picker shows the target and keeps **this run's selection** (`[ ]` / `[x]`) separate from **what is already installed**: gray `○` available, green `●` installed, yellow `↑` update available, blue `~` modified locally, and red `!` missing or blocked. The focused module's description, origin, and drift details appear below the list. Only the modules you check are delivered: installed modules you leave unchecked stay as they were delivered, even when their source has changed, until `update` redelivers them. Unchecking never uninstalls; `uninstall` has a picker of its own.
 
-The picker and `status` compare delivered contents, not just package versions. Source changes and local edits can both be reported; a version change alone does not mark every module as outdated. Changes to the files generated from several modules — the plugin metadata and Codex's `hooks.json` — are reported separately. Symbols and labels remain visible with `NO_COLOR`.
+The picker and `status` compare delivered contents, not just package versions. Source changes and local edits can both be reported; a version change alone does not mark every module as outdated. Changes to what is generated from several modules — the plugin metadata and the Codex plugin — are reported separately. Symbols and labels remain visible with `NO_COLOR`.
 
 Node or Bun, whichever the machine has — the CLI runs on either runtime.
 
@@ -64,9 +64,9 @@ modules/<name>/
 |---|---|---|
 | `skills/` | `.claude/skills/dotagents/skills/` — `/dotagents:*` | `.agents/skills/dotagents-*/`; the skill `name` is also namespaced as `dotagents-*` |
 | `agents/*.md` | `agents/` inside the plugin | Converted to `.codex/agents/dotagents-*.toml`; bundled reviewers use a `read-only` sandbox |
-| `hooks/` | `hooks/` inside the plugin | Claude hooks are not automatically translated; supply native `codex/hooks.json`, which is merged into `.codex/hooks.json`. The executables in `hooks/` then arrive in `.codex/dotagents/<module>/` for it to call |
+| `hooks/` | `hooks/` inside the plugin | Claude hooks are not automatically translated; supply native `codex/hooks.json`, which is merged into the dotagents Codex plugin. The executables in `hooks/` then arrive in `.codex/dotagents/<module>/` for it to call |
 | `codex/` | Not delivered | Native assets copied into `.codex/`; `codex/agents/dotagents-<name>.toml` overrides the generated role of the same name |
-| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`, read at session start by a `SessionStart` hook in `.codex/hooks.json` |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`, read at session start by a `SessionStart` hook in the dotagents Codex plugin |
 
 ### Two rules decide where everything goes
 
@@ -79,7 +79,7 @@ Codex delivery follows the official [skill discovery](https://learn.chatgpt.com/
 
 All bundled modules support Codex. Agent conversion reads single-line `name`, `description`, and `tools` metadata and uses the Markdown body as `developer_instructions`. Claude model names are omitted so Codex inherits its own settings. Supply native TOML for more advanced metadata or tool controls. Native assets follow the same hash ownership rules; conflicting user configuration is preserved and reported.
 
-Start a new Codex session after installation. Codex leaves `.codex/hooks.json` — and with it the rules — off until you trust it through its native [`/hooks` flow](https://learn.chatgpt.com/docs/hooks), and again after every change; the installer says when that is due and never changes trust settings itself. Keep your own Codex hooks in `.codex/config.toml`: `.codex/hooks.json` is generated, and one dotagents did not write is kept and reported rather than overwritten.
+Start a new Codex session after installation. Codex gets its rules and hooks from a single dotagents plugin on the machine: `install` and `update` keep it installed through the `codex` CLI, and `uninstall` removes it along with the last Codex installation. Its hooks read the files delivered to the session's project — falling back to the main checkout from a worktree — and to your home, so one plugin serves every project. Codex runs those hooks, and so hands over the rules, only after you trust them through its native [`/hooks` flow](https://learn.chatgpt.com/docs/hooks): once per machine, and again only when a hook definition changes. The installer says when that is due and never changes trust settings itself. Without the `codex` CLI on `PATH`, installation goes ahead and says so; run `update` once it is there. `.codex/hooks.json` and `.codex/config.toml` stay your project's own, and custom agents in `.codex/agents/` load once Codex trusts the project.
 
 A module may declare what it expects on `PATH`. Requirements are **detected, never installed**: `list` and `install` report what is missing and block nothing, so adding the tool later needs no reinstall.
 
@@ -106,6 +106,7 @@ Once placed, a module is yours:
 ```
 ~/.dotagents/         everything that is yours, in one place
 ├── modules/          every module — the sample set is placed here too
+├── codex/            the plugin that install hands to Codex
 └── state/            what was placed where, and which samples you changed
 ```
 

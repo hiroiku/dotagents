@@ -6,12 +6,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { installCodexStub, codexLog, pathWithoutCodex } from './codex-stub.mjs';
 
 const REPO = path.resolve(new URL('..', import.meta.url).pathname);
 const CLI = path.join(REPO, 'bin', 'agents-setup');
 
 // テストは本拠地を HOME から導くので、走らせる人の DOTAGENTS_HOME に引きずられない。
 delete process.env.DOTAGENTS_HOME;
+installCodexStub();
 
 function run(home, args, opts = {}) {
   try {
@@ -92,7 +94,12 @@ const PLUGIN = '.claude/skills/dotagents';
 // 遍在則(module の AGENTS.md)の配達先。どちらもツールのディレクトリーの中にある。
 const claudeRules = (base, m = 'review') => path.join(base, '.claude/rules/dotagents', `${m}.md`);
 const codexRules = (base, m = 'review') => path.join(base, '.codex/dotagents', m, 'AGENTS.md');
-const codexSessionStart = (base) => JSON.parse(read(path.join(base, '.codex/hooks.json'))).hooks.SessionStart;
+// Codex の hook はマシンに 1 つの plugin に入る。最後の SessionStart が規則を読む。
+const codexPlugin = (home) => path.join(home, '.dotagents/codex/plugins/dotagents');
+const codexPluginHooks = (home) => JSON.parse(read(path.join(codexPlugin(home), 'hooks/hooks.json'))).hooks;
+const codexSessionStart = (home) => codexPluginHooks(home).SessionStart.at(-1);
+const codexInstalled = (home) => fs.existsSync(path.join(home, '.codex/plugins/cache/dotagents/dotagents'));
+const TRUST = /trust the dotagents hooks once in Codex/;
 
 test('fresh install(-g): Claude へは plugin、Codex へはネイティブのスキルとエージェントを配る', () => {
   const home = freshHome();
@@ -115,9 +122,13 @@ test('fresh install(-g): Claude へは plugin、Codex へはネイティブの�
 
   assert.equal(read(claudeRules(home)).trim(), RULES, '遍在則は Claude の rules に module ごとのファイルで入る');
   assert.equal(read(codexRules(home)).trim(), RULES, 'Codex へも module ごとのファイルで入る');
-  const [session] = codexSessionStart(home);
-  assert.equal(session.matcher, '^(startup|clear|compact)$', 'Codex には SessionStart で読ませる');
-  assert.match(session.hooks[0].command, /\.codex\/dotagents\/\*\/AGENTS\.md/);
+  const session = codexSessionStart(home);
+  assert.equal(session.matcher, '^(startup|clear|compact)$', 'Codex には plugin の SessionStart で読ませる');
+  assert.match(session.hooks[0].command, /d="\$HOME".*\.codex\/dotagents\/\*\/AGENTS\.md/, 'マシン全体の規則を先に読む');
+  assert.match(session.hooks[1].command, /git rev-parse --show-toplevel/, 'プロジェクトの規則を後に読む');
+  assert.ok(codexLog(home).includes('plugin add dotagents@dotagents'), 'plugin を Codex に入れる');
+  assert.ok(codexInstalled(home));
+  assert.ok(!fs.existsSync(path.join(home, '.codex/hooks.json')), 'Codex の hooks.json は書かない');
   assert.ok(!fs.existsSync(path.join(home, '.claude/CLAUDE.md')), 'ユーザーの規則ファイルは作らない');
   assert.ok(!fs.existsSync(path.join(home, '.codex/AGENTS.md')), 'Codex の規則ファイルも作らない');
 
@@ -141,14 +152,14 @@ test('冪等: 2 回目の install は何も変更しない', () => {
   const home = freshHome();
   run(home, ['install', ...BASE, '-g']);
   const before = read(path.join(stateDir(home), 'user.json'));
-  const hooksBefore = fs.statSync(path.join(home, '.codex/hooks.json')).mtimeMs;
+  const calls = codexLog(home).length;
   const { out } = run(home, ['install', ...BASE, '-g']);
   const after = userManifest(home);
   const beforeObj = JSON.parse(before);
   delete after.installedAt; delete beforeObj.installedAt;
   assert.deepEqual(after, beforeObj);
-  assert.equal(fs.statSync(path.join(home, '.codex/hooks.json')).mtimeMs, hooksBefore, 'hooks.json も書き直さない');
-  assert.doesNotMatch(out, /run \/hooks/, '変わっていない hooks.json の信頼を求めない');
+  assert.equal(codexLog(home).length, calls, '入っている plugin のために Codex を呼ばない');
+  assert.doesNotMatch(out, TRUST, '変わっていない hook の信頼を求めない');
 });
 
 test('改変保護: ユーザーが編集したファイルは update が触れず警告し、--force でのみ上書きする', () => {
@@ -173,7 +184,7 @@ test('ユーザーの規則ファイル: CLAUDE.md と .codex/AGENTS.md には i
   fs.writeFileSync(path.join(home, '.codex/AGENTS.md'), own);
 
   const first = run(home, ['install', ...BASE, '-g']);
-  assert.match(first.out, /run \/hooks in Codex to trust the changed \.codex\/hooks\.json/, 'Codex に hook の信頼を求める');
+  assert.match(first.out, TRUST, '初めて入れた plugin の hook の信頼を求める');
   run(home, ['update', '-g']);
   for (const rel of ['.claude/CLAUDE.md', '.codex/AGENTS.md']) assert.equal(read(path.join(home, rel)), own, `${rel} はそのまま`);
   assert.ok(fs.existsSync(claudeRules(home)), '規則は自分の置き場へ入る');
@@ -182,22 +193,85 @@ test('ユーザーの規則ファイル: CLAUDE.md と .codex/AGENTS.md には i
   for (const rel of ['.claude/CLAUDE.md', '.codex/AGENTS.md']) assert.equal(read(path.join(home, rel)), own, `${rel} はそのまま`);
   assert.ok(!fs.existsSync(path.join(home, '.claude/rules')), '自分の置き場は空になれば消える');
   assert.ok(!fs.existsSync(path.join(home, '.codex/dotagents')));
-  assert.ok(!fs.existsSync(path.join(home, '.codex/hooks.json')));
+  assert.ok(!codexInstalled(home), 'Codex を使う配備が無くなれば plugin も外す');
+  assert.ok(codexLog(home).includes('plugin remove dotagents@dotagents'));
+  assert.ok(!fs.existsSync(path.join(home, '.dotagents/codex')));
 });
 
-test('ユーザーの hooks.json: dotagents が置いた物でなければ上書きせず、--force でだけ置き換える', () => {
+test('ユーザーの hooks.json: Codex の hook は plugin に入るので、.codex/hooks.json には触れない', () => {
   const home = freshHome();
   const own = JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } }, null, 2) + '\n';
   fs.writeFileSync(path.join(home, '.codex/hooks.json'), own);
 
-  const r = run(home, ['install', ...BASE, '-g'], { allowFail: true });
-  assert.equal(r.code, 1, '警告で exit 1');
-  assert.match(r.out, /not delivered by dotagents, leaving it/);
-  assert.equal(read(path.join(home, '.codex/hooks.json')), own, 'ユーザーの hook は残る');
-  assert.ok(fs.existsSync(codexRules(home)), 'ほかの配達物は届く');
-  const st = run(home, ['status', '-g'], { allowFail: true });
+  run(home, ['install', ...BASE, '-g']);
+  assert.equal(read(path.join(home, '.codex/hooks.json')), own, 'ユーザーの hook はそのまま');
+  assert.match(run(home, ['status', '-g']).out, /no drift/);
+  run(home, ['uninstall', '-g']);
+  assert.equal(read(path.join(home, '.codex/hooks.json')), own);
+});
+
+test('Codex plugin: hook の定義が変わったときだけ入れ直して信頼を求め、規則の変更では Codex を呼ばない', () => {
+  const home = freshHome();
+  run(home, ['install', 'gate', 'review', '-g']);
+  const calls = codexLog(home).length;
+
+  fs.appendFileSync(path.join(personalModules(home), 'review', 'AGENTS.md'), '\n- 規則を 1 行足す。\n');
+  const rules = run(home, ['update', '-g']);
+  assert.match(read(codexRules(home)), /規則を 1 行足す/, '規則のファイルは配り直す');
+  assert.equal(codexLog(home).length, calls, '規則は hook が読むので、plugin は変わらない');
+  assert.doesNotMatch(rules.out, TRUST);
+
+  const gate = path.join(personalModules(home), 'gate', 'codex', 'hooks.json');
+  const hooks = JSON.parse(read(gate));
+  hooks.hooks.PreToolUse[0].hooks[0].timeout = 11;
+  fs.writeFileSync(gate, JSON.stringify(hooks, null, 2) + '\n');
+  const changed = run(home, ['update', '-g']);
+  assert.ok(codexLog(home).length > calls, 'hook の定義が変われば入れ直す');
+  assert.equal(codexPluginHooks(home).PreToolUse[0].hooks[0].timeout, 11);
+  assert.match(changed.out, TRUST, '変わった hook の信頼を求める');
+  assert.match(run(home, ['status', '-g']).out, /no drift/);
+});
+
+test('Codex plugin: Codex を使う配備が 1 つでも残る間は外さない', () => {
+  const home = freshHome();
+  const [a, b] = [freshProject(), freshProject()];
+  for (const proj of [a, b]) run(home, ['install', 'review', '--agent', 'codex', '-C', proj]);
+  run(home, ['install', 'review', '--agent', 'claude', '-g']);
+  run(home, ['uninstall', '-C', a]);
+  assert.ok(codexInstalled(home), 'b が Codex を使っている');
+  run(home, ['uninstall', '-C', b]);
+  assert.ok(!codexInstalled(home), 'Claude だけの配備には plugin は要らない');
+  assert.ok(!fs.existsSync(path.join(stateDir(home), 'codex-plugin.json')));
+});
+
+test('Codex plugin: codex の無いマシンでは知らせて配備は続け、status が差分として報告する', () => {
+  const home = freshHome();
+  const env = { PATH: pathWithoutCodex() };
+  const r = run(home, ['install', ...BASE, '-g'], { env });
+  assert.equal(r.code, 0, '依存の不在は配備の失敗ではない');
+  assert.match(r.out, /Codex CLI not found/);
+  assert.ok(fs.existsSync(codexRules(home)), 'プロジェクトへの配達は届く');
+  const st = run(home, ['status', '-g'], { env, allowFail: true });
   assert.equal(st.code, 1);
-  assert.match(st.out, /\.codex\/hooks\.json — not delivered by dotagents/);
+  assert.match(st.out, /Codex plugin dotagents@dotagents — not installed, run update/);
+  run(home, ['update', '-g']);
+  assert.match(run(home, ['status', '-g']).out, /no drift/, 'codex が入れば update で入る');
+});
+
+test('6.0 の移行: プロジェクトへ生成していた .codex/hooks.json は、触られていなければ update が刈り込む', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  run(home, ['install', 'review', '--agent', 'codex', '-C', proj]);
+  const old = path.join(proj, '.codex/hooks.json');
+  fs.writeFileSync(old, '{"hooks":{"SessionStart":[]}}\n');
+  const manifest = projectManifest(home, proj);
+  manifest.files['.codex/hooks.json'] = { hash: sha(old), module: null, agent: 'codex' };
+  const file = path.join(stateDir(home), 'projects', fs.readdirSync(path.join(stateDir(home), 'projects'))[0]);
+  fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + '\n');
+
+  run(home, ['update', '-C', proj]);
+  assert.ok(!fs.existsSync(old), '配っていた hooks.json は消える');
+  assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
 });
 
 test('外科的 uninstall: 自前スキルとユーザーの設定に触れず、配布物だけが消える', () => {
@@ -570,10 +644,7 @@ test('旧レイアウトの移行: .agents・symlink・zshenv 行・settings 断
     fragments: { bashEnv: true, sessionStart: true, ask: ['Bash(git push:*)'], codexSessionStart: true, refBlock: false },
   }, null, 2) + '\n');
 
-  // 旧断片を除いても、ユーザーの hook が残る hooks.json は dotagents の物ではない。
-  const up = run(home, ['update', '-g'], { allowFail: true });
-  assert.equal(up.code, 1, up.out);
-  assert.match(up.out, /not delivered by dotagents, leaving it .*\.codex\/hooks\.json/);
+  run(home, ['update', '-g']);
 
   assert.ok(!fs.existsSync(path.join(root, '.dotagents.json')), '旧レイアウトの記録は消える');
   assert.ok(fs.existsSync(path.join(root, 'skills/dotagents-prompting/SKILL.md')), 'Codex のネイティブスキルは新しく配られる');
@@ -591,9 +662,8 @@ test('旧レイアウトの移行: .agents・symlink・zshenv 行・settings 断
   assert.equal(cx.hooks.SessionStart.length, 1, 'codex は自分の断片だけ除去する');
   assert.match(cx.hooks.SessionStart[0].hooks[0].command, /herdr/, 'ユーザーの hook は残る');
 
-  const st = run(home, ['status', '-g'], { allowFail: true });
-  assert.match(st.out, /drift: 1\b/, '残る乖離は hooks.json だけ');
-  assert.match(st.out, /\.codex\/hooks\.json — not delivered by dotagents/);
+  const { out } = run(home, ['status', '-g']);
+  assert.match(out, /no drift/, '移行後は乖離なし');
 });
 
 test('旧レイアウトの残存: status は乖離として報告し、uninstall は legacy だけでも外科的に外す', () => {
@@ -713,7 +783,7 @@ test('プロジェクトの指示: ルートの AGENTS.md・CLAUDE.md とその�
   untouched();
   assert.equal(read(claudeRules(proj)).trim(), RULES, 'Claude には rules のファイルで届く');
   assert.equal(read(codexRules(proj)).trim(), RULES, 'Codex には自分の置き場のファイルで届く');
-  assert.match(codexSessionStart(proj)[0].hooks[0].command, /git rev-parse --show-toplevel/, 'worktree の最上位から読む');
+  assert.ok(!fs.existsSync(path.join(proj, '.codex/hooks.json')), 'Codex の hook はプロジェクトに置かない');
   const st = run(home, ['status', '-C', proj]);
   assert.match(st.out, /no drift/);
   assert.doesNotMatch(st.out, /reads this instead of AGENTS\.md/, '同じ実体を指す CLAUDE.md は知らせない');

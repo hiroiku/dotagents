@@ -16,7 +16,7 @@
 //   module の AGENTS.md は .claude/rules/dotagents/<module>.md へ。
 // - Codex : .agents/skills/dotagents-<name>/ と .codex/agents/*.toml へ。codex/ はそのまま .codex/ へ、
 //   hooks/ の実行ファイルと module の AGENTS.md は .codex/dotagents/<module>/ へ。
-//   .codex/hooks.json は module の codex/hooks.json を合わせて生成し、SessionStart で規則を読ませる。
+//   hook はマシンに 1 つの Codex plugin(dotagents@dotagents)に入れ、SessionStart で規則を読ませる。
 //
 // install はハッシュが一致するファイルにしか触れず、uninstall は manifest の記録だけを外す。
 // 旧レイアウト(.agents・symlink・zshenv 行・settings 断片・名前空間の外の素のコピー・規則ファイルの中の管理ブロック)は
@@ -27,7 +27,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const readline = require('node:readline');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 
 // 実装と、同梱の module が住む場所。どちらも npm から来て、一緒に新しくなる。
 //
@@ -444,11 +444,11 @@ const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs'])
 // 配達先の導出:
 // - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
 // - AGENTS.md      → Claude: .claude/rules/dotagents/<module>.md
-//                    Codex : .codex/dotagents/<module>/AGENTS.md(.codex/hooks.json の SessionStart が読ませる)
+//                    Codex : .codex/dotagents/<module>/AGENTS.md(Codex plugin の SessionStart が読ませる)
 // - skills/<name>/ → Codex : .agents/skills/dotagents-<name>/
 // - agents/*.md    → Codex : .codex/agents/dotagents-<name>.toml
 // - hooks/ の実行ファイル → Codex : .codex/dotagents/<module>/(codex/hooks.json がある module だけ)
-// - codex/hooks.json → Codex : module ごとの定義を合わせた .codex/hooks.json
+// - codex/hooks.json → Codex : プロジェクトには置かず、マシンに 1 つの Codex plugin へ(codexPluginFiles)
 function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } = {}) {
   const entries = [];
   const seen = new Map();
@@ -525,37 +525,8 @@ function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } =
       add({ agent, module: null, content: pluginManifest(present),
         dst: path.join(pluginRoot, '.claude-plugin', 'plugin.json'), unit: pluginRoot });
     }
-    if (agent === 'codex' && names.length) {
-      add({ agent, module: null, content: codexHooks(ctx, present), dst: path.join(ctx.codexDir, 'hooks.json'), unit: ctx.codexDir });
-    }
   }
   return entries;
-}
-
-// .codex/hooks.json は Codex が名前を決めている 1 つのファイルなので、module ごとにはコピーできない。
-// module の codex/hooks.json を合わせ、規則を読ませる SessionStart を足して生成する。
-//
-// 規則を SessionStart の出力で届けるのは、Codex が 1 つのディレクトリーから AGENTS.md を 1 つしか
-// 読まず、ルートの AGENTS.md はプロジェクトの物だからである。出力は開発者向けの指示として入る。
-// 圧縮の後は compact で読ませ直し、resume では前の会話に残っているので読ませない。
-// 規則の量で切り詰められないよう、出力の上限は既定(約 2,500 トークン)より広げる。
-function codexHooks(ctx, modules) {
-  const hooks = {};
-  for (const m of modules) {
-    const file = path.join(moduleDir(m), 'codex', 'hooks.json');
-    if (!lstatOrNull(file)?.isFile()) continue;
-    for (const [event, groups] of Object.entries(readJson(file, {}).hooks ?? {})) (hooks[event] ??= []).push(...groups);
-  }
-  // 自分の置き場の規則だけを読む。プロジェクトは worktree の最上位か共有の本体、-g はホーム。
-  const read = `set -- "$d"/.codex/${PLUGIN}/*/AGENTS.md; if [ -f "$1" ]; then exec cat "$@"; fi`;
-  const command = ctx.kind === 'user'
-    ? `sh -c 'd="$HOME"; ${read}'`
-    : `sh -c 'for d in "$(git rev-parse --show-toplevel 2>/dev/null)" "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/.."; do ${read}; done'`;
-  (hooks.SessionStart ??= []).push({
-    matcher: '^(startup|clear|compact)$',
-    hooks: [{ type: 'command', command, timeout: 10, additionalContextLimit: 20000 }],
-  });
-  return JSON.stringify({ hooks }, null, 2) + '\n';
 }
 
 function codexAgent(file, nativeRoot) {
@@ -792,6 +763,135 @@ function removeRulesBlock(ctx, record, log) {
   return true;
 }
 
+// ---------------------------------------------------------------- Codex plugin
+
+// Codex はプロジェクトの hook を、プロジェクトが信頼され、hooks.json がそのパスで信頼されたときにしか
+// 動かさず、定義が変わるたびに信頼し直させる。plugin の hook の信頼は plugin の名前で記録されるので、
+// マシンで一度信頼すれば、どのプロジェクトと worktree でも動く。だから Codex の hook はプロジェクトへ
+// 置かず、マシンに 1 つの plugin に入れる。plugin は本拠地の codex/ をローカルのマーケットプレイスとして
+// 入れ、Codex を使う配備が 1 つでもある間だけ置いておく。
+//
+// plugin はどのプロジェクトでも動くので、置き場のすべての module の hook を入れる。どの hook も、
+// プロジェクトに .codex/dotagents/<module>/ が無ければ何もしない。Codex は定義の文字列が変わると
+// 信頼し直させるので、定義は固定し、処理はプロジェクトへ配る実行ファイルの側に置く。
+const CODEX_PLUGIN_ID = `${PLUGIN}@${PLUGIN}`;
+const CODEX_MARKETPLACE_DIR = () => path.join(DOTAGENTS_HOME(), 'codex');
+const CODEX_PLUGIN_STATE = () => path.join(STATE_DIR(), 'codex-plugin.json');
+const CODEX_HOME = () => (process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(os.homedir(), '.codex'));
+const CODEX_PLUGIN_DIR = `plugins/${PLUGIN}`;
+
+// 規則は、マシン全体の物(~/.codex/dotagents/)を先に、プロジェクトの物(worktree の最上位、無ければ
+// 共有の本体)を後に読む。Claude Code が ~/.claude/rules を先に読むのと同じ順である。
+// 圧縮の後は compact で読ませ直し、resume では前の会話に残っているので読ませない。
+// 規則の量で切り詰められないよう、出力の上限は既定(約 2,500 トークン)より広げる。
+function codexRulesHooks() {
+  const read = `set -- "$d"/.codex/${PLUGIN}/*/AGENTS.md; if [ -f "$1" ]; then exec cat "$@"; fi`;
+  const commands = [
+    `sh -c 'd="$HOME"; ${read}'`,
+    `sh -c 'for d in "$(git rev-parse --show-toplevel 2>/dev/null)" "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/.."; do ${read}; done'`,
+  ];
+  return {
+    matcher: '^(startup|clear|compact)$',
+    hooks: commands.map((command) => ({ type: 'command', command, timeout: 10, additionalContextLimit: 20000 })),
+  };
+}
+
+function codexPluginFiles() {
+  const hooks = {};
+  for (const m of moduleNames()) {
+    const file = path.join(moduleDir(m), 'codex', 'hooks.json');
+    if (!lstatOrNull(file)?.isFile()) continue;
+    for (const [event, groups] of Object.entries(readJson(file, {}).hooks ?? {})) (hooks[event] ??= []).push(...groups);
+  }
+  (hooks.SessionStart ??= []).push(codexRulesHooks());
+  const json = (value) => JSON.stringify(value, null, 2) + '\n';
+  return {
+    '.agents/plugins/marketplace.json': json({
+      name: PLUGIN,
+      interface: { displayName: PLUGIN },
+      plugins: [{ name: PLUGIN, source: { source: 'local', path: `./${CODEX_PLUGIN_DIR}` },
+        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' }, category: 'Developer Tools' }],
+    }),
+    [`${CODEX_PLUGIN_DIR}/.codex-plugin/plugin.json`]: json({
+      name: PLUGIN, version: pkg().version, description: 'dotagents — rules and hooks for the projects that installed them',
+    }),
+    [`${CODEX_PLUGIN_DIR}/hooks/hooks.json`]: json({ hooks }),
+  };
+}
+
+const readTextOrNull = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
+
+// Codex を使う配備が 1 つでもあるか。plugin を置いておく理由はそれだけである。
+function codexDeployed() {
+  const projects = path.join(STATE_DIR(), 'projects');
+  const files = [path.join(STATE_DIR(), 'user.json'),
+    ...(lstatOrNull(projects)?.isDirectory() ? fs.readdirSync(projects).map((f) => path.join(projects, f)) : [])];
+  return files.some((f) => (readJson(f, null)?.agentModules?.codex ?? []).length > 0);
+}
+
+// 入っているかは、Codex が plugin を写した先と中身を比べて決める。Codex に一覧を尋ねると、
+// リモートのマーケットプレイスを取りに行って数十秒かかることがある。
+function codexPluginInspect() {
+  const files = codexPluginFiles();
+  const hooks = files[`${CODEX_PLUGIN_DIR}/hooks/hooks.json`];
+  const cache = path.join(CODEX_HOME(), 'plugins', 'cache', PLUGIN, PLUGIN, pkg().version);
+  const entries = Object.entries(files);
+  return {
+    files,
+    hash: sha256buf(Buffer.from(JSON.stringify(files))),
+    hooksHash: sha256buf(Buffer.from(hooks)),
+    recorded: readJson(CODEX_PLUGIN_STATE(), null),
+    written: entries.every(([rel, text]) => readTextOrNull(path.join(CODEX_MARKETPLACE_DIR(), rel)) === text),
+    installed: entries.filter(([rel]) => rel.startsWith(`${CODEX_PLUGIN_DIR}/`))
+      .every(([rel, text]) => readTextOrNull(path.join(cache, path.relative(CODEX_PLUGIN_DIR, rel))) === text),
+  };
+}
+
+function codexCli(args) {
+  const r = spawnSync('codex', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  if (r.error?.code === 'ENOENT') return { missing: true };
+  return { ok: r.status === 0, message: `${r.stderr || r.stdout || ''}`.trim().split('\n').pop() };
+}
+
+function syncCodexPlugin(log) {
+  const root = CODEX_MARKETPLACE_DIR();
+  const recorded = readJson(CODEX_PLUGIN_STATE(), null);
+  if (!codexDeployed()) {
+    if (!recorded && !lstatOrNull(root)) return;
+    if (recorded) {
+      codexCli(['plugin', 'remove', CODEX_PLUGIN_ID]);
+      codexCli(['plugin', 'marketplace', 'remove', PLUGIN]);
+      fs.unlinkSync(CODEX_PLUGIN_STATE());
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+    log.del(`Codex plugin ${CODEX_PLUGIN_ID} (no deployment uses Codex now)`);
+    return;
+  }
+  const p = codexPluginInspect();
+  if (!p.written) {
+    fs.rmSync(root, { recursive: true, force: true });
+    for (const [rel, text] of Object.entries(p.files)) {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      writeFileAtomic(path.join(root, rel), text);
+    }
+  }
+  if (p.installed && recorded?.hash === p.hash) return void log.ok(`Codex plugin ${CODEX_PLUGIN_ID}`);
+  for (const args of [['plugin', 'marketplace', 'add', root], ['plugin', 'add', CODEX_PLUGIN_ID]]) {
+    const r = codexCli(args);
+    if (r.missing) {
+      console.log(`  ${ui.yellow('!')} ${ui.dim(`Codex CLI not found — the Codex plugin ${CODEX_PLUGIN_ID} that carries the rules and hooks is not installed; run update once codex is on PATH`)}`);
+      return;
+    }
+    if (!r.ok) return void log.warn(`codex ${args.join(' ')} failed: ${r.message}`);
+  }
+  writeJson(CODEX_PLUGIN_STATE(), { hash: p.hash, hooksHash: p.hooksHash, version: pkg().version });
+  (recorded ? log.update : log.add)(`Codex plugin ${CODEX_PLUGIN_ID}`);
+  // Codex は定義が変わった hook を、信頼し直すまで動かさない。規則も SessionStart で届くので止まる。
+  if (recorded?.hooksHash !== p.hooksHash) {
+    console.log(ui.dim(`  trust the ${PLUGIN} hooks once in Codex (“Hooks need review” at startup, or /hooks) — until then Codex gets no rules or hooks`));
+  }
+}
+
 // ---------------------------------------------------------------- 配備状態(読み取り専用)
 
 // status と選択画面は同じ検査結果を使う。版番号は配備全体の記録なので、module の
@@ -876,6 +976,11 @@ function inspectDeployment(ctx) {
     add(owners, kinds, `${rel} — ${reason}`);
   }
 
+  if (agents.includes('codex') && (agentModules.codex ?? []).length) {
+    const p = codexPluginInspect();
+    if (p.written && p.installed) add([], [], `Codex plugin ${CODEX_PLUGIN_ID}`);
+    else add([], ['update'], `Codex plugin ${CODEX_PLUGIN_ID} — ${p.recorded ? 'outdated' : 'not installed'}, run update`);
+  }
   for (const r of manifest.rulesBlocks) add([], ['update'], `rules block ${r.file} — the old layout, run update to remove`);
   if (hasLegacy) add([], ['update'], `legacy layout ${homePath(ctx.legacyRoot)} — run update to migrate`);
   if (ctx.kind === 'user' && zshenvHasMarker(ctx)) add([], ['update'], 'legacy zshenv managed line — run update to prune');
@@ -1463,9 +1568,6 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     }
   }
 
-  const codexHooksRel = path.relative(ctx.base, codexHooksPath(ctx));
-  const codexHooksChanged = files[codexHooksRel] !== undefined && fileHash(files[codexHooksRel]) !== fileHash(old?.files?.[codexHooksRel]);
-
   // 3. 旧・規則ブロックを剥がす。複数のツールが読んでいたブロックは、そのすべてを配り直すときに
   //    剥がす — 片方だけ配り直すと、もう片方は新しい置き場に規則が届くまで規則を失うからである。
   const rulesBlocks = [];
@@ -1481,6 +1583,7 @@ async function install(opts, { requireExisting = false, replaceModules = false }
       ...(rulesBlocks.length ? { rulesBlocks } : {}),
     });
   } else if (old) fs.unlinkSync(manifestPath(ctx));
+  if (active.includes('codex') || lstatOrNull(CODEX_PLUGIN_STATE())) syncCodexPlugin(log);
 
   const c = log.counts;
   console.log(`\n  ${ui.bold(ctx.kind)} ${ui.dim('→')} ${homePath(ctx.base)}  ${ui.cyan([...modules, ...orphans].sort().join(' ')) || ui.dim('none')}`);
@@ -1517,8 +1620,6 @@ async function install(opts, { requireExisting = false, replaceModules = false }
   if (c.add + c.update + c.del > 0) {
     if (active.includes('claude')) console.log(ui.dim('  run /reload-plugins in a running Claude Code session, or start a new one'));
     if (active.includes('codex')) console.log(ui.dim('  start a new Codex session to load the installed skills, agents and rules'));
-    // Codex は定義が変わった hook を、信頼し直すまで動かさない。規則も SessionStart で届くので止まる。
-    if (codexHooksChanged) console.log(ui.dim(`  run /hooks in Codex to trust the changed ${codexHooksRel} — its rules and hooks stay off until then`));
   }
   if (c.warn > 0 && !(replaceModules && !opts.modules.length && !active.some((a) => agentModules[a]?.length))) process.exitCode = 1;
 }
@@ -1788,9 +1889,9 @@ const CMD_HELP = {
       'namespaces its skills and agents as /dotagents:* and carries hooks without',
       'touching settings.json; Codex gets native skills in .agents/skills/ and custom',
       'agent TOML files in .codex/agents/. The rules arrive as files: .claude/rules/dotagents/',
-      'for Claude, and .codex/dotagents/ for Codex, read by a SessionStart hook in',
-      '.codex/hooks.json. Nothing is written at the project root — the AGENTS.md there is',
-      'your project\'s own, and every tool reads it. Adding a module is additive, and only',
+      'for Claude, and .codex/dotagents/ for Codex, read by the dotagents Codex plugin that is',
+      'kept installed on this machine. Nothing is written at the project root — the AGENTS.md',
+      'there is your project\'s own, and every tool reads it. Adding a module is additive, and only',
       'the modules you name or check are delivered: what you installed before stays as it',
       'was delivered, even if its source has changed — update applies those changes.',
       'Everything is idempotent and hash-owned, so files you edited after installation are',
@@ -1802,8 +1903,8 @@ const CMD_HELP = {
       'Non-interactive install requires module names. Without --agent it uses recorded tools;',
       'a fresh installation uses Claude, plus Codex if .codex/ exists.',
       'Each tool remembers its own module set. update, uninstall and status accept --agent too.',
-      'Codex leaves .codex/hooks.json off until you trust it with /hooks, again after each change.',
-      'Keep your own Codex hooks in .codex/config.toml; dotagents leaves that file alone.',
+      'Codex runs the plugin\'s hooks after you trust them in /hooks — once per machine.',
+      '.codex/hooks.json and .codex/config.toml stay your project\'s own.',
     ],
     examples: [
       ['agents-setup install review', 'into the current project'],

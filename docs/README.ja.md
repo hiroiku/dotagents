@@ -43,7 +43,7 @@ node と bun のどちらでもよい — CLI 自身がその機械に在る run
 
 対話選択では対象の `project / global` を上部に示し、**今回の選択** (`[ ]` / `[x]`) と **現在の導入状態** を分けて表示する。灰色の `○` は未導入、緑の `●` は導入済み、黄色の `↑` は更新待ち、青の `~` は配備先の編集、赤の `!` は欠落や配備を妨げる状態。カーソルを合わせた module の説明・出どころ・差分の理由は一覧の下に表示する。配るのはチェックした module だけで、チェックしていない導入済みの module は、正本が変わっていても前回配った内容のまま残り、`update` で配り直される。チェックを外しても uninstall にはならない。外すときは `uninstall` の対話選択を使う。
 
-選択画面と `status` は配布内容を同じ方法で比較する。配布元の変更と配備先の編集は両方表示でき、版番号だけが変わっても全 module を更新待ちにはしない。複数の module から生成するファイル — plugin 情報と Codex の `hooks.json` — の差分は別に表示する。`NO_COLOR` でも記号とラベルで状態を判別できる。
+選択画面と `status` は配布内容を同じ方法で比較する。配布元の変更と配備先の編集は両方表示でき、版番号だけが変わっても全 module を更新待ちにはしない。複数の module から生成する物 — plugin 情報と Codex の plugin — の差分は別に表示する。`NO_COLOR` でも記号とラベルで状態を判別できる。
 
 ## module とは何か
 
@@ -64,9 +64,9 @@ modules/<name>/
 |---|---|---|
 | `skills/` | `.claude/skills/dotagents/skills/` — `/dotagents:*` | `.agents/skills/dotagents-*/` — スキルの `name` も `dotagents-*` にする |
 | `agents/*.md` | plugin 内の `agents/` | `.codex/agents/dotagents-*.toml` に変換。同梱レビュー役は `read-only` sandbox |
-| `hooks/` | plugin 内の `hooks/` | Claude 固有の hook は自動変換しない。`codex/hooks.json` にネイティブ形式を用意すると、`.codex/hooks.json` へ合わせて書き出す。そのとき `hooks/` の実行ファイルは `.codex/dotagents/<module>/` に届き、定義から呼べる |
+| `hooks/` | plugin 内の `hooks/` | Claude 固有の hook は自動変換しない。`codex/hooks.json` にネイティブ形式を用意すると、dotagents の Codex plugin へ合わせて書き出す。そのとき `hooks/` の実行ファイルは `.codex/dotagents/<module>/` に届き、定義から呼べる |
 | `codex/` | 配布しない | `.codex/` へネイティブ設定を配る。`codex/agents/dotagents-<name>.toml` は同名の変換結果より優先 |
-| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`。セッションの開始時に `.codex/hooks.json` の `SessionStart` hook が読ませる |
+| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`。セッションの開始時に dotagents の Codex plugin の `SessionStart` hook が読ませる |
 
 ### 置き場所は 2 つの規則で決まる
 
@@ -79,7 +79,7 @@ Codex の配置は公式の[スキル検出](https://learn.chatgpt.com/docs/buil
 
 同梱の全 module は Codex に配布できる。自作エージェントの変換では単一行の `name`・`description`・`tools` を読み、本文を `developer_instructions` にする。Claude のモデル指定は移さず、Codex の設定を引き継ぐ。より細かい制御や複雑なメタデータが必要ならネイティブ TOML を用意する。ネイティブ設定にもハッシュ所有の規則が適用され、既存のユーザー設定と競合すれば保持して報告する。
 
-Codex はインストール後に新しいセッションで読み込む。Codex は `.codex/hooks.json` を、[`/hooks` による信頼確認](https://learn.chatgpt.com/docs/hooks)を済ませるまで — 変更のたびにもう一度 — 動かさず、規則もそれまで届かない。installer は確認が要るときにそう表示し、信頼設定は変更しない。自分の Codex の hook は `.codex/config.toml` に書く。`.codex/hooks.json` は生成するファイルであり、dotagents が書いていない物がそこにあれば、上書きせず残して報告する。
+Codex はインストール後に新しいセッションで読み込む。Codex の規則と hook は、マシンに 1 つの dotagents plugin から届く。`install` と `update` が `codex` CLI でこれを入れた状態に保ち、Codex の配備が最後の 1 つまで `uninstall` されると外す。plugin の hook は、セッションのプロジェクト — worktree に無ければ本体 — とホームに配ったファイルを読むので、1 つの plugin がどのプロジェクトにも効く。Codex はこの hook を、[`/hooks` による信頼確認](https://learn.chatgpt.com/docs/hooks)を済ませるまで動かさず、規則もそれまで届かない。確認はマシンごとに 1 度で、hook の定義が変わったときだけもう一度要る。installer は確認が要るときにそう表示し、信頼設定は変更しない。`PATH` に `codex` CLI が無くてもインストールは進み、そのことを表示する。入れた後で `update` を実行する。`.codex/hooks.json` と `.codex/config.toml` はプロジェクト自身の物のまま残り、`.codex/agents/` の custom agent は Codex がプロジェクトを信頼すると読み込まれる。
 
 module は `PATH` に期待する物を宣言してよい。要件は**検出されるだけで、決して install されない**: `list` と `install` は欠けている物を報告するが、何も妨げない。だから後からツールを足しても、再 install は要らない。
 
@@ -106,6 +106,7 @@ module が住める場所は 1 つ、`~/.dotagents/modules/` だけである。�
 ```
 ~/.dotagents/         あなたの物すべてが、1 箇所に
 ├── modules/          すべての module — 見本もここに置かれる
+├── codex/            install が Codex へ渡す plugin
 └── state/            何がどこへ置かれたか、見本のどれを変えたか
 ```
 

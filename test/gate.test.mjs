@@ -8,6 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { installCodexStub } from './codex-stub.mjs';
 
 const REPO = path.resolve(new URL('..', import.meta.url).pathname);
 const CLI = path.join(REPO, 'bin', 'agents-setup');
@@ -243,6 +244,7 @@ function runHook(command, input, opts) {
 }
 
 test('install した位置から、Claude Code と Codex の hook 定義で測って止める', () => {
+  installCodexStub();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
@@ -251,7 +253,7 @@ test('install した位置から、Claude Code と Codex の hook 定義で測�
   const hookCommand = (file, event) => JSON.parse(fs.readFileSync(file, 'utf8')).hooks[event][0].hooks[0].command;
   const pluginRoot = path.join(proj, '.claude', 'skills', 'dotagents');
   const claudeHooks = path.join(pluginRoot, 'hooks', 'hooks.json');
-  const codexHooks = path.join(proj, '.codex', 'hooks.json');
+  const codexHooks = path.join(home, '.dotagents', 'codex', 'plugins', 'dotagents', 'hooks', 'hooks.json');
   assert.ok(fs.existsSync(path.join(proj, '.codex', 'dotagents', 'gate', 'verify-gate.mjs')), 'Codex にも実行ファイルが届く');
   assert.ok(!fs.existsSync(path.join(proj, '.codex', 'dotagents', 'gate', 'hooks.json')), 'Claude の定義は Codex へ運ばない');
 
