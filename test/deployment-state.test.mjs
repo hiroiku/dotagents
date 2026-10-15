@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -257,8 +258,24 @@ test('global picker uses global records, and narrow NO_COLOR output remains navi
 const read = (file) => fs.readFileSync(file, 'utf8');
 const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
 const codexTarget = (f, name) => path.join(f.project, '.agents', 'skills', `dotagents-${name}`, 'SKILL.md');
-const manifestFile = (f) => path.join(f.env.DOTAGENTS_HOME, 'state', 'projects', fs.readdirSync(path.join(f.env.DOTAGENTS_HOME, 'state', 'projects'))[0]);
-const record = (f) => JSON.parse(read(manifestFile(f)));
+// プロジェクトの記録は、ツールのディレクトリーごとの dotagents.json にある。
+const recordFiles = (f) => ['claude', 'codex'].map((agent) => [agent, path.join(f.project, `.${agent}`, 'dotagents.json')]);
+const recordText = (f) => recordFiles(f).map(([, file]) => (fs.existsSync(file) ? read(file) : '')).join('\0');
+function record(f) {
+  const parts = recordFiles(f).filter(([, file]) => fs.existsSync(file)).map(([agent, file]) => [agent, JSON.parse(read(file))]);
+  if (!parts.length) return null;
+  const m = { agentModules: {}, files: {} };
+  for (const [agent, r] of parts) {
+    if (r.modules.length) m.agentModules[agent] = r.modules;
+    for (const [rel, v] of Object.entries(r.files)) m.files[rel] = { ...v, agent };
+  }
+  return m;
+}
+// 7.0 までは、プロジェクトの記録をマシンにパスの鍵で置いていた。
+function machineFile(f) {
+  const base = fs.realpathSync(f.project);
+  return path.join(f.env.DOTAGENTS_HOME, 'state', 'projects', `${path.basename(base)}-${crypto.createHash('sha256').update(base).digest('hex').slice(0, 12)}.json`);
+}
 function command(f, ...args) {
   const result = f.run(...args, '-C', f.project);
   assert.equal(result.code, 0, result.out);
@@ -340,9 +357,9 @@ test('default updates keep recorded targets even when another tool directory app
   command(f, 'install', 'beta');
   assert.deepEqual(record(f).agentModules, { claude: ['alpha', 'beta', 'gamma'] });
   assert.equal(fs.existsSync(codexTarget(f, 'alpha')), false);
-  const before = read(manifestFile(f));
+  const before = recordText(f);
   assert.equal(f.run('update', '--agent', 'codex', '-C', f.project).code, 1);
-  assert.equal(read(manifestFile(f)), before);
+  assert.equal(recordText(f), before);
 });
 
 test('each tool updates its own rules files, and the project links stay as they are', (t) => {
@@ -382,7 +399,10 @@ test('Codex update migrates schema 4 skill paths without touching Claude or edit
     fs.unlinkSync(path.join(f.project, rel));
     old.files[legacy] = value; delete old.files[rel];
   }
-  put(manifestFile(f), JSON.stringify(old));
+  for (const [, file] of recordFiles(f)) fs.unlinkSync(file);
+  fs.unlinkSync(path.join(f.project, '.claude/rules/dotagents/project.md'));
+  put(machineFile(f), JSON.stringify({ ...old, kind: 'project', base: fs.realpathSync(f.project),
+    modules: ['alpha', 'beta'], files: Object.fromEntries(Object.entries(old.files).filter(([rel]) => !rel.endsWith('/project.md'))) }));
   const edited = path.join(f.project, '.codex/skills/dotagents-beta/SKILL.md');
   fs.appendFileSync(edited, '# local legacy edit\n');
   const claude = read(f.target('alpha'));
@@ -483,6 +503,7 @@ for (const key of ['\x03', '\r']) {
     assert.equal(fs.existsSync(f.target('alpha')), false);
     assert.equal(fs.existsSync(codexTarget(f, 'alpha')), false);
     assert.equal(fs.existsSync(path.join(f.env.DOTAGENTS_HOME, 'state/projects')), false);
+    assert.equal(record(f), null);
   });
 }
 
@@ -637,11 +658,11 @@ for (const key of ['\x03', '\r']) {
   test(`cancelling or confirming an empty uninstall picker removes nothing (${JSON.stringify(key)})`, { timeout: 10000 }, async (t) => {
     const f = fixture(t);
     f.install('alpha');
-    const before = read(manifestFile(f));
+    const before = recordText(f);
     const p = picker(t, f, { command: 'uninstall' });
     await p.frame(); p.send(key);
     assert.equal((await p.done()).code, 1);
-    assert.equal(read(manifestFile(f)), before);
+    assert.equal(recordText(f), before);
     assert.equal(fs.existsSync(f.target('alpha')), true);
   });
 }

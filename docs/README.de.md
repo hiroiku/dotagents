@@ -53,7 +53,7 @@ modules/<name>/
 
 ### Zwei Regeln bestimmen, wohin alles kommt
 
-1. **Die eigenen Anweisungen des Projekts liegen in der `AGENTS.md` in der Projektwurzel.** Sie gehören dem Projekt, gleich welcher Agent sie liest, und dotagents schreibt nie dorthin. Claude Code, Codex, Cursor und OpenCode lesen alle diese Datei — Claude Code nur, wenn das Projekt keine `CLAUDE.md` hat, worauf `status` hinweist.
+1. **Die eigenen Anweisungen des Projekts liegen in der `AGENTS.md` in der Projektwurzel.** Sie gehören dem Projekt, gleich welcher Agent sie liest, und dotagents schreibt nie dorthin. Claude Code, Codex, Cursor und OpenCode lesen alle diese Datei. Claude Code liest sie von sich aus nur, solange das Projekt keine `CLAUDE.md` hat; darum liefert dotagents zusätzlich `.claude/rules/dotagents/project.md` aus, einen einzeiligen Import davon (`@../../../AGENTS.md`): Eine eigene `CLAUDE.md` verdeckt sie nicht mehr, und eine `CLAUDE.md`, die auf `AGENTS.md` verweist, lädt sie nicht doppelt.
 2. **Alles, was dotagents ausliefert, liegt im eigenen Verzeichnis eines Agenten** — `.claude/`, `.agents/`, `.codex/`. Nichts wird in die Wurzel gelegt, und keine deiner Dateien wird bearbeitet.
 
 Darum kommt die `AGENTS.md` eines Moduls als eigene Datei an. Claude Code lädt `.claude/rules/` beim Start neben deinen Anweisungen. Codex liest pro Verzeichnis nur eine Anweisungsdatei, daher werden seine Regeln stattdessen von einem `SessionStart`-Hook übergeben — beim Start, nach `/clear` und erneut nach einer Kompaktierung. Mit `-g` gehen dieselben Dateien nach `~/.claude/rules/dotagents/` und `~/.codex/dotagents/`, und deine `~/.claude/CLAUDE.md` und `~/.codex/AGENTS.md` bleiben deine. Andere Agenten, die die `AGENTS.md` des Projekts lesen, sehen die Anweisungen des Projekts, aber nicht die ausgelieferten Regeln.
@@ -84,10 +84,10 @@ Einmal gelegt, gehört ein Modul dir:
 ~/.dotagents/         alles, was dir gehört, an einem Ort
 ├── modules/          alle Module — auch der Beispielsatz liegt hier
 ├── codex/            das Plugin, das install an Codex übergibt
-└── state/            was wohin platziert wurde, und welche Beispiele du geändert hast
+└── state/            was -g platziert hat, die Projekte mit einer Bereitstellung, und welche Beispiele du geändert hast
 ```
 
-Der Installer selbst wohnt nicht hier; er wird dort ersetzt, wo er herkam. Die Module wohnen hier — auch die, die das Paket gelegt hat. Genau das ist der Punkt.
+Der Installer selbst wohnt nicht hier; er wird dort ersetzt, wo er herkam. Die Module wohnen hier — auch die, die das Paket gelegt hat. Genau das ist der Punkt. `state/` hält fest, was `-g` platziert hat, welche Projekte eine Bereitstellung haben (das Plugin für Codex bleibt, solange eines davon Codex nutzt) und welche Beispielkopien du seither geändert oder entfernt hast. Die Aufzeichnung eines Projekts reist mit dem Projekt.
 
 `DOTAGENTS_HOME` verschiebt das Ganze; nichts sonst muss davon erfahren. Ein Home, und jeder Pfad leitet sich daraus ab — `status` und `--help` geben das jeweils wirksame Home aus, damit eine Maschine nie verbirgt, woher ihre Regeln stammen.
 
@@ -128,7 +128,9 @@ Ein Weg, nicht zwei. Zwei hieße, dass einer von beiden veraltet — und **der C
 
 ## Was der Installer anrührt — und was nicht
 
-Alles ist idempotent und **Hash-besessen**: Der Installer rührt nur an, was er selbst platziert hat und noch erkennt. Deine eigenen Skills werden nie berührt, Dateien, die du an Ort und Stelle bearbeitet hast, werden behalten und gemeldet (`--force` zum Überschreiben), und `uninstall` entfernt genau das, was die Aufzeichnung als platziert verzeichnet — nichts sonst. Diese Aufzeichnung lebt in `~/.dotagents/state/`, nie in einem Projekt.
+Alles ist idempotent und **Hash-besessen**: Der Installer rührt nur an, was er selbst platziert hat und noch erkennt. Deine eigenen Skills werden nie berührt, Dateien, die du an Ort und Stelle bearbeitet hast, werden behalten und gemeldet (`--force` zum Überschreiben), und `uninstall` entfernt genau das, was die Aufzeichnung als platziert verzeichnet — nichts sonst.
+
+Die Aufzeichnung eines Projekts liegt neben dem, was ausgeliefert wurde, in `.claude/dotagents.json` und `.codex/dotagents.json`. Nimm sie zusammen mit den ausgelieferten Dateien in den Commit auf, dann weiß jeder Clone, jeder Worktree und jede verschobene Arbeitskopie, was dotagents dort besitzt. Sie enthält keine Zeitstempel, deshalb hinterlässt ein `update`, das nichts ändert, keinen Diff. Weil eine Aufzeichnung aus dem Clone eines anderen kommen kann, nimmt sie nur Dateien innerhalb des Verzeichnisses ihres eigenen Agenten für sich in Anspruch. Eine Aufzeichnung, die 7.0 oder eine frühere Version in `~/.dotagents/state/projects/` abgelegt hat, zieht beim nächsten `update` ins Projekt um; `status` meldet, wenn eine darauf wartet.
 
 Versionen vor 6.0 schrieben die Regeln als markierten Block in eine Regeldatei wie `CLAUDE.md` oder `AGENTS.md`. `update` entfernt diesen Block und lässt den Rest der Datei, wie er war — sobald jeder Agent, der den Block gelesen hat, seine Regeln am neuen Ort hat.
 

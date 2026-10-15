@@ -7,13 +7,15 @@
 // (sh では `:` が何もしない組み込み、JS では文字列リテラルと行コメント)
 
 // dotagents installer — modules/ から選んだ物を各ツールが読む場所へ実ファイルで配り、
-// manifest(~/.dotagents/)で所有権を管理する。
+// 記録(manifest)で所有権を管理する。プロジェクトの記録は配った物と一緒に各ツールのディレクトリーの
+// dotagents.json へ置き、ユーザーレベルの記録は ~/.dotagents/state/ に置く。
 //
 // 配達先はツールのディレクトリーの中だけである。プロジェクトのルートには何も置かず、プロジェクトの
 // ファイルも書き換えない。プロジェクト固有の指示はルートの AGENTS.md にあり、どのツールもそれを読む。
 // - Claude: .claude/skills/dotagents/ 1 つに plugin として。skills・agents・hooks が
 //   名前空間 /dotagents:* の下に入り、settings.json を触らずにフックまで届く。
-//   module の AGENTS.md は .claude/rules/dotagents/<module>.md へ。
+//   module の AGENTS.md は .claude/rules/dotagents/<module>.md へ。ルートの AGENTS.md は
+//   .claude/rules/dotagents/project.md から取り込む(Claude Code は CLAUDE.md があると AGENTS.md を読まない)。
 // - Codex : .agents/skills/dotagents-<name>/ と .codex/agents/*.toml へ。codex/ はそのまま .codex/ へ、
 //   hooks/ の実行ファイルと module の AGENTS.md は .codex/dotagents/<module>/ へ。
 //   hook はマシンに 1 つの Codex plugin(dotagents@dotagents)に入れ、SessionStart で規則を読ませる。
@@ -39,7 +41,6 @@ const PKG_ROOT = path.resolve(__dirname, '..');
 const PLUGIN = 'dotagents';
 const AGENTS = ['claude', 'codex'];
 const AGENT_LABELS = { claude: 'Claude Code', codex: 'Codex' };
-// マシン固有の記録(manifest)の集約先。
 // この仕組みの本拠地。根は 1 つだけ環境変数で動かせ、中身の位置はすべてそこから導出する。
 const DOTAGENTS_HOME = () => (process.env.DOTAGENTS_HOME
   ? path.resolve(process.env.DOTAGENTS_HOME)
@@ -192,12 +193,103 @@ function makeCtx(opts) {
   };
 }
 
-// manifest はマシン固有の状態なので ~/.dotagents/ に集約する。プロジェクトは
-// 実パスで一意にキー化する(basename は人間の識別用、hash が同名の衝突を防ぐ)。
+// ユーザーレベルの記録はマシンの状態なので ~/.dotagents/ に置く。プロジェクトの記録も 7.0 まではここに
+// 置き、実パスで鍵を作っていた(basename は人間の識別用、hash が同名の衝突を防ぐ)。今は移行の読み出し専用。
 function manifestPath(ctx) {
   if (ctx.kind === 'user') return path.join(STATE_DIR(), 'user.json');
   const hash = crypto.createHash('sha256').update(ctx.base).digest('hex').slice(0, 12);
   return path.join(STATE_DIR(), 'projects', `${path.basename(ctx.base)}-${hash}.json`);
+}
+
+// 配った物はプロジェクトにコミットされ、clone・worktree・移動先へ一緒に届く。記録をマシンにパスの鍵で
+// 置くと、そのどれでも記録を見失う。だから記録も配った物と一緒に、ツールのディレクトリーごとに置く。
+// 時刻のように実行のたびに変わる値は持たない — 何も変わらない update でコミットに差分を出さないため。
+const RECORD_NAME = `${PLUGIN}.json`;
+const recordPath = (ctx, agent) => path.join(agent === 'claude' ? ctx.claudeDir : ctx.codexDir, RECORD_NAME);
+// 記録は clone と一緒に他人から届くので、そのまま信じない。持てるのは、そのツールの置き場の中の相対パスだけ。
+const RECORD_ROOTS = { claude: ['.claude/'], codex: ['.codex/', '.agents/'] };
+const insideBase = (rel) => typeof rel === 'string' && !path.isAbsolute(rel) && !rel.split(/[\\/]/).includes('..');
+const recordable = (agent, rel) => insideBase(rel) && RECORD_ROOTS[agent].some((root) => rel.startsWith(root));
+
+// プロジェクトの記録が無ければ、マシン側の旧い記録を読む。次に書くときにプロジェクトへ移る。
+function readRecord(ctx) {
+  if (ctx.kind === 'user') return readJson(manifestPath(ctx), null);
+  const parts = AGENTS.map((agent) => [agent, readJson(recordPath(ctx, agent), null)]).filter(([, r]) => r);
+  if (!parts.length) {
+    const machine = readJson(manifestPath(ctx), null);
+    return machine && { ...machine, base: ctx.base, inMachineState: true };
+  }
+  const m = { schema: 7, kind: 'project', base: ctx.base, agentModules: {}, files: {}, rulesBlocks: [] };
+  for (const [agent, r] of parts) {
+    const modules = (Array.isArray(r.modules) ? r.modules : []).filter((n) => typeof n === 'string');
+    if (modules.length) m.agentModules[agent] = modules;
+    for (const [rel, v] of Object.entries(r.files ?? {})) {
+      if (recordable(agent, rel) && typeof v?.hash === 'string') m.files[rel] = { hash: v.hash, module: typeof v.module === 'string' ? v.module : null, agent };
+    }
+    for (const b of Array.isArray(r.rulesBlocks) ? r.rulesBlocks : []) {
+      if (insideBase(b?.file) && !m.rulesBlocks.some((x) => x.file === b.file)) m.rulesBlocks.push(b);
+    }
+    m.version ??= r.version;
+  }
+  m.modules = [...new Set(Object.values(m.agentModules).flat())].sort();
+  return m;
+}
+
+// ツールごとに、その置き場へ配った物だけを書く。何も残らないツールの記録は消す。
+function writeRecord(ctx, { modules, agentModules, files, rulesBlocks }, log) {
+  if (ctx.kind === 'user') {
+    if (modules.length || Object.keys(files).length || rulesBlocks.length) {
+      writeJson(manifestPath(ctx), {
+        schema: 6, kind: ctx.kind, base: ctx.base, modules, agentModules,
+        version: pkg().version, installedAt: new Date().toISOString(), files,
+        ...(rulesBlocks.length ? { rulesBlocks } : {}),
+      });
+    } else if (lstatOrNull(manifestPath(ctx))) fs.unlinkSync(manifestPath(ctx));
+    return;
+  }
+  let recorded = false, blocked = false;
+  for (const agent of AGENTS) {
+    const file = recordPath(ctx, agent);
+    const owned = Object.entries(files).filter(([rel, v]) => recordAgent(rel, v) === agent)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([rel, v]) => [rel, { hash: fileHash(v), module: fileOwner(v) }]);
+    const blocks = rulesBlocks.filter((r) => rulesRecordAgents(r).includes(agent));
+    const names = agentModules[agent] ?? [];
+    if (!names.length && !owned.length && !blocks.length) {
+      if (lstatOrNull(file)?.isFile()) fs.unlinkSync(file);
+      continue;
+    }
+    if (blockedPath(ctx, file)) {
+      log.warn(`a symlink is in the way, cannot record what was delivered: ${file}`);
+      blocked = true;
+      continue;
+    }
+    writeJson(file, {
+      schema: 7, version: pkg().version, modules: names, files: Object.fromEntries(owned),
+      ...(blocks.length ? { rulesBlocks: blocks } : {}),
+    });
+    recorded = true;
+  }
+  if (!blocked && lstatOrNull(manifestPath(ctx))) fs.unlinkSync(manifestPath(ctx));
+  registerProject(ctx.base, recorded);
+}
+
+// マシンに残すのは、配ったプロジェクトのパスの一覧だけである。Codex plugin を置いておくかを決めるのに
+// 使う。移動や削除で古くなった行は、記録が見つからないので数えられないだけで、害は無い。
+const DEPLOYMENTS = () => path.join(STATE_DIR(), 'deployments.json');
+function deployedProjects() {
+  try {
+    const projects = readJson(DEPLOYMENTS(), null)?.projects;
+    return Array.isArray(projects) ? projects.filter((p) => typeof p === 'string') : [];
+  } catch { return []; } // 壊れた一覧は作り直す。配備そのものは各プロジェクトの記録にある
+}
+
+function registerProject(base, present) {
+  const before = deployedProjects();
+  const after = present ? [...new Set([...before, base])].sort() : before.filter((p) => p !== base);
+  if (after.length === before.length && after.every((p, i) => p === before[i])) return;
+  if (after.length) writeJson(DEPLOYMENTS(), { projects: after });
+  else if (lstatOrNull(DEPLOYMENTS())) fs.unlinkSync(DEPLOYMENTS());
 }
 
 function legacyManifestPath(ctx) { return path.join(ctx.legacyRoot, LEGACY_MANIFEST_NAME); }
@@ -437,6 +529,9 @@ function pluginManifest(modules) {
   }, null, 2) + '\n';
 }
 
+// .claude/rules/dotagents/project.md の中身。パスは、このファイルからプロジェクトのルートへの相対である。
+const PROJECT_RULES_IMPORT = '@../../../AGENTS.md\n';
+
 // 配備しない物。module の残りはすべて plugin の中身なので、種類を数え上げない —
 // skills/ と agents/ と hooks/ に限らず、plugin が解する物はそのまま運べる。
 const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs']);
@@ -445,6 +540,7 @@ const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs'])
 // - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
 // - AGENTS.md      → Claude: .claude/rules/dotagents/<module>.md
 //                    Codex : .codex/dotagents/<module>/AGENTS.md(Codex plugin の SessionStart が読ませる)
+// - ルートの AGENTS.md → Claude: .claude/rules/dotagents/project.md から取り込む(プロジェクトだけ)
 // - skills/<name>/ → Codex : .agents/skills/dotagents-<name>/
 // - agents/*.md    → Codex : .codex/agents/dotagents-<name>.toml
 // - hooks/ の実行ファイル → Codex : .codex/dotagents/<module>/(codex/hooks.json がある module だけ)
@@ -524,6 +620,13 @@ function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } =
     if (agent === 'claude' && (entries.length > before || (keepPlugin && names.length))) {
       add({ agent, module: null, content: pluginManifest(present),
         dst: path.join(pluginRoot, '.claude-plugin', 'plugin.json'), unit: pluginRoot });
+    }
+    // Claude Code はルートの AGENTS.md を、CLAUDE.md が 1 つも無いときにしか読まない。CLAUDE.md の有無に
+    // 依らずプロジェクトの指示が届くよう、規則のファイルから取り込む。同じファイルは 1 回しか読まれないので、
+    // CLAUDE.md が AGENTS.md へのリンクでも二重にならない。
+    if (agent === 'claude' && ctx.kind === 'project' && names.length) {
+      const unit = path.join(ctx.claudeDir, 'rules', PLUGIN);
+      add({ agent, module: null, content: PROJECT_RULES_IMPORT, dst: path.join(unit, 'project.md'), unit });
     }
   }
   return entries;
@@ -821,12 +924,14 @@ function codexPluginFiles() {
 
 const readTextOrNull = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
 
-// Codex を使う配備が 1 つでもあるか。plugin を置いておく理由はそれだけである。
+// Codex を使う配備が 1 つでもあるか。plugin を置いておく理由はそれだけである。マシン側の旧い記録は、
+// まだプロジェクトへ移していない配備として数える。
 function codexDeployed() {
-  const projects = path.join(STATE_DIR(), 'projects');
-  const files = [path.join(STATE_DIR(), 'user.json'),
-    ...(lstatOrNull(projects)?.isDirectory() ? fs.readdirSync(projects).map((f) => path.join(projects, f)) : [])];
-  return files.some((f) => (readJson(f, null)?.agentModules?.codex ?? []).length > 0);
+  const usesCodex = (file, read) => { try { return (read(readJson(file, null)) ?? []).length > 0; } catch { return false; } };
+  const legacy = path.join(STATE_DIR(), 'projects');
+  return usesCodex(path.join(STATE_DIR(), 'user.json'), (m) => m?.agentModules?.codex) ||
+    (lstatOrNull(legacy)?.isDirectory() ? fs.readdirSync(legacy) : []).some((f) => usesCodex(path.join(legacy, f), (m) => m?.agentModules?.codex)) ||
+    deployedProjects().some((base) => usesCodex(path.join(base, '.codex', RECORD_NAME), (r) => r?.modules));
 }
 
 // 入っているかは、Codex が plugin を写した先と中身を比べて決める。Codex に一覧を尋ねると、
@@ -897,7 +1002,7 @@ function syncCodexPlugin(log) {
 // status と選択画面は同じ検査結果を使う。版番号は配備全体の記録なので、module の
 // 更新待ちは「配布元・前回配布・現在の配備先」の内容で判定する。
 function inspectDeployment(ctx) {
-  const full = readJson(manifestPath(ctx), null);
+  const full = readRecord(ctx);
   const hasLegacy = !!readJson(legacyManifestPath(ctx), null);
   const agentModules = recordedAgentModules(ctx, full);
   const agents = ctx.agents ?? Object.keys(agentModules);
@@ -982,6 +1087,7 @@ function inspectDeployment(ctx) {
     else add([], ['update'], `Codex plugin ${CODEX_PLUGIN_ID} — ${p.recorded ? 'outdated' : 'not installed'}, run update`);
   }
   for (const r of manifest.rulesBlocks) add([], ['update'], `rules block ${r.file} — the old layout, run update to remove`);
+  if (full.inMachineState) add([], ['update'], `record ${homePath(manifestPath(ctx))} — run update to move it into the project`);
   if (hasLegacy) add([], ['update'], `legacy layout ${homePath(ctx.legacyRoot)} — run update to migrate`);
   if (ctx.kind === 'user' && zshenvHasMarker(ctx)) add([], ['update'], 'legacy zshenv managed line — run update to prune');
   return { manifest, hasLegacy, installed, checks, agentModules };
@@ -1449,7 +1555,7 @@ function migrateLegacy(ctx, log) {
 async function install(opts, { requireExisting = false, replaceModules = false } = {}) {
   const ctx = makeCtx(opts);
   const log = makeLog();
-  const old = readJson(manifestPath(ctx), null);
+  const old = readRecord(ctx);
   const legacy = readJson(legacyManifestPath(ctx), null);
   if (requireExisting && !old && !legacy) {
     throw new Error(`nothing installed for ${homePath(ctx.base)} — run \`agents-setup install <module>\` first.`);
@@ -1575,14 +1681,7 @@ async function install(opts, { requireExisting = false, replaceModules = false }
     if (!rulesRecordAgents(r).every((a) => active.includes(a)) || !removeRulesBlock(ctx, r, log)) rulesBlocks.push(r);
   }
 
-  if (wanted.length || Object.keys(files).length || rulesBlocks.length) {
-    writeJson(manifestPath(ctx), {
-      schema: 6, kind: ctx.kind, base: ctx.base,
-      modules: wanted, agentModules,
-      version: pkg().version, installedAt: new Date().toISOString(), files,
-      ...(rulesBlocks.length ? { rulesBlocks } : {}),
-    });
-  } else if (old) fs.unlinkSync(manifestPath(ctx));
+  writeRecord(ctx, { modules: wanted, agentModules, files, rulesBlocks }, log);
   if (active.includes('codex') || lstatOrNull(CODEX_PLUGIN_STATE())) syncCodexPlugin(log);
 
   const c = log.counts;
@@ -1632,7 +1731,7 @@ async function update(opts) {
 
 async function uninstall(opts) {
   const ctx = makeCtx(opts);
-  const m = readJson(manifestPath(ctx), null);
+  const m = readRecord(ctx);
   const hasLegacy = !!readJson(legacyManifestPath(ctx), null);
   if (!m && !hasLegacy) throw new Error(`nothing installed for ${homePath(ctx.base)} — nothing of ours to remove.`);
   if (!m) {
@@ -1674,7 +1773,8 @@ function status(opts) {
 
   const modules = [...inspection.installed];
   console.log(`\n  ${ui.bold(ctx.kind === 'user' ? 'global' : 'project')} ${ui.dim('→')} ${homePath(ctx.base)}`);
-  console.log(ui.dim(`  version=${m.version} installed=${m.installedAt}`));
+  console.log(ui.dim(`  version=${m.version}${m.installedAt ? ` installed=${m.installedAt}` : ''}`));
+  if (ctx.kind === 'project' && !m.inMachineState) console.log(ui.dim(`  record=${AGENTS.filter((a) => inspection.agentModules[a]?.length).map((a) => path.relative(ctx.base, recordPath(ctx, a))).join(', ')}`));
   console.log(ui.dim(`  agents=${(ctx.agents ?? Object.keys(inspection.agentModules)).join(', ')}`));
   if (m.commit) console.log(ui.dim(`  commit=${m.commit.slice(0, 12)}`));
   if (m.source) console.log(ui.dim(`  source=${m.source}`));
@@ -1691,15 +1791,6 @@ function status(opts) {
   }
   const drift = inspection.checks.filter((c) => c.kinds.length).length;
   console.log(drift === 0 ? `\n  ${ui.green('no drift')}` : `\n  ${ui.red(`drift: ${drift}`)}`);
-  // ルートの AGENTS.md はプロジェクトの指示で、配備の外にある。ただ Claude Code は CLAUDE.md が
-  // 1 つでもあると AGENTS.md を読まないので、中身の違う CLAUDE.md があれば知らせる。差分には数えない。
-  if (ctx.kind === 'project' && inspection.agentModules.claude) {
-    const real = (rel) => { try { return fs.realpathSync(path.join(ctx.base, rel)); } catch { return null; } };
-    const agentsMd = real('AGENTS.md');
-    const shadows = ['CLAUDE.md', path.join('.claude', 'CLAUDE.md'), 'CLAUDE.local.md']
-      .filter((rel) => agentsMd && lstatOrNull(path.join(ctx.base, rel)) && real(rel) !== agentsMd);
-    if (shadows.length) console.log(`  ${ui.yellow('!')} ${shadows.join(', ')} ${ui.dim('— Claude Code reads this instead of AGENTS.md')}`);
-  }
   noticeOldCorpus();
   if (drift > 0) process.exitCode = 1;
 }
@@ -1891,9 +1982,13 @@ const CMD_HELP = {
       'agent TOML files in .codex/agents/. The rules arrive as files: .claude/rules/dotagents/',
       'for Claude, and .codex/dotagents/ for Codex, read by the dotagents Codex plugin that is',
       'kept installed on this machine. Nothing is written at the project root — the AGENTS.md',
-      'there is your project\'s own, and every tool reads it. Adding a module is additive, and only',
-      'the modules you name or check are delivered: what you installed before stays as it',
-      'was delivered, even if its source has changed — update applies those changes.',
+      'there is your project\'s own, and every tool reads it; Claude gets it through',
+      '.claude/rules/dotagents/project.md, so a CLAUDE.md does not hide it. What was delivered',
+      'is recorded beside it, in .claude/dotagents.json and .codex/dotagents.json — commit them',
+      'with the delivered files, and every clone, worktree and moved checkout keeps its record.',
+      'Adding a module is additive, and only the modules you name or check are delivered:',
+      'what you installed before stays as it was delivered, even if its source has changed —',
+      'update applies those changes.',
       'Everything is idempotent and hash-owned, so files you edited after installation are',
       'kept and reported, and your own skills are untouched.',
     ],
@@ -1924,7 +2019,8 @@ const CMD_HELP = {
       'not given as they were delivered. It drops files a module no longer carries, and',
       'prunes any legacy .agents layout it finds. A remembered name that a module now',
       'declares it replaces is followed to its heirs, renamed or split, and the record is',
-      'rewritten to say so.',
+      'rewritten to say so. A project record that 7.0 or earlier kept in ~/.dotagents/state/',
+      'moves into the project.',
       '',
       'A delivered module whose source is gone from ~/.dotagents/modules/ is kept, not',
       'removed — only uninstall takes rules out of a deployment. It is reported instead.',
@@ -1997,7 +2093,7 @@ function printHelp(cmd) {
       ['--help, -h', 'show this help, or the help for a command'],
       ['--version, -v', 'print the version'],
     ]).join('\n'));
-    console.log(`\n${ui.bold('Home')} ${ui.dim('— every module, and the record of what was placed where')}`);
+    console.log(`\n${ui.bold('Home')} ${ui.dim('— every module, and the record of the user-level deployment')}`);
     console.log(`  ${ui.cyan(pad(homePath(DOTAGENTS_HOME()), 14))}  ${ui.dim(process.env.DOTAGENTS_HOME ? 'from DOTAGENTS_HOME' : 'set DOTAGENTS_HOME to move it')}`);
     console.log(`\n${ui.dim('Deployments are plain copies. Update the package for new rules, then `update` to redeliver.')}`);
     console.log(`\n${ui.dim(`Run \`agents-setup <command> --help\` for what a single command does.`)}`);

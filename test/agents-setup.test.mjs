@@ -67,16 +67,21 @@ const userManifest = (home) => JSON.parse(read(path.join(stateDir(home), 'user.j
 // 「何も書いていない」が指すのは配備の記録である。見本を置くのは別の行為で、
 // どのコマンドより先に済み、コマンドが止まっても取り消されない。
 const noDeployment = (home) => !fs.existsSync(path.join(stateDir(home), 'user.json'))
-  && !fs.existsSync(path.join(stateDir(home), 'projects'));
+  && !fs.existsSync(path.join(stateDir(home), 'projects')) && !fs.existsSync(path.join(stateDir(home), 'deployments.json'));
 
-function projectManifest(home, proj) {
-  const dir = path.join(stateDir(home), 'projects');
-  const real = fs.realpathSync(proj);
-  for (const f of fs.readdirSync(dir)) {
-    const m = JSON.parse(read(path.join(dir, f)));
-    if (m.base === real) return m;
+// プロジェクトの記録は、配った物と一緒にツールのディレクトリーごとの dotagents.json にある。1 つにまとめて読む。
+const recordFile = (proj, agent) => path.join(proj, agent === 'claude' ? '.claude' : '.codex', 'dotagents.json');
+function projectManifest(proj) {
+  const parts = ['claude', 'codex'].filter((a) => fs.existsSync(recordFile(proj, a)))
+    .map((a) => [a, JSON.parse(read(recordFile(proj, a)))]);
+  if (!parts.length) return null;
+  const m = { agentModules: {}, files: {} };
+  for (const [agent, r] of parts) {
+    if (r.modules.length) m.agentModules[agent] = r.modules;
+    for (const [rel, v] of Object.entries(r.files)) m.files[rel] = { ...v, agent };
+    for (const b of r.rulesBlocks ?? []) if (!(m.rulesBlocks ??= []).some((x) => x.file === b.file)) m.rulesBlocks.push(b);
   }
-  return null;
+  return m;
 }
 
 // 配達の三形態(遍在則・役割・瞬間則)を 1 回の install で揃えるには、AGENTS.md と
@@ -264,10 +269,9 @@ test('6.0 の移行: プロジェクトへ生成していた .codex/hooks.json �
   run(home, ['install', 'review', '--agent', 'codex', '-C', proj]);
   const old = path.join(proj, '.codex/hooks.json');
   fs.writeFileSync(old, '{"hooks":{"SessionStart":[]}}\n');
-  const manifest = projectManifest(home, proj);
-  manifest.files['.codex/hooks.json'] = { hash: sha(old), module: null, agent: 'codex' };
-  const file = path.join(stateDir(home), 'projects', fs.readdirSync(path.join(stateDir(home), 'projects'))[0]);
-  fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + '\n');
+  const record = JSON.parse(read(recordFile(proj, 'codex')));
+  record.files['.codex/hooks.json'] = { hash: sha(old), module: null };
+  fs.writeFileSync(recordFile(proj, 'codex'), JSON.stringify(record, null, 2) + '\n');
 
   run(home, ['update', '-C', proj]);
   assert.ok(!fs.existsSync(old), '配っていた hooks.json は消える');
@@ -796,16 +800,26 @@ test('プロジェクトの指示: ルートの AGENTS.md・CLAUDE.md とその�
   assert.ok(!fs.existsSync(path.join(proj, '.codex/dotagents')));
 });
 
-test('プロジェクトの指示: 中身の違う CLAUDE.md があれば、Claude Code が AGENTS.md を読まないことを status が知らせる', () => {
+test('プロジェクトの指示: CLAUDE.md があっても届くよう、Claude には規則のファイルから AGENTS.md を取り込ませる', () => {
   const home = freshHome();
   const proj = freshProject();
   fs.writeFileSync(path.join(proj, 'AGENTS.md'), '# プロジェクトの規則\n');
-  fs.writeFileSync(path.join(proj, 'README.md'), '# 説明\n');
-  fs.symlinkSync('README.md', path.join(proj, 'CLAUDE.md'));
+  fs.mkdirSync(path.join(proj, '.claude'));
+  fs.writeFileSync(path.join(proj, '.claude/CLAUDE.md'), '# Claude だけの指示\n');
   run(home, ['install', ...BASE, '-C', proj]);
-  const st = run(home, ['status', '-C', proj]);
-  assert.equal(st.code, 0, '差分には数えない');
-  assert.match(st.out, /CLAUDE\.md — Claude Code reads this instead of AGENTS\.md/);
+  const imports = path.join(proj, '.claude/rules/dotagents/project.md');
+  assert.equal(read(imports), '@../../../AGENTS.md\n', 'ルートの AGENTS.md を指す');
+  assert.equal(path.resolve(path.dirname(imports), '../../../AGENTS.md'), path.join(proj, 'AGENTS.md'));
+  assert.equal(read(path.join(proj, 'AGENTS.md')), '# プロジェクトの規則\n', 'AGENTS.md には触れない');
+  assert.equal(read(path.join(proj, '.claude/CLAUDE.md')), '# Claude だけの指示\n', 'CLAUDE.md にも触れない');
+  assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
+
+  run(home, ['install', 'review', '--agent', 'codex', '-C', proj]);
+  assert.ok(!fs.existsSync(path.join(proj, '.codex/dotagents/project.md')), 'Codex はルートの AGENTS.md を自分で読む');
+  run(home, ['install', ...BASE, '-g']);
+  assert.ok(!fs.existsSync(path.join(home, '.claude/rules/dotagents/project.md')), 'ユーザーレベルには取り込む AGENTS.md が無い');
+  run(home, ['uninstall', '--agent', 'claude', '-C', proj]);
+  assert.ok(!fs.existsSync(imports), 'Claude から外せば消える');
 });
 
 // 5.x はプロジェクトの規則ファイルへ管理ブロックを書いていた。その記録を持つ配備を再現する。
@@ -846,7 +860,7 @@ test('旧・規則ブロック: update は記録にあるブロックを剥が�
   assert.ok(!fs.existsSync(created), '自分が作ったファイルは空になれば消える');
   assert.equal(read(claudeRules(proj)).trim(), RULES, '規則は新しい置き場へ入る');
   assert.equal(read(codexRules(proj)).trim(), RULES);
-  assert.equal(projectManifest(home, proj).rulesBlocks, undefined, 'ブロックの記録は消える');
+  assert.equal(projectManifest(proj).rulesBlocks, undefined, 'ブロックの記録は消える');
   assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
 });
 
@@ -859,7 +873,7 @@ test('旧・規則ブロック: 片方のツールだけを update するあい�
 
   run(home, ['update', '--agent', 'claude', '-C', proj]);
   assert.ok(read(canonical).includes(RULES), 'Codex はまだこのブロックで規則を読んでいる');
-  assert.equal(projectManifest(home, proj).rulesBlocks.length, 1);
+  assert.equal(projectManifest(proj).rulesBlocks.length, 1);
   run(home, ['update', '-C', proj]);
   assert.equal(read(canonical), '# 規則\n');
 });
@@ -887,14 +901,14 @@ for (const redirected of ['ファイル', 'ディレクトリー']) {
     assert.equal(up.code, 1, up.out);
     assert.match(up.out, /leaving the old rules block/);
     assert.equal(read(external), before, 'リンクの先は書き換えない');
-    assert.equal(projectManifest(home, proj).rulesBlocks.length, 1, '剥がせなかった記録は残る');
+    assert.equal(projectManifest(proj).rulesBlocks.length, 1, '剥がせなかった記録は残る');
     assert.equal(run(home, ['status', '-C', proj], { allowFail: true }).code, 1);
   });
 }
 
 // ---------------------------------------------------------------- 配備先
 
-test('project install(既定): プロジェクトの .claude/ に入り、マシン固有の物を何も残さない', () => {
+test('project install(既定): プロジェクトの .claude/ に入り、記録も一緒にそこへ置く', () => {
   const home = freshHome();
   const proj = freshProject();
   execFileSync('git', ['init', '-q'], { cwd: proj });
@@ -908,14 +922,86 @@ test('project install(既定): プロジェクトの .claude/ に入り、マシ
   assert.ok(!fs.existsSync(path.join(proj, 'AGENTS.md')), 'root AGENTS.md が無いプロジェクトには作らない');
 
   const status = execFileSync('git', ['status', '--porcelain', '-uall'], { cwd: proj, encoding: 'utf8' });
-  assert.ok(!status.includes('dotagents.json'), 'manifest はプロジェクトに現れない(本拠地に置く)');
+  assert.ok(status.includes('.claude/dotagents.json'), '記録は配った物と一緒にコミットできる');
   assert.ok(status.split('\n').filter(Boolean).every((l) => l.includes('.claude/')), '増えるのは .claude/ 配下だけ');
-  assert.equal(projectManifest(home, proj).kind, 'project');
+  assert.deepEqual(projectManifest(proj).agentModules, { claude: INSTALLED });
+  assert.ok(!fs.existsSync(path.join(stateDir(home), 'projects')), 'マシンにはプロジェクトの記録を置かない');
   assert.ok(!fs.existsSync(path.join(home, '.claude/rules')), 'user レベルには何も敷かない');
 
   run(home, ['uninstall'], { cwd: proj });
   assert.ok(!fs.existsSync(path.join(proj, '.claude/rules')), '規則のファイルは消える');
   assert.ok(!fs.existsSync(path.join(proj, PLUGIN)), 'plugin も消える');
+  assert.ok(!fs.existsSync(recordFile(proj, 'claude')), '記録も消える');
+  assert.ok(noDeployment(home));
+});
+
+test('記録はプロジェクトと一緒に動く: 移した先、clone、worktree で update が記録を見つける', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  execFileSync('git', ['init', '-q'], { cwd: proj });
+  run(home, ['install', ...BASE, '-C', proj]);
+  execFileSync('git', ['add', '-A'], { cwd: proj });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'dotagents'], { cwd: proj });
+  const before = read(recordFile(proj, 'claude'));
+
+  const moved = path.join(freshProject(), 'renamed');
+  fs.renameSync(proj, moved);
+  const up = run(home, ['update', '-C', moved]);
+  assert.match(up.out, /nothing to do|unchanged/, up.out);
+  assert.equal(read(recordFile(moved, 'claude')), before, '何も変わらない update は記録を書き換えない');
+  assert.match(run(home, ['status', '-C', moved]).out, /no drift/);
+
+  const tree = path.join(freshProject(), 'tree');
+  execFileSync('git', ['worktree', 'add', '-q', tree], { cwd: moved });
+  assert.match(run(home, ['status', '-C', tree]).out, /no drift/, 'worktree にもコミットした記録がある');
+  const clone = path.join(freshProject(), 'clone');
+  execFileSync('git', ['clone', '-q', moved, clone]);
+  assert.match(run(home, ['status', '-C', clone]).out, /no drift/, 'clone にも届く');
+});
+
+test('記録はプロジェクトの外から届くので、自分のツールのディレクトリーの外にあるファイルの所有は認めない', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  run(home, ['install', ...BASE, '-C', proj]);
+  const outside = path.join(proj, 'src.ts');
+  const above = path.join(path.dirname(proj), `${path.basename(proj)}-neighbor.txt`);
+  fs.writeFileSync(outside, 'mine\n');
+  fs.writeFileSync(above, 'mine\n');
+  const record = JSON.parse(read(recordFile(proj, 'claude')));
+  record.files['src.ts'] = { hash: sha(outside), module: 'review' };
+  record.files[`.claude/../../${path.basename(above)}`] = { hash: sha(above), module: 'review' };
+  fs.writeFileSync(recordFile(proj, 'claude'), JSON.stringify(record, null, 2) + '\n');
+
+  run(home, ['uninstall', '-C', proj]);
+  assert.equal(read(outside), 'mine\n', 'プロジェクトのファイルは消さない');
+  assert.equal(read(above), 'mine\n', 'プロジェクトの外も消さない');
+  fs.rmSync(above);
+});
+
+test('7.0 までの記録: マシンにあったプロジェクトの記録は、update でプロジェクトへ移る', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  fs.mkdirSync(path.join(proj, '.codex'));
+  run(home, ['install', ...BASE, '-C', proj]);
+  const merged = projectManifest(proj);
+  const base = fs.realpathSync(proj);
+  const dir = path.join(stateDir(home), 'projects');
+  fs.mkdirSync(dir, { recursive: true });
+  const machine = path.join(dir, `${path.basename(base)}-${crypto.createHash('sha256').update(base).digest('hex').slice(0, 12)}.json`);
+  fs.writeFileSync(machine, JSON.stringify({ schema: 6, kind: 'project', base, modules: INSTALLED,
+    agentModules: merged.agentModules, version: '7.0.0', installedAt: '2026-10-08T00:00:00.000Z',
+    files: Object.fromEntries(Object.entries(merged.files).filter(([rel]) => !rel.endsWith('/project.md'))) }, null, 2) + '\n');
+  for (const a of ['claude', 'codex']) fs.unlinkSync(recordFile(proj, a));
+  fs.unlinkSync(path.join(proj, '.claude/rules/dotagents/project.md'));
+
+  const st = run(home, ['status', '-C', proj], { allowFail: true });
+  assert.equal(st.code, 1);
+  assert.match(st.out, /record .*\.json — run update to move it into the project/);
+  run(home, ['update', '-C', proj]);
+  assert.ok(!fs.existsSync(machine), 'マシン側の記録は消える');
+  assert.deepEqual(projectManifest(proj).agentModules, merged.agentModules, '選んだ module はそのまま');
+  assert.ok(fs.existsSync(path.join(proj, '.claude/rules/dotagents/project.md')));
+  assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
 });
 
 test('-C は場所を名指しする。-g との併用は矛盾なので止まる', () => {
@@ -923,7 +1009,7 @@ test('-C は場所を名指しする。-g との併用は矛盾なので止ま�
   const proj = freshProject();
   run(home, ['install', ...BASE, '-C', proj]);
   assert.ok(fs.existsSync(path.join(proj, PLUGIN, 'skills/prompting/SKILL.md')), '-C の場所に入る');
-  assert.equal(projectManifest(home, proj).kind, 'project');
+  assert.ok(projectManifest(proj), '-C の場所に記録を置く');
 
   const r = run(home, ['install', ...BASE, '-g', '-C', proj], { allowFail: true });
   assert.equal(r.code, 1);

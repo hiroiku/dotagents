@@ -53,7 +53,7 @@ modules/<name>/
 
 ### 모든 것의 자리는 두 규칙이 정한다
 
-1. **프로젝트 고유의 지시는 프로젝트 루트의 `AGENTS.md`에 둔다.** 어느 에이전트가 읽든 그것은 프로젝트의 것이며, dotagents는 그곳에 절대 쓰지 않는다. Claude Code, Codex, Cursor, OpenCode 모두 그 파일을 읽는다 — Claude Code는 프로젝트에 `CLAUDE.md`가 없을 때만 읽으며, `status`가 이를 짚어 준다.
+1. **프로젝트 고유의 지시는 프로젝트 루트의 `AGENTS.md`에 둔다.** 어느 에이전트가 읽든 그것은 프로젝트의 것이며, dotagents는 그곳에 절대 쓰지 않는다. Claude Code, Codex, Cursor, OpenCode 모두 그 파일을 읽는다. 다만 Claude Code가 스스로 읽는 것은 프로젝트에 `CLAUDE.md`가 없는 동안뿐이므로, dotagents는 `AGENTS.md`를 불러오는 한 줄짜리 파일 `.claude/rules/dotagents/project.md`(`@../../../AGENTS.md`)도 함께 전달한다. 덕분에 당신의 `CLAUDE.md`가 있어도 가려지지 않고, `AGENTS.md`를 가리키는 `CLAUDE.md`가 있어도 두 번 읽히지 않는다.
 2. **dotagents가 전달하는 것은 모두 각 에이전트 자신의 디렉터리 안에 놓인다** — `.claude/`, `.agents/`, `.codex/`. 루트에는 아무것도 놓지 않으며, 당신의 파일은 하나도 고치지 않는다.
 
 그래서 module의 `AGENTS.md`는 독립된 파일 하나로 도착한다. Claude Code는 시작할 때 `.claude/rules/`를 당신의 지시와 나란히 읽어 들인다. Codex는 디렉터리마다 지시 파일을 하나만 읽으므로, 그 규칙은 대신 `SessionStart` 훅이 건넨다 — 시작할 때, `/clear` 뒤에, 그리고 압축 뒤에 다시. `-g`이면 같은 파일이 `~/.claude/rules/dotagents/`와 `~/.codex/dotagents/`로 가고, `~/.claude/CLAUDE.md`와 `~/.codex/AGENTS.md`는 당신의 것으로 남는다. 프로젝트의 `AGENTS.md`를 읽는 다른 에이전트에게는 프로젝트의 지시는 보이지만 전달된 규칙은 보이지 않는다.
@@ -84,10 +84,10 @@ module이 살 수 있는 곳은 하나, `~/.dotagents/modules/`뿐이다. 본보
 ~/.dotagents/         당신의 것이 한자리에
 ├── modules/          모든 module — 본보기도 여기에 놓인다
 ├── codex/            install이 Codex에 넘기는 plugin
-└── state/            무엇이 어디에 놓였는지, 본보기 중 무엇을 바꿨는지
+└── state/            -g로 무엇을 놓았는지, 배포된 프로젝트, 본보기 중 무엇을 바꿨는지
 ```
 
-installer 자체는 여기 살지 않는다. 자기가 온 곳에서 교체된다. module은 여기 산다 — 패키지가 놓은 것까지 포함해서. 그것이 이 설계의 요점이다.
+installer 자체는 여기 살지 않는다. 자기가 온 곳에서 교체된다. module은 여기 산다 — 패키지가 놓은 것까지 포함해서. 그것이 이 설계의 요점이다. `state/`는 `-g`로 놓은 것, 배포가 있는 프로젝트(그중 하나라도 Codex를 쓰는 동안에는 Codex용 plugin이 남는다), 그리고 본보기 사본 중 무엇을 바꾸거나 지웠는지를 기록한다. 프로젝트 자신의 기록은 프로젝트와 함께 움직인다.
 
 `DOTAGENTS_HOME`이 이 홈 전체를 통째로 옮긴다; 그 밖에는 아무것에도 알려 줄 필요가 없다. 홈은 하나이고 모든 경로가 거기서 파생된다 — `status`와 `--help`는 지금 유효한 홈을 출력하므로, 머신이 자기 규칙이 어디서 왔는지 감추는 일은 없다.
 
@@ -128,7 +128,9 @@ dotagents update -g             # 그리고 dotagents update -C <프로젝트>
 
 ## installer가 건드리는 것과 건드리지 않는 것
 
-모든 것은 멱등이며 **해시로 소유**된다: 자신이 배치했고 지금도 인식할 수 있는 것만 건드린다. 직접 작성한 스킬은 절대 건드리지 않고, 그 자리에서 수정한 파일은 그대로 두고 보고하며(`--force`로 덮어쓰기), `uninstall`이 제거하는 것도 기록이 배치했다고 말하는 것뿐이다 — 그 외에는 건드리지 않는다. 그 기록은 `~/.dotagents/state/`에 살며, 프로젝트에는 절대 놓이지 않는다.
+모든 것은 멱등이며 **해시로 소유**된다: 자신이 배치했고 지금도 인식할 수 있는 것만 건드린다. 직접 작성한 스킬은 절대 건드리지 않고, 그 자리에서 수정한 파일은 그대로 두고 보고하며(`--force`로 덮어쓰기), `uninstall`이 제거하는 것도 기록이 배치했다고 말하는 것뿐이다 — 그 외에는 건드리지 않는다.
+
+프로젝트의 기록은 전달된 것 옆에, `.claude/dotagents.json`과 `.codex/dotagents.json`에 놓인다. 전달된 파일과 함께 커밋하면 clone, worktree, 옮겨 간 checkout 어디서든 dotagents가 거기서 무엇을 소유하는지 알 수 있다. 기록에는 타임스탬프가 없으므로, 아무것도 바꾸지 않는 `update`는 diff를 남기지 않는다. 기록은 다른 사람의 clone에서 건너올 수도 있으므로, 자기 에이전트의 디렉터리 안에 있는 파일만 자기 것으로 인정한다. 7.0 이하가 `~/.dotagents/state/projects/`에 두던 기록은 다음 `update` 때 프로젝트로 옮겨 가며, 옮길 기록이 기다리고 있으면 `status`가 알려 준다.
 
 6.0 이전 버전은 규칙을 `CLAUDE.md`나 `AGENTS.md` 같은 규칙 파일 안에 표시를 단 블록으로 써 넣었다. 그 블록을 읽던 모든 에이전트가 새 자리에서 규칙을 받게 되면, `update`는 그 블록을 걷어 내고 파일의 나머지는 원래대로 둔다.
 

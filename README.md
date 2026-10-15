@@ -70,7 +70,7 @@ modules/<name>/
 
 ### Two rules decide where everything goes
 
-1. **The project's own instructions live in `AGENTS.md` at the project root.** They belong to the project, whichever agent reads them, and dotagents never writes there. Claude Code, Codex, Cursor and OpenCode all read that file — Claude Code only when the project has no `CLAUDE.md`, which `status` points out.
+1. **The project's own instructions live in `AGENTS.md` at the project root.** They belong to the project, whichever agent reads them, and dotagents never writes there. Claude Code, Codex, Cursor and OpenCode all read that file. Claude Code reads it on its own only while the project has no `CLAUDE.md`, so dotagents also delivers `.claude/rules/dotagents/project.md`, a one-line import of it (`@../../../AGENTS.md`): a `CLAUDE.md` of yours no longer hides it, and one that links to `AGENTS.md` does not load it twice.
 2. **Everything dotagents delivers lives inside an agent's own directory** — `.claude/`, `.agents/`, `.codex/`. Nothing is placed at the root, and no file of yours is edited.
 
 So a module's `AGENTS.md` arrives as a file of its own. Claude Code loads `.claude/rules/` at launch alongside your instructions. Codex reads one instruction file per directory, so its rules are handed over by a `SessionStart` hook instead — at startup, after `/clear`, and again after compaction. With `-g`, the same files go to `~/.claude/rules/dotagents/` and `~/.codex/dotagents/`, and your `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` stay yours. Other agents that read the project `AGENTS.md` see the project's instructions but not the delivered rules.
@@ -107,10 +107,10 @@ Once placed, a module is yours:
 ~/.dotagents/         everything that is yours, in one place
 ├── modules/          every module — the sample set is placed here too
 ├── codex/            the plugin that install hands to Codex
-└── state/            what was placed where, and which samples you changed
+└── state/            what -g placed, the projects deployed to, and which samples you changed
 ```
 
-The installer itself never lives here; it is replaced where it came from. The modules do live here, including the ones the package placed — that is the point. `state/` records what was placed where, and which sample copies you have since changed or removed.
+The installer itself never lives here; it is replaced where it came from. The modules do live here, including the ones the package placed — that is the point. `state/` records what `-g` placed, which projects have a deployment (the Codex plugin stays while one of them uses Codex), and which sample copies you have since changed or removed. A project's own record travels with the project.
 
 `DOTAGENTS_HOME` moves the whole thing; nothing else needs to be told. One root, and every path derives from it — `status` and `--help` print the one in effect, so a machine never hides where its rules came from.
 
@@ -153,7 +153,9 @@ One path, not two. Two would mean one of them going stale — and the code that 
 
 ## What the installer will and will not touch
 
-Everything is idempotent and **hash-owned**: it touches only what it placed and still recognizes. Your own skills are never touched, files you edited in place are kept and reported (`--force` to overwrite), and `uninstall` removes exactly what the record says it placed — nothing else. That record lives in `~/.dotagents/state/`, never in a project.
+Everything is idempotent and **hash-owned**: it touches only what it placed and still recognizes. Your own skills are never touched, files you edited in place are kept and reported (`--force` to overwrite), and `uninstall` removes exactly what the record says it placed — nothing else.
+
+A project's record sits beside what was delivered, in `.claude/dotagents.json` and `.codex/dotagents.json`. Commit it with the delivered files, and every clone, worktree and moved checkout knows what dotagents owns there. It holds no timestamps, so an `update` that changes nothing leaves no diff. Because a record can arrive from someone else's clone, it only ever claims files inside its own agent's directory. A record that 7.0 or earlier kept in `~/.dotagents/state/projects/` moves into the project on the next `update`; `status` says when one is waiting.
 
 Versions before 6.0 wrote the rules as a marked block inside a rules file such as `CLAUDE.md` or `AGENTS.md`. `update` strips that block and leaves the rest of the file as it was, once every agent that read the block has its rules in the new place.
 

@@ -53,7 +53,7 @@ modules/<name>/
 
 ### 两条规则决定一切放在哪里
 
-1. **项目自身的指示放在项目根目录的 `AGENTS.md` 中。** 无论由哪个代理来读,它都属于项目,dotagents 从不往那里写。Claude Code、Codex、Cursor 与 OpenCode 都会读取这个文件——Claude Code 只在项目没有 `CLAUDE.md` 时才读,`status` 会指出这一点。
+1. **项目自身的指示放在项目根目录的 `AGENTS.md` 中。** 无论由哪个代理来读,它都属于项目,dotagents 从不往那里写。Claude Code、Codex、Cursor 与 OpenCode 都会读取这个文件。但 Claude Code 自己只在项目没有 `CLAUDE.md` 时才读,所以 dotagents 还会交付 `.claude/rules/dotagents/project.md`,一个只有一行的导入(`@../../../AGENTS.md`):你自己的 `CLAUDE.md` 不再遮住它,指向 `AGENTS.md` 的 `CLAUDE.md` 也不会让它被加载两次。
 2. **dotagents 交付的一切都位于各个代理自己的目录之内**——`.claude/`、`.agents/`、`.codex/`。根目录下什么也不放,你的任何文件也都不会被改动。
 
 因此,module 的 `AGENTS.md` 以一个独立的文件送达。Claude Code 在启动时把 `.claude/rules/` 与你的指示一并加载。Codex 每个目录只读取一个指示文件,所以它的规则改由 `SessionStart` hook 递交——在启动时、在 `/clear` 之后,并在压缩之后再次递交。使用 `-g` 时,同样的文件会进入 `~/.claude/rules/dotagents/` 与 `~/.codex/dotagents/`,而你的 `~/.claude/CLAUDE.md` 与 `~/.codex/AGENTS.md` 仍然属于你。读取项目 `AGENTS.md` 的其他代理能看到项目的指示,却看不到交付的规则。
@@ -84,10 +84,10 @@ module 只能住在一个地方:`~/.dotagents/modules/`。范例并不是从包�
 ~/.dotagents/         属于你的一切,尽在一处
 ├── modules/          所有 module——范例也放在这里
 ├── codex/            install 交给 Codex 的 plugin
-└── state/            什么被放到了哪里,以及你改过哪些范例
+└── state/            -g 放了什么、部署过哪些项目,以及你改过哪些范例
 ```
 
-安装程序本身不住在这里,它在自己的来处被替换。module 住在这里——包括这个包放下的那些。这正是要点所在。
+安装程序本身不住在这里,它在自己的来处被替换。module 住在这里——包括这个包放下的那些。这正是要点所在。`state/` 记录 `-g` 放置了什么、哪些项目有部署(其中只要还有一个在用 Codex,Codex 的 plugin 就会保留),以及你之后改过或删掉了哪些范例副本。项目自己的记录与项目同行。
 
 `DOTAGENTS_HOME` 可以整体迁移这个主目录;除此之外无需再告知任何地方。只有一个根,而每一条路径都由它派生——`status` 与 `--help` 会打印当前生效的那一个,因此一台机器绝不会隐瞒它的规则从何而来。
 
@@ -128,7 +128,9 @@ dotagents update -g             # 以及 dotagents update -C <项目>
 
 ## 安装程序会触碰什么、不会触碰什么
 
-一切都是幂等且**由哈希所有**的:安装程序只会触及自己放置且仍然识别的内容。你自己的技能永远不会被触碰,你就地编辑过的文件会被保留并报告(可用 `--force` 覆盖),而 `uninstall` 只会移除记录所载明的、由它放置的内容——除此之外一概不动。这份记录存放在 `~/.dotagents/state/` 中,从不落入项目。
+一切都是幂等且**由哈希所有**的:安装程序只会触及自己放置且仍然识别的内容。你自己的技能永远不会被触碰,你就地编辑过的文件会被保留并报告(可用 `--force` 覆盖),而 `uninstall` 只会移除记录所载明的、由它放置的内容——除此之外一概不动。
+
+项目的记录放在所交付内容的旁边,即 `.claude/dotagents.json` 与 `.codex/dotagents.json`。把它和交付的文件一起提交,那么每个 clone、每个 worktree,以及移动过的工作副本,都知道 dotagents 在那里拥有什么。它不含时间戳,因此什么都没改变的 `update` 不会留下任何 diff。由于记录可能来自别人的 clone,它只认领位于自己代理目录之内的文件。7.0 及更早版本存放在 `~/.dotagents/state/projects/` 的记录,会在下一次 `update` 时迁入项目;有记录在等待迁移时,`status` 会告知。
 
 6.0 之前的版本把规则作为一个带标记的块,写进 `CLAUDE.md` 或 `AGENTS.md` 这类规则文件之中。等到曾读取该块的每个代理都在新的位置拿到了自己的规则,`update` 就会剥除那个块,文件的其余部分则保持原样。
 
