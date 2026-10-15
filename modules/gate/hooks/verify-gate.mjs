@@ -241,10 +241,18 @@ function sleepSeconds(tokens) {
   if (tokens[0] !== 'sleep') return 0;
   const unit = { '': 1, s: 1, m: 60, h: 3600, d: 86400 };
   return tokens.slice(1).reduce((sum, a) => {
+    if (a === 'infinity') return Infinity;
     const m = a.match(/^(\d+(?:\.\d+)?)([smhd]?)$/);
     return m ? sum + Number(m[1]) * unit[m[2]] : sum;
   }, 0);
 }
+
+// tail -f は出力を待ち続け、自分では終わらない。timeout で包んでも、決めた時間だけ待つ処理になる。
+const follows = (tokens) => tokens[0] === 'tail' && tokens.slice(1).some((a) => /^-[a-zA-Z]*[fF]/.test(a) || /^--follow(=|$)/.test(a));
+const shellBody = (tokens) => {
+  const k = ['sh', 'bash', 'zsh'].includes(tokens[0]) ? tokens.findIndex((a) => /^-[a-z]*c$/.test(a)) : -1;
+  return k > 0 ? tokens[k + 1] ?? null : null;
+};
 
 // for の反復が書かれた値の並びなら、その回数を返す。変数や展開で決まるなら null(上限が読めない)。
 function iterations(head, next) {
@@ -267,15 +275,23 @@ function iterations(head, next) {
 }
 
 // フォアグラウンドで待つだけのコマンドを見つける。起動を確かめる短いループと、回数の決まった短い繰り返しは通す。
+// sh -c '…' の中身も読む。包んでも、待つことに変わりはない。
 export function findWait(command) {
   const raw = segments(command).filter((s) => !s.background);
   const segs = raw.map(unwrap);
+  for (const body of segs.map(shellBody)) {
+    const inner = body && findWait(body);
+    if (inner) return inner;
+  }
+  const readiness = segs.some((s) => s.some((t) => READINESS.test(path.basename(t))));
+  if (!readiness && segs.some(follows)) return 'tail -f で出力を待ち続ける処理';
   const longest = Math.max(0, ...segs.map(sleepSeconds));
+  if (longest === Infinity) return '終わりの無い sleep';
   const loops = raw.map((s, i) => (['until', 'while', 'for'].includes(s[0]) ? iterations(s, raw[i + 1]) : undefined))
     .filter((n) => n !== undefined);
   if (!loops.length) return longest >= LONG_SLEEP_SECONDS ? `${longest} 秒の sleep` : null;
   if (longest < POLL_INTERVAL_SECONDS) return null;
-  if (segs.some((s) => s.some((t) => READINESS.test(path.basename(t))))) return null;
+  if (readiness) return null;
   if (loops.some((n) => n === null)) return 'sleep を挟んで状態を確かめ続けるループ';
   const total = Math.max(...loops) * longest;
   return total >= LONG_SLEEP_SECONDS ? `sleep を挟んで ${total} 秒ほど待つループ` : null;
@@ -415,11 +431,13 @@ function repeatMessage(command) {
     `ネットワークに依存する検査や、不安定なテストの確認のように、同じ状態でも結果が変わりうる場合だけ、コマンドの先頭に \`${REPEAT}\` を付けて実行し直してください。`;
 }
 
+// サブエージェントはターンを終えると親へ戻り、バックグラウンドに回した物の完了は届かない。だから自分で
+// 待つ形を示す。エージェントは前面で起動すれば、終わった時点で結果が返り、決めた時間を待ち過ごさない。
 function waitMessage(kind, main) {
   const common = '自分で待つ必要がある処理は、処理そのものを時間の上限を付けてフォアグラウンドで実行してください。CI は、CI の完了を待つコマンドで待てます。';
   return main
     ? `待つための処理です(${kind})。サブエージェントやバックグラウンドの処理は終わると通知が届くので、ターンを終えてユーザーと会話できる状態に戻ってください。${common}`
-    : `待つための処理です(${kind})。バックグラウンドに回した処理は、完了の通知で受け取れます。${common}`;
+    : `待つための処理です(${kind})。エージェントの完了を待つなら、並行させるエージェントを 1 つのメッセージでまとめてフォアグラウンドで起動してください。終わった時点で結果が返ります。${common}`;
 }
 
 // Claude Code は subagent からの呼び出しにだけ agent_id を付ける。Codex の入力には transcript_path が無い。

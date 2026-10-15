@@ -163,10 +163,16 @@ test('フォアグラウンドで通した検査だけ、終わりの時間を�
 test('フォアグラウンドで待つだけのコマンドを止め、短い待ち、起動の確認、バックグラウンドの待ちは通す', () => {
   for (const command of ['sleep 60', 'sleep 1m', 'until grep -q DONE /tmp/out; do sleep 5; done; cat /tmp/out',
     'for i in $(seq 1 60); do gh run view 1 --json status; sleep 10; done',
-    'end=$((SECONDS+600)); while [ $SECONDS -lt $end ]; do sleep 30; done; echo waited']) {
+    'end=$((SECONDS+600)); while [ $SECONDS -lt $end ]; do sleep 30; done; echo waited',
+    // 包んだり形を変えたりしても待ちは待ちである。どれも、サブエージェントが実際に使った形。
+    'timeout 540 tail -f /dev/null; echo waited', 'tail -F build.log', 'sleep infinity',
+    "timeout 600 bash -c 'until [ -s /tmp/out ]; do sleep 5; done'; cat /tmp/out",
+    'F=/tmp/x.output; timeout 300 zsh -c "until grep -q \'routes exit\' $F; do sleep 10; done"; cat $F']) {
     assert.ok(findWait(command), `止めるべき: ${command}`);
   }
   for (const command of ['sleep 2', 'until curl -sf localhost:3000; do sleep 1; done', 'while read l; do echo "$l"; done < list.txt',
+    'tail -n 40 build.log', 'timeout 60 tail -f server.log | grep -m1 ready', "bash -c 'until curl -sf localhost:3000; do sleep 1; done'",
+    "sh -c 'npm test'", 'tail -f /tmp/x.log &',
     "cat > run.sh <<'EOF'\nsleep 60\nEOF", 'until pg_isready -h localhost; do sleep 3; done', 'until redis-cli ping; do sleep 3; done',
     'until /usr/bin/curl -sf localhost:3000/health; do sleep 5; done', 'for i in $(seq 1 30); do curl -sf localhost:3000 && break; sleep 2; done',
     'for n in 101 102 103; do gh issue close $n; sleep 3; done', 'for i in {1..3}; do make; sleep 5; done',
@@ -179,8 +185,9 @@ test('フォアグラウンドで待つだけのコマンドを止め、短い�
 test('待ちの差し戻しは、ユーザーと対話するセッションにだけターンを終えるよう伝える', () => {
   assert.match(pre('sleep 120').reason, /ターンを終えて/);
   const sub = pre('sleep 120', { agent_id: 'a1' });
-  assert.doesNotMatch(sub.reason, /ターンを終えて/);
+  assert.doesNotMatch(sub.reason, /ターンを終えて/, 'サブエージェントはターンを終えると親へ戻ってしまう');
   assert.match(sub.reason, /フォアグラウンドで実行/);
+  assert.match(sub.reason, /エージェントを 1 つのメッセージでまとめてフォアグラウンドで起動/, '子のエージェントの待ち方を示す');
 });
 
 function tempRepo() {
