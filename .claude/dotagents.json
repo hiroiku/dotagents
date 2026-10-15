@@ -1,0 +1,25 @@
+{
+  "schema": 7,
+  "version": "7.1.0",
+  "modules": [
+    "prompting"
+  ],
+  "files": {
+    ".claude/rules/dotagents/project.md": {
+      "hash": "sha256:fa2341cfef97b17b008f0691614bc0e8aee0262f128d59aa423484a27f9f8bc2",
+      "module": null
+    },
+    ".claude/rules/dotagents/prompting.md": {
+      "hash": "sha256:7782d11eac3a1ece1ac463e5470ad890f48262b17ac95037d94f66bda1bfd7a3",
+      "module": "prompting"
+    },
+    ".claude/skills/dotagents/.claude-plugin/plugin.json": {
+      "hash": "sha256:c44ecf61363a3d6be681636b9ea37c135f9e3e09f35b1eff899f65a7e832e648",
+      "module": null
+    },
+    ".claude/skills/dotagents/skills/prompting/SKILL.md": {
+      "hash": "sha256:10faae99bd6fba7fc6b4ea1b74b8f4e7483467686b0a8e727811114c8fba101e",
+      "module": "prompting"
+    }
+  }
+}
