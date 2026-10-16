@@ -1,18 +1,22 @@
 # code
 
-A module for the conventions that govern the writing of code and have no moment to be triggered on. Today there is one, and it is in [AGENTS.md](AGENTS.md): _comments explain the intent of the code they sit on. No history, no ADRs, no provisions for the future._
+A module for the conventions that govern the writing of code and have no moment to be triggered on. Today they are all about comments, and they are in [AGENTS.md](AGENTS.md): _a comment carries the intent of the code it sits on and what matters there. No history, no ADRs, no provisions for the future, and no lists of what the code already names._
 
 ## What a comment is for
 
 The code already says what it does. The one thing it cannot say is why it is this way — which alternative was rejected, which constraint forced the shape, what will break if the order changes. That is the whole job of a comment, and a comment that restates the code instead starts lying the moment the code moves and it does not.
 
-Three things are kept out, and they fail the same way: each is a second record of something that is already recorded better somewhere else.
+Four things are kept out, and they fail the same way: each is a second record of something that is already recorded better somewhere else.
 
 **History** — `// changed from X in #1234`. Git holds it, holds it with the author and the date, and keeps holding it after the line is moved to another file. In the source it is a copy that nothing updates.
 
 **Decision records** — the reasoning behind a design, pasted where one of its consequences happens to live. The reader who needs that reasoning is not in this file, and everyone who is pays for it on every pass.
 
 **Provisions for the future** — `// TODO: when we support multi-tenancy`. A promise nobody is holding. It reads as a plan long after the plan was dropped, and the code around it gets shaped by a case that never arrives.
+
+**Lists of what the code already names** — the keys under a `secrets` block, the flags a date turns on, the paths a script reads. Every item added or dropped asks for the same edit in the comment, and the one edit that is missed leaves the two disagreeing. The longer the list, the more ways it has to go stale.
+
+What replaces the list is what its items have in common: the criterion for being here, the thing that must hold. `Secrets, or keys that differ per environment.` stays true as keys come and go. A line for each key does not, and the next key arrives with no line at all.
 
 ## Why it is ubiquitous, and not a skill
 
