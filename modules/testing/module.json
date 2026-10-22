@@ -1,5 +1,5 @@
 {
-  "description": "Test Desiderata に基づくテスト設計と、修正中・完了時・統合後の検証の進め方。",
+  "description": "Test Desiderata に基づくテスト設計と、作業中・push の前・統合後の検証の進め方。",
   "replaces": [
     "harness"
   ]

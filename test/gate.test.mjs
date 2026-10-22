@@ -85,14 +85,14 @@ test('argv の配列で渡されたコマンドも、1 行のコマンドとし�
   assert.equal(argv(['rg', 'sleep 45']), null, '引数の中の語をコマンドとして読まない');
 });
 
-test('初めての検査、軽かった検査、仕上げの宣言、絞った確認は通す', () => {
+test('初めての検査、軽かった検査、push の前の宣言、絞った確認は通す', () => {
   assert.equal(pre('make check'), null, '初めて見る検査は通して測る');
   assert.equal(pre('make check', { store: memoryStore({ 'make check': HEAVY_SECONDS - 1 }) }), null);
   assert.equal(pre(`${FINAL} make check`, { store: memoryStore({ 'make check': 300 }) }), null);
   assert.equal(pre('pytest tests/test_user.py', { store: memoryStore({ 'pytest tests/test_user.py': 300 }) }), null);
 });
 
-test('前回から作業ツリーが変わっていない重い検査は、仕上げの宣言があっても止める', () => {
+test('前回から作業ツリーが変わっていない重い検査は、push の前の宣言があっても止める', () => {
   const heavy = { 'make check': HEAVY_SECONDS + 10 };
   const same = memoryStore(heavy, { state: 'abc', last: { 'make check': 'abc' } });
   const denied = pre(`${FINAL} make check`, { store: same });
