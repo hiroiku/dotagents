@@ -421,7 +421,7 @@ export function createStore(input, env = process.env) {
 
 function heavyMessage(command, seconds) {
   return `直近の実行で ${seconds} 秒ほどかかっている検査を、対象を絞らずに実行しようとしています(\`${command.trim()}\`)。` +
-    '作業中は、変更したファイルだけを検査してください。絞り方はプロジェクトの指示か testing スキルにあります。' +
+    '作業中は、変更したファイルだけを検査してください。絞り方は testing スキルにあります。' +
     `push の前に実行する全体の検査なら、コマンドの先頭に \`${FINAL}\` を付けて実行し直してください。`;
 }
 

@@ -48,7 +48,7 @@ This ownership rule avoids a separate DTO category, forwarding classes, and catc
 | Dependencies always point inward                                  | Clean Architecture          |
 | Adapters split into driving and driven                            | Ports and Adapters          |
 | The `<bounded_context>` axis; only business words inside          | DDD                         |
-| One composition root                                              | DI's composition root       |
+| One composition root per deployment unit                         | DI's composition root       |
 | Failure returned as a value, `throw` reserved for bugs            | functional error handling   |
 | Per-layer build configuration that makes a violation a build error | this module                 |
 | Tests as a mirror of the layers, the mirror bound by the same rule | this module                 |
@@ -77,7 +77,7 @@ The places in the rules that admitted another answer, and why this one was taken
 
 **The container never crosses a boundary.** If the inside can be handed a resolver, it can reach anything without importing it. **The import graph stops telling the truth about dependencies**, and both the build configuration and the linter are left powerless. Dependencies arrive as arguments.
 
-**Composition sits at every level, with a single root.** Keeping the wiring next to the code means adding a use-case touches one file next door. A layer's composition sees only its own layer, so it never breaks the layer's rule. Only the root crosses layers, and that is where the exception ends.
+**Composition sits at every level, with one root per deployment unit.** Keeping the wiring next to the code means adding a use-case touches one file next door. A layer's composition sees only its own layer, so it never breaks the layer's rule. Only the root crosses layers, and that is where the exception ends.
 
 ## What it suits, and what it does not
 
