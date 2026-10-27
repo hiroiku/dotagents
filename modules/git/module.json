@@ -1,5 +1,5 @@
 {
-  "description": "コミット、worktree と統合、PR と CI の扱いを、すべてのセッションに常設する。",
+  "description": "コミット、worktree と統合、統合後の片付け、PR と CI の扱いを、すべてのセッションに常設する。",
   "requires": [
     "git"
   ],

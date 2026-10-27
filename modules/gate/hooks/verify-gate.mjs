@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// push の前に実行する全体の検査であることの宣言。付ける瞬間に、作業が本当に push できるところまで来たかを判断させる。
+// 共有のブランチへ push する前の検査であることの宣言。付ける瞬間に、作業が本当に push できるところまで来たかを判断させる。
 export const FINAL = 'DOTAGENTS_VERIFY=final';
 
 // 前回と同じ状態でも結果が変わりうる検査であることの宣言。ネットワークに依存する検査や、不安定なテストの確認に使う。
@@ -422,7 +422,7 @@ export function createStore(input, env = process.env) {
 function heavyMessage(command, seconds) {
   return `直近の実行で ${seconds} 秒ほどかかっている検査を、対象を絞らずに実行しようとしています(\`${command.trim()}\`)。` +
     '作業中は、変更したファイルだけを検査してください。絞り方は testing スキルにあります。' +
-    `push の前に実行する全体の検査なら、コマンドの先頭に \`${FINAL}\` を付けて実行し直してください。`;
+    `共有のブランチへ push する前の検査なら、コマンドの先頭に \`${FINAL}\` を付けて実行し直してください。`;
 }
 
 function repeatMessage(command) {
