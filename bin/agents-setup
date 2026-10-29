@@ -529,6 +529,19 @@ function pluginManifest(modules) {
   }, null, 2) + '\n';
 }
 
+// plugin の hooks/hooks.json は 1 つしか置けないので、各 module の hooks/hooks.json を event ごとに束ねる。
+// どの module も持たなければ null。
+const CLAUDE_HOOKS = path.join('hooks', 'hooks.json');
+function claudeHooks(modules) {
+  const hooks = {};
+  for (const m of modules) {
+    const file = path.join(moduleDir(m), CLAUDE_HOOKS);
+    if (!lstatOrNull(file)?.isFile()) continue;
+    for (const [event, groups] of Object.entries(readJson(file, {}).hooks ?? {})) (hooks[event] ??= []).push(...groups);
+  }
+  return Object.keys(hooks).length ? JSON.stringify({ hooks }, null, 2) + '\n' : null;
+}
+
 // .claude/rules/dotagents/project.md の中身。パスは、このファイルからプロジェクトのルートへの相対である。
 const PROJECT_RULES_IMPORT = '@../../../AGENTS.md\n';
 
@@ -538,6 +551,7 @@ const NOT_DELIVERED = new Set(['module.json', 'AGENTS.md', 'README.md', 'docs'])
 
 // 配達先の導出:
 // - module の中身  → Claude: plugin の同じ位置(skills/<name>/ は /dotagents:<name> になる)
+// - hooks/hooks.json → Claude: plugin の hooks/hooks.json に、各 module の定義を束ねて 1 つ
 // - AGENTS.md      → Claude: .claude/rules/dotagents/<module>.md
 //                    Codex : .codex/dotagents/<module>/AGENTS.md(Codex plugin の SessionStart が読ませる)
 // - ルートの AGENTS.md → Claude: .claude/rules/dotagents/project.md から取り込む(プロジェクトだけ)
@@ -567,7 +581,7 @@ function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } =
       const hasRules = lstatOrNull(rules)?.isFile();
       if (agent === 'claude') {
         for (const rel of walk(root)) {
-          if (NOT_DELIVERED.has(rel.split(path.sep)[0]) || rel.startsWith('codex/')) continue;
+          if (NOT_DELIVERED.has(rel.split(path.sep)[0]) || rel.startsWith('codex/') || rel === CLAUDE_HOOKS) continue;
           add({ agent, module: m, src: path.join(root, rel), dst: path.join(pluginRoot, rel), unit: pluginRoot });
         }
         if (hasRules) {
@@ -617,6 +631,8 @@ function deliveryEntries(ctx, modules, { keepPlugin = false, agents = AGENTS } =
         }
       }
     }
+    const hooks = agent === 'claude' ? claudeHooks(present) : null;
+    if (hooks) add({ agent, module: null, content: hooks, dst: path.join(pluginRoot, CLAUDE_HOOKS), unit: pluginRoot });
     if (agent === 'claude' && (entries.length > before || (keepPlugin && names.length))) {
       add({ agent, module: null, content: pluginManifest(present),
         dst: path.join(pluginRoot, '.claude-plugin', 'plugin.json'), unit: pluginRoot });

@@ -1,7 +1,7 @@
 ## Git
 
 - コミットタイトルには、業務にとって何が変わったかを書く。ファイル名や内部の識別子を主題にしない。
-- コミットメッセージと PR に、Co-Authored-By や Generated with など AI の関与を示す記述を入れない。
+- コミットメッセージ、PR、issue に、Co-Authored-By や Generated with など AI の関与を示す記述を入れない。
 - 統合は squash を既定とする。upstream への追従は merge ではなく rebase を使う。
 - リリースやデプロイを指示されたら、バージョンを上げてタグを付ける。
 

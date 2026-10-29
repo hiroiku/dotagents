@@ -237,6 +237,20 @@ test('Codex plugin: hook の定義が変わったときだけ入れ直して信�
   assert.match(run(home, ['status', '-g']).out, /no drift/);
 });
 
+test('hook を持つ module が 2 つあれば、Claude の plugin の hooks.json に両方の定義を束ねる', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  fs.mkdirSync(path.join(proj, '.codex'));
+  run(home, ['install', 'gate', 'git', '-C', proj]);
+  const commands = JSON.parse(read(path.join(proj, PLUGIN, 'hooks/hooks.json'))).hooks.PreToolUse.flatMap((g) => g.hooks.map((h) => h.command));
+  assert.ok(commands.some((c) => c.includes('verify-gate.mjs')), 'gate の hook');
+  assert.ok(commands.some((c) => c.includes('no-ai-attribution.mjs')), 'git の hook');
+  assert.ok(fs.existsSync(path.join(proj, PLUGIN, 'hooks/no-ai-attribution.mjs')), '実行ファイルは plugin に入る');
+  assert.ok(fs.existsSync(path.join(proj, '.codex/dotagents/git/no-ai-attribution.mjs')), 'Codex 向けの実行ファイル');
+  assert.ok(codexPluginHooks(home).PreToolUse.some((g) => g.hooks.some((h) => h.command.includes('.codex/dotagents/git/'))), 'Codex の plugin にも束ねる');
+  assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
+});
+
 test('Codex plugin: Codex を使う配備が 1 つでも残る間は外さない', () => {
   const home = freshHome();
   const [a, b] = [freshProject(), freshProject()];
