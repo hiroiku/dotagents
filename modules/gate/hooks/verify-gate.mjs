@@ -1,5 +1,7 @@
 // testing の規則をすり抜けたコマンドを止める、最後のゲート。作業中に全体へ回された時間のかかる検査と、
 // フォアグラウンドで待つだけのコマンドを見つけ、理由と代わりの手を添えてエージェントへ差し戻す。
+// 待ち方を取り違えたコマンドも止める: サブエージェントがバックグラウンドで始める検査(完了が届かない)と、
+// 対話を担当するセッションがフォアグラウンドで CI を待つコマンド(そのあいだユーザーと会話できない)である。
 //
 // どの言語・どのツールにも同じように効くよう、ツールごとの規則は持たない。検査かどうかはコマンドに含まれる
 // 語で、重いかどうかは同じリポジトリーの同じ場所で直近にかかった実測の時間で見分ける。初めて見る検査は
@@ -29,9 +31,8 @@ export const REPEAT = 'DOTAGENTS_REPEAT=1';
 export const HEAVY_SECONDS = 45;
 const RUNS_KEPT = 3;
 const RUNS_NEEDED = 2;
-// これより短い sleep は、サーバーの起動待ちのような正当な待ちとして通す。
+// これより短い sleep と、待つ合計がこれより短いループは、正当な短い待ちとして通す。
 const LONG_SLEEP_SECONDS = 30;
-const POLL_INTERVAL_SECONDS = 3;
 // 実行が終わらなかった呼び出しの記録を、この時間が過ぎたら片付ける。
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 // 作業ツリーの状態を読むのに待つ上限。超えたら状態を見ずに通す。
@@ -58,6 +59,18 @@ const SETTING_FLAG = /^--?(projects?|reporters?|format|output|out|config|c|worke
 const FILTER_FLAG = /test|spec|filter|grep|pattern|match|name|only|focus/i;
 // 起動を確かめる手段。待ちのループに含まれていれば、起動待ちとして通す。
 const READINESS = /^(curl|wget|nc|lsof|ping)$|ready|health/i;
+// 同じ道具を呼ぶ起動の形。どれで呼んでも行う検査は同じなので、記録の鍵では区別しない。
+const LAUNCHERS = ['npx', 'bunx', 'bun x', 'bun run', 'npm exec', 'npm run', 'pnpm exec', 'pnpm dlx', 'pnpm run', 'yarn exec',
+  'yarn run', 'uv run', 'poetry run', 'pipenv run', 'bundle exec'].map((l) => l.split(' '));
+// 出力の形、並列の度合い、最初の失敗で止めるかだけを変え、検査の中身を変えないオプション。値を取るものと取らないもの。
+// 記録の鍵から外す。外さないと、付け替えるだけで初めて見る検査として通ってしまう。
+const PRESENTATION_VALUE = /^--?(reporters?|format|pretty|colou?rs?|checkers|workers|max-?workers|jobs|j|threads|bail|max-?failures|maxfail)$/i;
+const PRESENTATION_SWITCH = /^--?(silent|quiet|q|verbose|v|no-colou?r|x|exitfirst)$/i;
+const PRESENTATION_ARG = /^(\d+%?|true|false|auto|[a-z][\w-]*)$/i;
+// 既定の設定の場所を明示しただけの指定。
+const DEFAULT_PROJECT = /^(\.\/?|(\.\/)?tsconfig\.json)$/;
+// ファイルで対象を絞れない、プログラム全体を見る検査。増分で検査する指定が代わりの手になる。
+const PROGRAM_WIDE = /tsc|mypy|pyright|typecheck|type-check|\btypes\b|clippy/i;
 
 // ---------------------------------------------------------------- コマンドの読み取り
 
@@ -168,6 +181,8 @@ function unwrap(tokens) {
       if (t[0] === '-n') t.splice(0, 2);
       continue;
     }
+    // 依存に入れた道具をパスで直接呼んでも、道具の名前で呼んだのと同じコマンドである。
+    if (head?.includes('node_modules/.bin/')) t[0] = path.basename(head);
     return t;
   }
 }
@@ -219,6 +234,29 @@ function narrows(tokens) {
   return false;
 }
 
+// 記録の鍵にする語の並び。起動の形と、検査の中身を変えないオプションを外す。
+function keyTokens(tokens) {
+  let t = [...tokens];
+  const launcher = LAUNCHERS.find((l) => l.every((w, i) => t[i] === w));
+  if (launcher) {
+    t = t.slice(launcher.length);
+    while (t.length > 1 && t[0].startsWith('-')) t.shift();
+  }
+  const out = [];
+  for (let i = 0; i < t.length; i++) {
+    const a = t[i];
+    const eq = a.indexOf('=');
+    if (PRESENTATION_SWITCH.test(a)) continue;
+    if (PRESENTATION_VALUE.test(eq > 0 ? a.slice(0, eq) : a)) {
+      if (eq < 0 && PRESENTATION_ARG.test(t[i + 1] ?? '')) i++;
+      continue;
+    }
+    if ((a === '-p' || a === '--project') && DEFAULT_PROJECT.test(t[i + 1] ?? '')) { i++; continue; }
+    out.push(a);
+  }
+  return out;
+}
+
 // 検査の実体になる区切りだけを残し、同じ検査が毎回同じ鍵になるよう並べる。cd の行き先は、場所として別に返す。
 export function describe(command) {
   const all = expand(command);
@@ -230,8 +268,8 @@ export function describe(command) {
   const checks = all.filter((t) => t.length && !NOISE.has(t[0]) && checkIndex(t) >= 0);
   if (!checks.length) return null;
   return {
-    // 検査でない部分(git log、python3 - など)を前に付けても、同じ検査として測る。
-    key: checks.map((t) => t.join(' ')).join(' && '),
+    // 検査でない部分(git log、python3 - など)を前に付けても、起動の形や出力の指定を変えても、同じ検査として測る。
+    key: checks.map((t) => keyTokens(t).join(' ')).join(' && '),
     targeted: checks.every(narrows),
     cd,
   };
@@ -274,8 +312,8 @@ function iterations(head, next) {
   return count;
 }
 
-// フォアグラウンドで待つだけのコマンドを見つける。起動を確かめる短いループと、回数の決まった短い繰り返しは通す。
-// sh -c '…' の中身も読む。包んでも、待つことに変わりはない。
+// フォアグラウンドで待つだけのコマンドを見つける。起動を確かめるループと、待つ合計の短い繰り返しは通す。
+// sh -c '…' の中身も読む。包んでも、待つことに変わりはない。sleep を短く刻んでも、回数を重ねれば待ちになる。
 export function findWait(command) {
   const raw = segments(command).filter((s) => !s.background);
   const segs = raw.map(unwrap);
@@ -290,11 +328,17 @@ export function findWait(command) {
   const loops = raw.map((s, i) => (['until', 'while', 'for'].includes(s[0]) ? iterations(s, raw[i + 1]) : undefined))
     .filter((n) => n !== undefined);
   if (!loops.length) return longest >= LONG_SLEEP_SECONDS ? `${longest} 秒の sleep` : null;
-  if (longest < POLL_INTERVAL_SECONDS) return null;
-  if (readiness) return null;
+  if (longest === 0 || readiness) return null;
   if (loops.some((n) => n === null)) return 'sleep を挟んで状態を確かめ続けるループ';
   const total = Math.max(...loops) * longest;
   return total >= LONG_SLEEP_SECONDS ? `sleep を挟んで ${total} 秒ほど待つループ` : null;
+}
+
+// CI の完了を待つコマンド。対話を担当するセッションでは、バックグラウンドへ回せば完了が通知で届く。
+export function findCiWait(command) {
+  const watches = (t) => t[0] === 'gh' && ((t[1] === 'run' && t[2] === 'watch') ||
+    (t[1] === 'pr' && t[2] === 'checks' && t.some((a) => a === '--watch' || a.startsWith('--watch='))));
+  return expand(command).some(watches) ? 'CI の完了を待つコマンド' : null;
 }
 
 // ---------------------------------------------------------------- 実測の記録
@@ -419,10 +463,20 @@ export function createStore(input, env = process.env) {
 
 // ---------------------------------------------------------------- 判定
 
-function heavyMessage(command, seconds) {
-  return `直近の実行で ${seconds} 秒ほどかかっている検査を、対象を絞らずに実行しようとしています(\`${command.trim()}\`)。` +
-    '作業中は、変更したファイルだけを検査してください。絞り方は testing スキルにあります。' +
+// 型の検査のようにファイルで絞れない検査に「変更したファイルだけ」と返すと、言い換えてすり抜けるか、検査をやめてしまう。
+function heavyMessage(command, seconds, key) {
+  const instead = PROGRAM_WIDE.test(key)
+    ? 'プログラム全体を見る検査は、作業中は増分で検査する指定(前回の結果を再利用する指定)で実行してください。'
+    : '作業中は、変更したファイルだけを検査してください。絞り方は testing スキルにあります。';
+  return `直近の実行で ${seconds} 秒ほどかかっている検査を、対象を絞らずに実行しようとしています(\`${command.trim()}\`)。${instead}` +
     `共有のブランチへ push する前の検査なら、コマンドの先頭に \`${FINAL}\` を付けて実行し直してください。`;
+}
+
+function backgroundMessage(command) {
+  return `サブエージェントが、検査をバックグラウンドで始めようとしています(\`${command.trim()}\`)。` +
+    'サブエージェントはターンを終えると親へ戻るので、バックグラウンドに回した検査の完了を受け取れず、結果を待つには出力を見張り続けることになります。' +
+    '検査は、時間の上限(ツールの timeout か、コマンド自身の待ち時間の指定)を付けてフォアグラウンドで実行してください。' +
+    '上限に収まらない全体の検査は作業中には実行せず、push の前の検査に任せてください。';
 }
 
 function repeatMessage(command) {
@@ -434,10 +488,11 @@ function repeatMessage(command) {
 // サブエージェントはターンを終えると親へ戻り、バックグラウンドに回した物の完了は届かない。だから自分で
 // 待つ形を示す。エージェントは前面で起動すれば、終わった時点で結果が返り、決めた時間を待ち過ごさない。
 function waitMessage(kind, main) {
-  const common = '自分で待つ必要がある処理は、処理そのものを時間の上限を付けてフォアグラウンドで実行してください。CI は、CI の完了を待つコマンドで待てます。';
   return main
-    ? `待つための処理です(${kind})。サブエージェントやバックグラウンドの処理は終わると通知が届くので、ターンを終えてユーザーと会話できる状態に戻ってください。${common}`
-    : `待つための処理です(${kind})。エージェントの完了を待つなら、並行させるエージェントを 1 つのメッセージでまとめてフォアグラウンドで起動してください。終わった時点で結果が返ります。${common}`;
+    ? `待つための処理です(${kind})。サブエージェント、CI、時間のかかるコマンドは、バックグラウンドで実行すれば終わったときに通知が届きます。` +
+      'CI の完了を待つコマンドも、バックグラウンドで実行してください。待つあいだはターンを終えて、ユーザーと会話できる状態に戻ってください。'
+    : `待つための処理です(${kind})。エージェントの完了を待つなら、並行させるエージェントを 1 つのメッセージでまとめてフォアグラウンドで起動してください。終わった時点で結果が返ります。` +
+      '自分で待つ必要がある処理は、処理そのものを時間の上限を付けてフォアグラウンドで実行してください。CI は、CI の完了を待つコマンドで待てます。';
 }
 
 // Claude Code は subagent からの呼び出しにだけ agent_id を付ける。Codex の入力には transcript_path が無い。
@@ -458,12 +513,14 @@ export function before(input, store, now = Date.now()) {
   const command = commandOf(input);
   if (typeof command !== 'string' || !command.trim()) return null;
   const background = input.tool_input?.run_in_background === true;
+  const main = isMainSession(input);
   if (!background) {
-    const wait = findWait(command);
-    if (wait) return { reason: waitMessage(wait, isMainSession(input)) };
+    const wait = findWait(command) ?? (main ? findCiWait(command) : null);
+    if (wait) return { reason: waitMessage(wait, main) };
   }
   const check = describe(command);
   if (!check) return null;
+  if (background && input.agent_id) return { reason: backgroundMessage(command) };
   const scope = store.scope(check.cd);
   const key = scope === '.' ? check.key : `${scope}: ${check.key}`;
   const seconds = store.seconds(key);
@@ -474,7 +531,7 @@ export function before(input, store, now = Date.now()) {
     if (state && !command.includes(REPEAT) && store.unchanged(key, state)) {
       return { reason: repeatMessage(command) };
     }
-    if (!command.includes(FINAL) && !check.targeted) return { reason: heavyMessage(command, seconds) };
+    if (!command.includes(FINAL) && !check.targeted) return { reason: heavyMessage(command, seconds, check.key) };
   }
   // background の呼び出しは起動した時点で終わるので、所要時間を測れない。
   if (!background && input.tool_use_id) store.start(input.tool_use_id, key, now, state);

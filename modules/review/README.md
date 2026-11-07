@@ -21,6 +21,22 @@ The same rule asks the delegation to name how to run the target narrowly: the te
 
 Reviewers read and run; they do not edit. `Read, Glob, Grep, Bash, Skill` is the whole toolset — what a role must not do is enforced by the tools it is not given, not by a sentence it must remember. `Skill` is there because a subagent with an explicit tool list sees no skills without it: the reviewer reaches the project's skills — how to narrow a run, the design rules it verifies against — the same way the implementer did.
 
+## Where the review runs
+
+The review runs in the implementer's worktree, against the commit the implementer reported. No worktree or branch is created for it. Independence comes from a context that did not write the code, not from a separate checkout — and a separate checkout is not free: every one pays the project's setup (checkout hooks, dependency installs, local databases), once per review and again per re-review round.
+
+What a fresh checkout did buy was a tree holding only what was committed, so a file the implementer forgot to add fails the review instead of passing on the implementer's disk. The reviewer keeps that by checking, before anything else, that HEAD is the requested commit and that nothing is uncommitted or untracked; if the tree differs, it returns the difference instead of a verdict.
+
+Falsifying sometimes means changing the code for a moment: breaking the implementation to see a test fail, or putting back the old code to compare. In a shared tree that is safe only when the reviewer is alone in it — a parallel reviewer would run its own checks against the broken state — so the delegating session grants it in the request only when a single reviewer is running, the reviewer restores the tree, and the delegating session checks HEAD and the uncommitted state when the review returns. Under Codex the reviewers run in a `read-only` sandbox, so this falsification is not available there.
+
+## Ending the loop
+
+Each finding is marked as blocking — a requirement not met, a defect, a failure of the canon — or as a suggestion. Only blocking findings send the work back; suggestions are carried in the report for whoever delegated to decide.
+
+A fix goes back to the agent that implemented, and the re-review goes back to the reviewer that raised the findings, continued rather than started fresh, given the fix commit and asked only whether its findings are resolved and whether the fix breaks anything. A fresh reviewer knows nothing of the last round: it reads everything again and finds something new, and the loop never converges.
+
+After two re-reviews with blocking findings still open, the work stops and goes back to whoever delegated — to the user, when the delegating session is the one talking to them — with the open findings and the point of disagreement. Findings that survive repeated fixes are more often a disagreement about the requirements or the design than a defect another fix will remove.
+
 ## Requirement anchors, not checklists
 
 [security](agents/security.md) verifies against the [OWASP Top 10](https://owasp.org/Top10/); [accessibility](agents/accessibility.md) against [WCAG 2.2](https://www.w3.org/TR/WCAG22/) conformance level AA. Each names its canon and stops there: no copied checklist (a copy rots as the canon moves), no house criteria on top (an enumeration binds judgment to the enumerator's imagination). Which category applies, and how, is judged against the code at hand.

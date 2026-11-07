@@ -13,7 +13,7 @@ import { installCodexStub } from './codex-stub.mjs';
 const REPO = path.resolve(new URL('..', import.meta.url).pathname);
 const CLI = path.join(REPO, 'bin', 'agents-setup');
 const GATE = path.join(REPO, 'modules', 'gate', 'hooks', 'verify-gate.mjs');
-const { before, after, describe, findWait, createStore, FINAL, REPEAT, HEAVY_SECONDS } = await import(GATE);
+const { before, after, describe, findWait, findCiWait, createStore, FINAL, REPEAT, HEAVY_SECONDS } = await import(GATE);
 
 delete process.env.DOTAGENTS_HOME;
 
@@ -70,11 +70,37 @@ test('同じ検査は、場所の移動や出力の整形が違っても同じ�
   assert.equal(describe('cargo test > out.log 2>&1 &'), null, 'background で切り離した検査は待たないので読まない');
 });
 
+test('起動の形と、出力や並列の度合いだけを変える指定は、記録の鍵で区別しない', () => {
+  // どれも、ゲートに止められたエージェントが同じ全体の検査を言い換えた形。
+  for (const command of ['bunx tsc --noEmit', 'npx tsc --noEmit --checkers 4', './node_modules/.bin/tsc --noEmit --pretty false',
+    'bun run tsc --noEmit -p tsconfig.json', 'npx -y tsc --noEmit -p .', '/repo/.worktrees/a/node_modules/.bin/tsc --noEmit']) {
+    assert.equal(describe(command).key, 'tsc --noEmit', command);
+  }
+  assert.equal(describe('bunx vitest run --reporter=dot --bail=1 test/a.spec.ts').key, describe('npx vitest run test/a.spec.ts').key);
+  assert.equal(describe('make -j 8 check').key, 'make check');
+  assert.equal(describe('npm run check:types').key, describe('bun run check:types').key, 'script の名前が同じなら同じ検査');
+  assert.equal(describe('bun run test').key, 'test', 'script の名前が検査の語そのものでも検査として読む');
+  for (const [a, b] of [['tsc -b', 'tsc --noEmit'], ['tsc --noEmit --incremental', 'tsc --noEmit'],
+    ['vitest run --project a', 'vitest run --project b'], ['tsc -p tsconfig.build.json', 'tsc'], ['vitest run --shard=1/2', 'vitest run']]) {
+    assert.notEqual(describe(a).key, describe(b).key, `検査の中身が違う: ${a} / ${b}`);
+  }
+});
+
 test('前回重かった検査を、作業中に対象を絞らず回すと止める', () => {
   const store = memoryStore({ 'make check': HEAVY_SECONDS + 10 });
   const denied = pre('make check', { store });
   assert.match(denied.reason, /make check/);
+  assert.match(denied.reason, /変更したファイルだけ/);
   assert.ok(denied.reason.includes(FINAL));
+});
+
+test('ファイルで絞れない型の検査には、絞る代わりに増分で検査する指定を示す', () => {
+  const store = memoryStore({ 'tsc --noEmit': HEAVY_SECONDS + 10, 'check:types': HEAVY_SECONDS + 10 });
+  for (const command of ['npx tsc --noEmit --checkers 4', 'bun run check:types']) {
+    const denied = pre(command, { store });
+    assert.match(denied.reason, /増分/, command);
+    assert.doesNotMatch(denied.reason, /変更したファイルだけ/, command);
+  }
 });
 
 test('argv の配列で渡されたコマンドも、1 行のコマンドとして読む', () => {
@@ -167,7 +193,10 @@ test('フォアグラウンドで待つだけのコマンドを止め、短い�
     // 包んだり形を変えたりしても待ちは待ちである。どれも、サブエージェントが実際に使った形。
     'timeout 540 tail -f /dev/null; echo waited', 'tail -F build.log', 'sleep infinity',
     "timeout 600 bash -c 'until [ -s /tmp/out ]; do sleep 5; done'; cat /tmp/out",
-    'F=/tmp/x.output; timeout 300 zsh -c "until grep -q \'routes exit\' $F; do sleep 10; done"; cat $F']) {
+    'F=/tmp/x.output; timeout 300 zsh -c "until grep -q \'routes exit\' $F; do sleep 10; done"; cat $F',
+    // sleep を短く刻んでも、回数を重ねれば待ちになる。
+    'for i in $(seq 1 280); do sleep 1; done; echo done', 'until [ -s /tmp/tasks/a1.output ]; do sleep 1; done',
+    "timeout 590 bash -c 'while true; do git status --porcelain | wc -l; sleep 2; done'"]) {
     assert.ok(findWait(command), `止めるべき: ${command}`);
   }
   for (const command of ['sleep 2', 'until curl -sf localhost:3000; do sleep 1; done', 'while read l; do echo "$l"; done < list.txt',
@@ -176,7 +205,7 @@ test('フォアグラウンドで待つだけのコマンドを止め、短い�
     "cat > run.sh <<'EOF'\nsleep 60\nEOF", 'until pg_isready -h localhost; do sleep 3; done', 'until redis-cli ping; do sleep 3; done',
     'until /usr/bin/curl -sf localhost:3000/health; do sleep 5; done', 'for i in $(seq 1 30); do curl -sf localhost:3000 && break; sleep 2; done',
     'for n in 101 102 103; do gh issue close $n; sleep 3; done', 'for i in {1..3}; do make; sleep 5; done',
-    './server & PID=$!; (sleep 120 && kill $PID) &', 'sleep 300 &']) {
+    './server & PID=$!; (sleep 120 && kill $PID) &', 'sleep 300 &', 'for i in 1 2 3; do make && break; sleep 1; done']) {
     assert.equal(findWait(command), null, `通すべき: ${command}`);
   }
   assert.equal(pre('sleep 1500; date', { tool_input: { command: 'sleep 1500; date', run_in_background: true } }), null);
@@ -188,6 +217,31 @@ test('待ちの差し戻しは、ユーザーと対話するセッションに�
   assert.doesNotMatch(sub.reason, /ターンを終えて/, 'サブエージェントはターンを終えると親へ戻ってしまう');
   assert.match(sub.reason, /フォアグラウンドで実行/);
   assert.match(sub.reason, /エージェントを 1 つのメッセージでまとめてフォアグラウンドで起動/, '子のエージェントの待ち方を示す');
+});
+
+test('ユーザーと対話するセッションがフォアグラウンドで CI を待つと止め、バックグラウンドへ回すよう伝える', () => {
+  for (const command of ['timeout 590 gh run watch 42155677190 --exit-status 2>&1 | tail -5', 'gh pr checks 12 --watch',
+    "bash -c 'gh run watch 1'"]) {
+    assert.equal(findCiWait(command), 'CI の完了を待つコマンド', command);
+    const denied = pre(command);
+    assert.match(denied.reason, /バックグラウンドで実行/, command);
+    assert.match(denied.reason, /ターンを終えて/, command);
+  }
+  for (const command of ['gh pr checks 12', 'gh run view 1 --json status', 'gh run list --branch develop', 'gh run watch 1 &']) {
+    assert.equal(findCiWait(command), null, command);
+  }
+  assert.equal(pre('gh run watch 1', { agent_id: 'a1' }), null, 'サブエージェントは CI をフォアグラウンドで待ってよい');
+  assert.equal(pre('gh run watch 1', { tool_input: { command: 'gh run watch 1', run_in_background: true } }), null);
+});
+
+test('サブエージェントがバックグラウンドで始める検査を止め、フォアグラウンドで実行するよう伝える', () => {
+  const bg = (command, rest = {}) => pre(command, { tool_input: { command, run_in_background: true }, ...rest });
+  const denied = bg('bun run vitest run --project app', { agent_id: 'a1' });
+  assert.match(denied.reason, /フォアグラウンドで実行/);
+  assert.match(denied.reason, /push の前の検査に任せて/);
+  assert.equal(bg('bun run dev --port 3000', { agent_id: 'a1' }), null, '検査でない処理は、バックグラウンドで動かしてよい');
+  assert.equal(bg('bun run vitest run --project app'), null, '対話を担当するセッションには完了が通知で届く');
+  assert.equal(pre('bun run vitest run --project app', { agent_id: 'a1' }), null, 'フォアグラウンドの検査は通す');
 });
 
 function tempRepo() {
