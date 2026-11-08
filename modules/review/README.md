@@ -17,7 +17,7 @@ The same rule asks the delegation to name how to run the target narrowly: the te
 [review](agents/review.md) is falsification:
 
 1. **Existence** — start from each requirement and find the implementation that satisfies it. An omission is invisible in a diff, so the scan runs from the requirements toward the code, not from the diff outward.
-2. **Correctness** — examine whether what was found is done right.
+2. **Correctness** — examine whether what was found behaves as required, whether the change broke what used to work or must hold (authorization, data integrity), and whether a test for the requirement exists and fails when the change is reverted.
 
 Reviewers read and run; they do not edit. `Read, Glob, Grep, Bash, Skill` is the whole toolset — what a role must not do is enforced by the tools it is not given, not by a sentence it must remember. `Skill` is there because a subagent with an explicit tool list sees no skills without it: the reviewer reaches the project's skills — how to narrow a run, the design rules it verifies against — the same way the implementer did.
 
@@ -29,13 +29,19 @@ What a fresh checkout did buy was a tree holding only what was committed, so a f
 
 Falsifying sometimes means changing the code for a moment: breaking the implementation to see a test fail, or putting back the old code to compare. In a shared tree that is safe only when the reviewer is alone in it — a parallel reviewer would run its own checks against the broken state — so the delegating session grants it in the request only when a single reviewer is running, the reviewer restores the tree, and the delegating session checks HEAD and the uncommitted state when the review returns. Under Codex the reviewers run in a `read-only` sandbox, so this falsification is not available there.
 
+## What a finding is
+
+What gets fixed is decided by what a finding shows, not by the severity word on it. A finding is one of three things: a requirement not met, something this change broke, or a requirement with no test that fails when the change is reverted. Each carries the condition under which it happens and a reproduction — a failing test, a command's output, or a concrete input traced through file:line. A bug that predates the change becomes an issue candidate; a requirement that reads two ways becomes a question for whoever delegated. Style, defensive additions, unmeasured performance worries, and what tools already decide are not raised at all. Security and accessibility apply the same cut to their canon: an attack or failure that holds in this change, a failure of AA in the UI this change touches.
+
+The numbers behind the cut come from kuden-drive's reviews between 10/28 and 11/7 that ran two rounds or more: 89 pieces of work, 213 rounds, 1,333 findings. A quarter were none of the three; another 15% were pre-existing bugs or readings of the requirements, and 116 of those were fixed anyway. The severity words did not track substance: 216 findings that showed an unmet requirement — 149 with a reproduction — were marked low or a suggestion. A rule that fixed only what reviewers called blocking would have let those through.
+
 ## Ending the loop
 
-Each finding is marked as blocking — a requirement not met, a defect, a failure of the canon — or as a suggestion. Only blocking findings send the work back; suggestions are carried in the report for whoever delegated to decide.
+A fix goes back to the agent that implemented, and starts with the reproduction written as a failing test. It returns for re-review only after that test and the requirement tests pass. In the same data, 45% of the findings in second and later rounds were introduced by the previous fix, and most of those were another requirement not met — the kind a requirement test stops before a reviewer sees it.
 
-A fix goes back to the agent that implemented, and the re-review goes back to the reviewer that raised the findings, continued rather than started fresh, given the fix commit and asked only whether its findings are resolved and whether the fix breaks anything. A fresh reviewer knows nothing of the last round: it reads everything again and finds something new, and the loop never converges.
+The re-review goes back to the reviewer that raised the findings, continued rather than started fresh, given the fix commit and asked only whether its findings are resolved and whether the fix breaks anything. A fresh reviewer knows nothing of the last round: it reads everything again and finds something new, and the loop never converges. Narrowing to the fix loses little: of 218 blocking findings in later rounds, 10 were something an earlier round had missed.
 
-After two re-reviews with blocking findings still open, the work stops and goes back to whoever delegated — to the user, when the delegating session is the one talking to them — with the open findings and the point of disagreement. Findings that survive repeated fixes are more often a disagreement about the requirements or the design than a defect another fix will remove.
+When a re-review shows that the fix introduced a new defect, or that the same finding survived the fix, the loop stops patching. The implementer reconsiders how that part is built, and whoever delegated — the user, when the delegating session is the one talking to them — confirms any change to the requirements or the design. Half of the fix-introduced findings came from 8 of the 48 pieces of work that had any: concurrency, ordering, clocks, migrations, where every fix added a mechanism and every mechanism a new hole. There is no round limit. A count says nothing about why a loop goes on; this condition does.
 
 ## Requirement anchors, not checklists
 
@@ -47,6 +53,6 @@ After two re-reviews with blocking findings still open, the work stops and goes 
 
 **The reviewer cannot fix.** One that could would return the fix instead of the finding, and the finding is the only thing the delegating session cannot produce for itself. Removing `Edit` costs a round trip and keeps the two contexts from collapsing into one.
 
-**No format for a finding.** What a report should contain is judgment, and a capable model has it. The module settles who reviews, against what, and in which order — never how to word the result.
+**What a finding carries, not how it reads.** A finding must carry its condition and its reproduction, and the requirement pass gives every requirement a verdict, so an omission shows as a missing row rather than a silence. Beyond that, how to word the result is judgment, and a capable model has it.
 
 This module declares no external requirements: it is prompts and role definitions only, and works wherever Claude Code or Codex runs.
