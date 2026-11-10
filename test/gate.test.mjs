@@ -13,7 +13,7 @@ import { installCodexStub } from './codex-stub.mjs';
 const REPO = path.resolve(new URL('..', import.meta.url).pathname);
 const CLI = path.join(REPO, 'bin', 'agents-setup');
 const GATE = path.join(REPO, 'modules', 'gate', 'hooks', 'verify-gate.mjs');
-const { before, after, describe, findWait, findCiWait, createStore, FINAL, REPEAT, HEAVY_SECONDS } = await import(GATE);
+const { before, after, describe, findWait, findCiWait, boundedWait, createStore, FINAL, REPEAT, HEAVY_SECONDS, MOVED_WAIT_SECONDS } = await import(GATE);
 
 delete process.env.DOTAGENTS_HOME;
 
@@ -92,6 +92,14 @@ test('前回重かった検査を、作業中に対象を絞らず回すと止�
   assert.match(denied.reason, /make check/);
   assert.match(denied.reason, /変更したファイルだけ/);
   assert.ok(denied.reason.includes(FINAL));
+});
+
+test('サブエージェントの重い検査には、push の前の宣言を示さない', () => {
+  const store = memoryStore({ 'make check': HEAVY_SECONDS + 10 });
+  const denied = pre('make check', { store, agent_id: 'a1' });
+  assert.match(denied.reason, /変更したファイルだけ/);
+  assert.ok(!denied.reason.includes(FINAL), 'push の前の検査は統合する側が行う');
+  assert.match(denied.reason, /統合する側の push の前の検査と CI/);
 });
 
 test('ファイルで絞れない型の検査には、絞る代わりに増分で検査する指定を示す', () => {
@@ -211,6 +219,41 @@ test('フォアグラウンドで待つだけのコマンドを止め、短い�
   assert.equal(pre('sleep 1500; date', { tool_input: { command: 'sleep 1500; date', run_in_background: true } }), null);
 });
 
+test('プロセスの終わりを待つコマンドも待ちとして読む', () => {
+  for (const command of ['caffeinate -w 123', 'timeout 900 caffeinate -w 51529; grep -E "Tests " /tmp/related.log', 'caffeinate -i -w 9']) {
+    assert.equal(findWait(command), 'プロセスの終わりを待つ処理', command);
+  }
+  assert.equal(findWait('caffeinate -i make'), null, '眠らせないだけなら待ちではない');
+});
+
+test('サブエージェントには、移されたコマンドを待つ、短い上限の付いた条件つきの待ちを通す', () => {
+  const sub = (command) => pre(command, { agent_id: 'a1' });
+  const allowed = ["for i in $(seq 1 34); do grep -q 'Test Files' /tmp/tasks/b1.output && break; sleep 5; done",
+    "timeout 170 sh -c 'until grep -q exit= /tmp/related.log; do sleep 5; done'; tail -20 /tmp/related.log",
+    `cd /repo && timeout ${MOVED_WAIT_SECONDS} bash -c 'while ! grep -q exit= /tmp/x.log; do sleep 10; done'`,
+    'timeout 170 caffeinate -w 51529; grep -E "Tests " /tmp/related.log', 'timeout 170 tail --pid=4242 -f /dev/null; echo done',
+    'for i in {1..17}; do [ -s /tmp/x.output ] && break; sleep 10; done; cat /tmp/x.output'];
+  for (const command of allowed) {
+    assert.ok(findWait(command), `待ちには変わりない: ${command}`);
+    assert.ok(boundedWait(command), `上限と条件が読める: ${command}`);
+    assert.equal(sub(command), null, `サブエージェントには通す: ${command}`);
+    assert.match(pre(command).reason, /ターンを終えて/, `対話を担当するセッションでは止める: ${command}`);
+  }
+  const denied = ["until grep -q 'Test Files' /tmp/x.output; do sleep 5; done", // 上限が無い
+    "timeout 600 sh -c 'until grep -q exit= /tmp/x.log; do sleep 5; done'", // 移されるまでの時間を超える
+    'for i in $(seq 1 60); do grep -q x /tmp/x.output && break; sleep 5; done', // 回数 × sleep が長い
+    'for i in $(seq 1 34); do sleep 5; done', // 条件が無い
+    'timeout 170 sleep 170', "timeout 170 sh -c 'while true; do sleep 5; done'", 'timeout 170 tail -f /tmp/x.log',
+    'timeout 900 caffeinate -w 51529', "timeout 170 sh -c 'until grep -q x f; do sleep 5; done'; sleep 60"];
+  for (const command of denied) {
+    assert.equal(boundedWait(command), false, `通さない: ${command}`);
+    assert.ok(sub(command), `サブエージェントでも止める: ${command}`);
+  }
+  const reason = sub('sleep 120').reason;
+  assert.match(reason, /バックグラウンドへ移されたら/);
+  assert.ok(reason.includes(`${MOVED_WAIT_SECONDS} 秒以内`));
+});
+
 test('待ちの差し戻しは、ユーザーと対話するセッションにだけターンを終えるよう伝える', () => {
   assert.match(pre('sleep 120').reason, /ターンを終えて/);
   const sub = pre('sleep 120', { agent_id: 'a1' });
@@ -239,6 +282,7 @@ test('サブエージェントがバックグラウンドで始める検査を�
   const denied = bg('bun run vitest run --project app', { agent_id: 'a1' });
   assert.match(denied.reason, /フォアグラウンドで実行/);
   assert.match(denied.reason, /push の前の検査に任せて/);
+  assert.match(denied.reason, /バックグラウンドへ移されたら/, '移されたときの待ち方を示す');
   assert.equal(bg('bun run dev --port 3000', { agent_id: 'a1' }), null, '検査でない処理は、バックグラウンドで動かしてよい');
   assert.equal(bg('bun run vitest run --project app'), null, '対話を担当するセッションには完了が通知で届く');
   assert.equal(pre('bun run vitest run --project app', { agent_id: 'a1' }), null, 'フォアグラウンドの検査は通す');

@@ -2,6 +2,7 @@
 // フォアグラウンドで待つだけのコマンドを見つけ、理由と代わりの手を添えてエージェントへ差し戻す。
 // 待ち方を取り違えたコマンドも止める: サブエージェントがバックグラウンドで始める検査(完了が届かない)と、
 // 対話を担当するセッションがフォアグラウンドで CI を待つコマンド(そのあいだユーザーと会話できない)である。
+// ただしサブエージェントには、途中でバックグラウンドへ移されたコマンドを待つための、短い上限の付いた条件つきの待ちを通す。
 //
 // どの言語・どのツールにも同じように効くよう、ツールごとの規則は持たない。検査かどうかはコマンドに含まれる
 // 語で、重いかどうかは同じリポジトリーの同じ場所で直近にかかった実測の時間で見分ける。初めて見る検査は
@@ -33,6 +34,9 @@ const RUNS_KEPT = 3;
 const RUNS_NEEDED = 2;
 // これより短い sleep と、待つ合計がこれより短いループは、正当な短い待ちとして通す。
 const LONG_SLEEP_SECONDS = 30;
+// Claude Code は、サブエージェントのフォアグラウンドのコマンドを 180 秒でバックグラウンドへ移すことがある。移されたコマンドの
+// 終わりは、その手前で終わる待ちを繰り返して待つしかないので、サブエージェントにはこの秒数以内の条件つきの待ちを通す。
+export const MOVED_WAIT_SECONDS = 175;
 // 実行が終わらなかった呼び出しの記録を、この時間が過ぎたら片付ける。
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 // 作業ツリーの状態を読むのに待つ上限。超えたら状態を見ずに通す。
@@ -275,18 +279,21 @@ export function describe(command) {
   };
 }
 
+const timeUnit = { '': 1, s: 1, m: 60, h: 3600, d: 86400 };
 function sleepSeconds(tokens) {
   if (tokens[0] !== 'sleep') return 0;
-  const unit = { '': 1, s: 1, m: 60, h: 3600, d: 86400 };
   return tokens.slice(1).reduce((sum, a) => {
     if (a === 'infinity') return Infinity;
     const m = a.match(/^(\d+(?:\.\d+)?)([smhd]?)$/);
-    return m ? sum + Number(m[1]) * unit[m[2]] : sum;
+    return m ? sum + Number(m[1]) * timeUnit[m[2]] : sum;
   }, 0);
 }
 
 // tail -f は出力を待ち続け、自分では終わらない。timeout で包んでも、決めた時間だけ待つ処理になる。
 const follows = (tokens) => tokens[0] === 'tail' && tokens.slice(1).some((a) => /^-[a-zA-Z]*[fF]/.test(a) || /^--follow(=|$)/.test(a));
+// caffeinate -w と tail --pid は、指定したプロセスが終わるまで待つ。
+const waitsForProcess = (tokens) => (tokens[0] === 'caffeinate' && tokens.slice(1).some((a) => /^-[a-zA-Z]*w$/.test(a))) ||
+  (tokens[0] === 'tail' && tokens.slice(1).some((a) => /^--pid(=|$)/.test(a)));
 const shellBody = (tokens) => {
   const k = ['sh', 'bash', 'zsh'].includes(tokens[0]) ? tokens.findIndex((a) => /^-[a-z]*c$/.test(a)) : -1;
   return k > 0 ? tokens[k + 1] ?? null : null;
@@ -323,6 +330,7 @@ export function findWait(command) {
   }
   const readiness = segs.some((s) => s.some((t) => READINESS.test(path.basename(t))));
   if (!readiness && segs.some(follows)) return 'tail -f で出力を待ち続ける処理';
+  if (segs.some(waitsForProcess)) return 'プロセスの終わりを待つ処理';
   const longest = Math.max(0, ...segs.map(sleepSeconds));
   if (longest === Infinity) return '終わりの無い sleep';
   const loops = raw.map((s, i) => (['until', 'while', 'for'].includes(s[0]) ? iterations(s, raw[i + 1]) : undefined))
@@ -339,6 +347,50 @@ export function findCiWait(command) {
   const watches = (t) => t[0] === 'gh' && ((t[1] === 'run' && t[2] === 'watch') ||
     (t[1] === 'pr' && t[2] === 'checks' && t.some((a) => a === '--watch' || a.startsWith('--watch='))));
   return expand(command).some(watches) ? 'CI の完了を待つコマンド' : null;
+}
+
+// timeout で包んだ区切りなら、その秒数。
+function timeoutSeconds(tokens) {
+  const t = stripRedirections(tokens);
+  let i = 0;
+  while (i < t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[i])) i++;
+  if (t[i++] !== 'timeout') return null;
+  while (i < t.length && t[i].startsWith('-')) { if (t[i] === '-k' || t[i] === '-s') i++; i++; }
+  const m = t[i]?.match(/^(\d+(?:\.\d+)?)([smhd]?)$/);
+  return m ? Number(m[1]) * timeUnit[m[2]] : null;
+}
+
+// 待つ条件があるか。until・while の判定、break、プロセスの終わり。条件の無い待ちは、決めた時間を待ち過ごす。
+function conditional(segs) {
+  return segs.some((s) => (s[0] === 'until' && s[1] !== 'false') || (s[0] === 'while' && !['true', ':'].includes(s[1])) ||
+    s[0] === 'break' || waitsForProcess(s));
+}
+
+// サブエージェントが、途中でバックグラウンドへ移されたコマンドを待つ形か。待ちがどれも条件つきで、移されるまでの時間の
+// 手前で終わることが読めるものに限る。上限は、timeout で包んだ区切りならその値、回数の決まった for ならその回数 × sleep。
+export function boundedWait(command) {
+  const raw = segments(command).filter((s) => !s.background);
+  const segs = raw.map(unwrap);
+  const wrapped = [];
+  const free = [];
+  raw.forEach((s, i) => {
+    const body = shellBody(segs[i]);
+    const waits = body ? Boolean(findWait(body)) : waitsForProcess(segs[i]) || sleepSeconds(segs[i]) > 0 || follows(segs[i]);
+    if (waits && timeoutSeconds(s) !== null) wrapped.push({ limit: timeoutSeconds(s), body, tokens: segs[i] });
+    else free.push(i);
+  });
+  for (const w of wrapped) {
+    if (w.limit > MOVED_WAIT_SECONDS) return false;
+    if (!conditional(w.body ? segments(w.body).filter((s) => !s.background).map(unwrap) : [w.tokens])) return false;
+  }
+  const rest = free.map((i) => segs[i]);
+  if (rest.some((s) => follows(s) || waitsForProcess(s) || (shellBody(s) && findWait(shellBody(s))))) return false;
+  const loops = free.map((i) => (['until', 'while', 'for'].includes(raw[i][0]) ? iterations(raw[i], raw[i + 1]) : undefined))
+    .filter((n) => n !== undefined);
+  const longest = Math.max(0, ...rest.map(sleepSeconds));
+  if (!loops.length) return wrapped.length > 0 && longest < LONG_SLEEP_SECONDS;
+  if (loops.some((n) => n === null) || !rest.some((s) => s[0] === 'break')) return false;
+  return Math.max(...loops) * longest <= MOVED_WAIT_SECONDS;
 }
 
 // ---------------------------------------------------------------- 実測の記録
@@ -464,18 +516,28 @@ export function createStore(input, env = process.env) {
 // ---------------------------------------------------------------- 判定
 
 // 型の検査のようにファイルで絞れない検査に「変更したファイルだけ」と返すと、言い換えてすり抜けるか、検査をやめてしまう。
-function heavyMessage(command, seconds, key) {
+// push の前の検査は統合する側が行う。サブエージェントに宣言を示すと、絞った実行にまで付けるようになる。
+function heavyMessage(command, seconds, key, sub) {
   const instead = PROGRAM_WIDE.test(key)
     ? 'プログラム全体を見る検査は、作業中は増分で検査する指定(前回の結果を再利用する指定)で実行してください。'
     : '作業中は、変更したファイルだけを検査してください。絞り方は testing スキルにあります。';
-  return `直近の実行で ${seconds} 秒ほどかかっている検査を、対象を絞らずに実行しようとしています(\`${command.trim()}\`)。${instead}` +
-    `共有のブランチへ push する前の検査なら、コマンドの先頭に \`${FINAL}\` を付けて実行し直してください。`;
+  const final = sub
+    ? 'サブエージェントは push の前の検査を行いません。全体の結果は、統合する側の push の前の検査と CI が確かめます。'
+    : `統合する側が共有のブランチへ push する前に行う検査なら、コマンドの先頭に \`${FINAL}\` を付けて実行し直してください。`;
+  return `直近の実行で ${seconds} 秒ほどかかっている検査を、対象を絞らずに実行しようとしています(\`${command.trim()}\`)。${instead}${final}`;
 }
+
+// サブエージェントのフォアグラウンドのコマンドが途中でバックグラウンドへ移されたときの待ち方。のぞき直しや決めた時間の
+// 待ちは、終わった後も待ち過ごすか、何度もやりとりを重ねる。
+const MOVED = 'フォアグラウンドのコマンドが途中でバックグラウンドへ移されたら(Claude Code では 180 秒を超えると移されることがあります)、' +
+  `その出力のファイルに終わりの印が出るまで待つ 1 つのコマンドを、${MOVED_WAIT_SECONDS} 秒以内の上限を付けて実行し、終わるまで繰り返してください。` +
+  "例: `for i in $(seq 1 34); do grep -q '<終わりの印>' <出力のファイル> && break; sleep 5; done`。" +
+  '出力を何度ものぞき直したり、決めた時間を待ったりはしないでください。';
 
 function backgroundMessage(command) {
   return `サブエージェントが、検査をバックグラウンドで始めようとしています(\`${command.trim()}\`)。` +
-    'サブエージェントはターンを終えると親へ戻るので、バックグラウンドに回した検査の完了を受け取れず、結果を待つには出力を見張り続けることになります。' +
-    '検査は、時間の上限(ツールの timeout か、コマンド自身の待ち時間の指定)を付けてフォアグラウンドで実行してください。' +
+    'サブエージェントはターンを終えると親へ戻るので、バックグラウンドに回した検査の完了は、ターンを終えた後には届きません。' +
+    '検査は、時間の上限(ツールの timeout か、コマンド自身の待ち時間の指定)を付けてフォアグラウンドで実行してください。' + MOVED +
     '上限に収まらない全体の検査は作業中には実行せず、push の前の検査に任せてください。';
 }
 
@@ -492,7 +554,7 @@ function waitMessage(kind, main) {
     ? `待つための処理です(${kind})。サブエージェント、CI、時間のかかるコマンドは、バックグラウンドで実行すれば終わったときに通知が届きます。` +
       'CI の完了を待つコマンドも、バックグラウンドで実行してください。待つあいだはターンを終えて、ユーザーと会話できる状態に戻ってください。'
     : `待つための処理です(${kind})。エージェントの完了を待つなら、並行させるエージェントを 1 つのメッセージでまとめてフォアグラウンドで起動してください。終わった時点で結果が返ります。` +
-      '自分で待つ必要がある処理は、処理そのものを時間の上限を付けてフォアグラウンドで実行してください。CI は、CI の完了を待つコマンドで待てます。';
+      '自分で待つ必要がある処理は、処理そのものを時間の上限を付けてフォアグラウンドで実行してください。CI は、CI の完了を待つコマンドで待てます。' + MOVED;
 }
 
 // Claude Code は subagent からの呼び出しにだけ agent_id を付ける。Codex の入力には transcript_path が無い。
@@ -516,7 +578,7 @@ export function before(input, store, now = Date.now()) {
   const main = isMainSession(input);
   if (!background) {
     const wait = findWait(command) ?? (main ? findCiWait(command) : null);
-    if (wait) return { reason: waitMessage(wait, main) };
+    if (wait && !(input.agent_id && boundedWait(command))) return { reason: waitMessage(wait, main) };
   }
   const check = describe(command);
   if (!check) return null;
@@ -531,7 +593,7 @@ export function before(input, store, now = Date.now()) {
     if (state && !command.includes(REPEAT) && store.unchanged(key, state)) {
       return { reason: repeatMessage(command) };
     }
-    if (!command.includes(FINAL) && !check.targeted) return { reason: heavyMessage(command, seconds, check.key) };
+    if (!command.includes(FINAL) && !check.targeted) return { reason: heavyMessage(command, seconds, check.key, Boolean(input.agent_id)) };
   }
   // background の呼び出しは起動した時点で終わるので、所要時間を測れない。
   if (!background && input.tool_use_id) store.start(input.tool_use_id, key, now, state);
