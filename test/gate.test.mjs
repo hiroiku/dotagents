@@ -35,7 +35,7 @@ const pre = (command, { store = memoryStore(), ...rest } = {}) =>
 
 test('検査の語を含むコマンドを、どのエコシステムでも検査として読む', () => {
   for (const command of ['cargo test', 'pytest -x', 'make check', './gradlew test', 'bundle exec rspec', 'dotnet test',
-    'mix test', 'swift test', 'bun run check', 'npx tsc --noEmit', 'mvn verify', 'ruff check .']) {
+    'mix test', 'swift test', 'bun run check', 'npx eslint .', 'mvn verify', 'ruff check .']) {
     assert.ok(describe(command), `検査として読むべき: ${command}`);
   }
   for (const command of ['ls -la', 'git checkout main', 'gh pr checks 12 --watch', 'npm install', 'docker build .', 'echo test',
@@ -51,9 +51,8 @@ test('対象を指定した検査を、絞った確認として読む', () => {
     'npm test -- login']) {
     assert.equal(describe(command).targeted, true, `絞った確認: ${command}`);
   }
-  for (const command of ['cargo test', 'npx tsc -p tsconfig.json --noEmit', 'bunx vitest run --project app --config vitest.config.ts',
-    'bun run test > /tmp/out.txt 2>&1', 'go test ./...', 'ruff check .', 'pytest -n auto', 'npx tsc --noEmit --pretty false',
-    'npx eslint src/a.ts && npx tsc --noEmit']) {
+  for (const command of ['cargo test', 'npx eslint . --format json', 'bunx vitest run --project app --config vitest.config.ts',
+    'bun run test > /tmp/out.txt 2>&1', 'go test ./...', 'ruff check .', 'pytest -n auto', 'npx eslint src/a.ts && bun run test']) {
     assert.equal(describe(command).targeted, false, `全体への実行: ${command}`);
   }
 });
@@ -65,23 +64,23 @@ test('同じ検査は、場所の移動や出力の整形が違っても同じ�
   assert.equal(describe("bash -lc 'cargo test'").key, key);
   assert.equal(describe('git log --oneline -1 && cargo test').key, key, '検査でない部分を前に付けても同じ検査');
   assert.equal(describe('python3 - && node --version && cargo test').key, key);
-  assert.equal(describe('cargo clippy && cargo test').key, 'cargo clippy && cargo test', '検査を 2 つ並べたものは別の検査');
+  assert.equal(describe('make lint && cargo test').key, 'make lint && cargo test', '検査を 2 つ並べたものは別の検査');
   assert.equal(describe('cd crates/api && cargo test').cd, 'crates/api', '移動先は場所として別に返す');
   assert.equal(describe('cargo test > out.log 2>&1 &'), null, 'background で切り離した検査は待たないので読まない');
 });
 
 test('起動の形と、出力や並列の度合いだけを変える指定は、記録の鍵で区別しない', () => {
-  // どれも、ゲートに止められたエージェントが同じ全体の検査を言い換えた形。
-  for (const command of ['bunx tsc --noEmit', 'npx tsc --noEmit --checkers 4', './node_modules/.bin/tsc --noEmit --pretty false',
-    'bun run tsc --noEmit -p tsconfig.json', 'npx -y tsc --noEmit -p .', '/repo/.worktrees/a/node_modules/.bin/tsc --noEmit']) {
-    assert.equal(describe(command).key, 'tsc --noEmit', command);
+  // どれも、ゲートに止められたエージェントが同じ全体の検査を言い換える形。
+  for (const command of ['bunx vitest run', 'npx vitest run --reporter dot', './node_modules/.bin/vitest run --bail 1',
+    'bun run vitest run --silent', 'npx -y vitest run', '/repo/.worktrees/a/node_modules/.bin/vitest run']) {
+    assert.equal(describe(command).key, 'vitest run', command);
   }
   assert.equal(describe('bunx vitest run --reporter=dot --bail=1 test/a.spec.ts').key, describe('npx vitest run test/a.spec.ts').key);
   assert.equal(describe('make -j 8 check').key, 'make check');
-  assert.equal(describe('npm run check:types').key, describe('bun run check:types').key, 'script の名前が同じなら同じ検査');
+  assert.equal(describe('npm run check:code').key, describe('bun run check:code').key, 'script の名前が同じなら同じ検査');
   assert.equal(describe('bun run test').key, 'test', 'script の名前が検査の語そのものでも検査として読む');
-  for (const [a, b] of [['tsc -b', 'tsc --noEmit'], ['tsc --noEmit --incremental', 'tsc --noEmit'],
-    ['vitest run --project a', 'vitest run --project b'], ['tsc -p tsconfig.build.json', 'tsc'], ['vitest run --shard=1/2', 'vitest run']]) {
+  for (const [a, b] of [['vitest run --project a', 'vitest run --project b'], ['vitest run --shard=1/2', 'vitest run'],
+    ['pytest -m slow', 'pytest'], ['eslint . --max-warnings 0', 'eslint .']]) {
     assert.notEqual(describe(a).key, describe(b).key, `検査の中身が違う: ${a} / ${b}`);
   }
 });
@@ -102,13 +101,21 @@ test('サブエージェントの重い検査には、push の前の宣言を示
   assert.match(denied.reason, /統合する側の push の前の検査と CI/);
 });
 
-test('ファイルで絞れない型の検査には、絞る代わりに増分で検査する指定を示す', () => {
-  const store = memoryStore({ 'tsc --noEmit': HEAVY_SECONDS + 10, 'check:types': HEAVY_SECONDS + 10 });
-  for (const command of ['npx tsc --noEmit --checkers 4', 'bun run check:types']) {
-    const denied = pre(command, { store });
-    assert.match(denied.reason, /増分/, command);
-    assert.doesNotMatch(denied.reason, /変更したファイルだけ/, command);
+test('型の検査は、検査として読まない', () => {
+  // ファイルで絞れず、止めても代わりの手を返せない。増分で実行した検査を、求めた形のまま止め続けていた。
+  for (const command of ['npx tsc --noEmit', 'cd /repo/.worktrees/a && timeout 170 bunx tsc --noEmit --incremental; echo "exit=$?"',
+    'bun run check:types', 'npm run typecheck', 'pnpm run type-check -- --watch false', 'mypy .', 'pyright', 'cargo clippy',
+    'npx vue-tsc --noEmit', 'npx tsc -p tsconfig.test.json', 'npx tsc --noEmit --incremental --tsBuildInfoFile /tmp/s/test.tsbuildinfo -p tsconfig.spec.json']) {
+    assert.equal(describe(command), null, command);
+    assert.equal(pre(command, { agent_id: 'a1' }), null, command);
   }
+  assert.equal(describe('npx eslint src/a.ts && npx tsc --noEmit').key, 'eslint src/a.ts', '並べた型の検査は、記録の鍵に入れない');
+  assert.equal(describe('bun run test && bun run typecheck').key, 'test', '並べたテストは、今までどおり検査として読む');
+  assert.ok(describe('pytest tests/test_types.py'), '引数に型の語があっても、テストは検査として読む');
+  assert.equal(describe('npx prettier --write vitest.config.ts'), null, 'ファイルの名前に検査の語があっても、検査として読まない');
+  assert.ok(describe('bunx vitest run --config vitest.config.ts'), '設定ファイルを指定したテストは、検査として読む');
+  const heavy = pre('bun run check', { store: memoryStore({ check: HEAVY_SECONDS + 10 }), agent_id: 'a1' });
+  assert.match(heavy.reason, /変更したファイルだけ/, '型の検査を含むかもしれない全体の検査は、今までどおり止める');
 });
 
 test('argv の配列で渡されたコマンドも、1 行のコマンドとして読む', () => {

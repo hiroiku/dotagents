@@ -42,9 +42,11 @@ const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 // 作業ツリーの状態を読むのに待つ上限。超えたら状態を見ずに通す。
 const STATE_TIMEOUT_MS = 5000;
 
-// 検査を表す語。テスト、静的検査、型チェックの名前は、どのエコシステムでもこれらの語を含む。
+// 検査を表す語。テストと静的検査の名前は、どのエコシステムでもこれらの語を含む。検査の道具の名前は持たない。
 // latest と inspect は、語を含んでいても検査ではない。
-const CHECK_WORD = /(?<!la)test|(?<!in)spec|check|lint|verify|e2e|tsc|mypy|pyright|clippy/i;
+const CHECK_WORD = /(?<!la)test|(?<!in)spec|check|lint|verify|e2e/i;
+// 型の検査を表す語。型の検査はファイルで絞れず、止めても代わりの手を返せないので、検査として読まない。
+const TYPE_WORD = /type/i;
 // 出力の整形、移動、表示だけをするコマンド。検査の実体ではないので、記録の鍵から外す。
 const NOISE = new Set(['cd', 'pushd', 'popd', 'echo', 'printf', 'tail', 'head', 'grep', 'rg', 'sed', 'awk', 'cat', 'tee',
   'wc', 'sort', 'uniq', 'cut', 'tr', 'jq', 'true', 'false', ':', 'date', 'set', 'export', 'source', '.', 'ls', 'pwd',
@@ -58,7 +60,7 @@ const CONFIG_LIKE = /config|\.(json|jsonc|json5|toml|ya?ml|ini|cfg|conf|properti
 // 実行の指示そのもの、今いる場所全体、数や真偽の設定値は、対象の絞り込みではない。
 const NOT_TARGET = /^(run|\.\/?|\d+(\.\d+)?%?|true|false|auto|none)$/i;
 // 値を取る設定のオプション。その値は、対象の絞り込みではない。
-const SETTING_FLAG = /^--?(projects?|reporters?|format|output|out|config|c|workers|max-workers|jobs|j|n|pool|shard|retries|retry|timeout|colou?rs?|pretty|preset|env|environment|mode|profile|log-level|seed|coverage[\w.-]*)$/i;
+const SETTING_FLAG = /^--?(projects?|reporters?|format|output|out|config|c|workers|max-workers|jobs|j|n|pool|shard|retries|retry|timeout|colou?rs?|preset|env|environment|mode|profile|log-level|seed|coverage[\w.-]*)$/i;
 // 値で対象を選ぶオプション(-k name、--filter=name、-Dtest=Name など)。
 const FILTER_FLAG = /test|spec|filter|grep|pattern|match|name|only|focus/i;
 // 起動を確かめる手段。待ちのループに含まれていれば、起動待ちとして通す。
@@ -68,13 +70,9 @@ const LAUNCHERS = ['npx', 'bunx', 'bun x', 'bun run', 'npm exec', 'npm run', 'pn
   'yarn run', 'uv run', 'poetry run', 'pipenv run', 'bundle exec'].map((l) => l.split(' '));
 // 出力の形、並列の度合い、最初の失敗で止めるかだけを変え、検査の中身を変えないオプション。値を取るものと取らないもの。
 // 記録の鍵から外す。外さないと、付け替えるだけで初めて見る検査として通ってしまう。
-const PRESENTATION_VALUE = /^--?(reporters?|format|pretty|colou?rs?|checkers|workers|max-?workers|jobs|j|threads|bail|max-?failures|maxfail)$/i;
+const PRESENTATION_VALUE = /^--?(reporters?|format|colou?rs?|workers|max-?workers|jobs|j|threads|bail|max-?failures|maxfail)$/i;
 const PRESENTATION_SWITCH = /^--?(silent|quiet|q|verbose|v|no-colou?r|x|exitfirst)$/i;
 const PRESENTATION_ARG = /^(\d+%?|true|false|auto|[a-z][\w-]*)$/i;
-// 既定の設定の場所を明示しただけの指定。
-const DEFAULT_PROJECT = /^(\.\/?|(\.\/)?tsconfig\.json)$/;
-// ファイルで対象を絞れない、プログラム全体を見る検査。増分で検査する指定が代わりの手になる。
-const PROGRAM_WIDE = /tsc|mypy|pyright|typecheck|type-check|\btypes\b|clippy/i;
 
 // ---------------------------------------------------------------- コマンドの読み取り
 
@@ -204,11 +202,14 @@ function expand(command) {
 const isPathLike = (a) => !a.startsWith('-') && !CONFIG_LIKE.test(a) && !a.endsWith('...') &&
   (a.includes('/') || a.includes('::') || /\.[A-Za-z][A-Za-z0-9]*(:\d+)?$/.test(a));
 
-// 検査の語を持つ語の位置。導入や更新の動詞が先に来るなら、検査ではない。
+// 拡張子で終わる語はファイルの名前で、検査の語を含んでいても検査ではない(tsconfig.test.json など)。
+const isFileName = (a) => /\.[A-Za-z][A-Za-z0-9]*$/.test(a);
+
+// 検査の語を持つ語の位置。導入や更新の動詞が先に来るなら、検査ではない。型の検査を表す語なら、検査として読まない。
 function checkIndex(tokens) {
   if (NOT_CHECK.has(tokens[0])) return -1;
-  const i = tokens.findIndex((a) => !a.startsWith('-') && !isPathLike(a) && CHECK_WORD.test(a));
-  return i >= 0 && !tokens.slice(0, i).some((a) => INSTALL_VERB.has(a)) ? i : -1;
+  const i = tokens.findIndex((a) => !a.startsWith('-') && !isPathLike(a) && !isFileName(a) && CHECK_WORD.test(a));
+  return i >= 0 && !TYPE_WORD.test(tokens[i]) && !tokens.slice(0, i).some((a) => INSTALL_VERB.has(a)) ? i : -1;
 }
 
 // 名前で対象を選ぶオプション(--filter=name、-Dtest=Name など)。
@@ -255,7 +256,6 @@ function keyTokens(tokens) {
       if (eq < 0 && PRESENTATION_ARG.test(t[i + 1] ?? '')) i++;
       continue;
     }
-    if ((a === '-p' || a === '--project') && DEFAULT_PROJECT.test(t[i + 1] ?? '')) { i++; continue; }
     out.push(a);
   }
   return out;
@@ -515,12 +515,9 @@ export function createStore(input, env = process.env) {
 
 // ---------------------------------------------------------------- 判定
 
-// 型の検査のようにファイルで絞れない検査に「変更したファイルだけ」と返すと、言い換えてすり抜けるか、検査をやめてしまう。
 // push の前の検査は統合する側が行う。サブエージェントに宣言を示すと、絞った実行にまで付けるようになる。
-function heavyMessage(command, seconds, key, sub) {
-  const instead = PROGRAM_WIDE.test(key)
-    ? 'プログラム全体を見る検査は、作業中は増分で検査する指定(前回の結果を再利用する指定)で実行してください。'
-    : '作業中は、変更したファイルだけを検査してください。絞り方は testing スキルにあります。';
+function heavyMessage(command, seconds, sub) {
+  const instead = '作業中は、変更したファイルだけを検査してください。絞り方は testing スキルにあります。';
   const final = sub
     ? 'サブエージェントは push の前の検査を行いません。全体の結果は、統合する側の push の前の検査と CI が確かめます。'
     : `統合する側が共有のブランチへ push する前に行う検査なら、コマンドの先頭に \`${FINAL}\` を付けて実行し直してください。`;
@@ -593,7 +590,7 @@ export function before(input, store, now = Date.now()) {
     if (state && !command.includes(REPEAT) && store.unchanged(key, state)) {
       return { reason: repeatMessage(command) };
     }
-    if (!command.includes(FINAL) && !check.targeted) return { reason: heavyMessage(command, seconds, check.key, Boolean(input.agent_id)) };
+    if (!command.includes(FINAL) && !check.targeted) return { reason: heavyMessage(command, seconds, Boolean(input.agent_id)) };
   }
   // background の呼び出しは起動した時点で終わるので、所要時間を測れない。
   if (!background && input.tool_use_id) store.start(input.tool_use_id, key, now, state);
