@@ -38,6 +38,13 @@ export const codexLog = (home) => {
   try { return fs.readFileSync(path.join(home, '.codex', 'stub.log'), 'utf8').trim().split('\n').filter(Boolean); } catch { return []; }
 };
 
+// 応答しない codex を真似るときの PATH。exec で sleep に替わるので、止められれば何も残らない。
+export function pathWithHangingCodex() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-codex-hang-'));
+  fs.writeFileSync(path.join(dir, 'codex'), '#!/bin/sh\nexec sleep 60\n', { mode: 0o755 });
+  return `${dir}${path.delimiter}${process.env.PATH}`;
+}
+
 // codex の無いマシンを真似るときの PATH。代役も本物も見えない。
 export const pathWithoutCodex = () => process.env.PATH.split(path.delimiter)
   .filter((dir) => !fs.existsSync(path.join(dir, 'codex'))).join(path.delimiter);

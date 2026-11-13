@@ -968,10 +968,20 @@ function codexPluginInspect() {
   };
 }
 
+// Codex CLI を待つ上限。呼ぶのは手元のファイルを扱うコマンドだけで、どれも 1 秒かからない。
+// 起動したまま応答しない codex を待ち続けると、配備そのものが終わらない。
+const CODEX_CLI_TIMEOUT_MS = 30_000;
+
+// 止めるときは SIGKILL を送る。起動の途中で止まったプロセスは、SIGTERM を受け取らないことがある。
 function codexCli(args) {
-  const r = spawnSync('codex', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const r = spawnSync('codex', args, {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: CODEX_CLI_TIMEOUT_MS, killSignal: 'SIGKILL',
+  });
   if (r.error?.code === 'ENOENT') return { missing: true };
-  return { ok: r.status === 0, message: `${r.stderr || r.stdout || ''}`.trim().split('\n').pop() };
+  if (r.error?.code === 'ETIMEDOUT') {
+    return { ok: false, timedOut: true, message: `no response within ${CODEX_CLI_TIMEOUT_MS / 1000}s — run update once codex responds` };
+  }
+  return { ok: r.status === 0, message: `${r.stderr || r.stdout || r.error?.message || ''}`.trim().split('\n').pop() };
 }
 
 function syncCodexPlugin(log) {
@@ -980,8 +990,8 @@ function syncCodexPlugin(log) {
   if (!codexDeployed()) {
     if (!recorded && !lstatOrNull(root)) return;
     if (recorded) {
-      codexCli(['plugin', 'remove', CODEX_PLUGIN_ID]);
-      codexCli(['plugin', 'marketplace', 'remove', PLUGIN]);
+      // 応答しない codex を、もう一度上限まで待たない。
+      if (!codexCli(['plugin', 'remove', CODEX_PLUGIN_ID]).timedOut) codexCli(['plugin', 'marketplace', 'remove', PLUGIN]);
       fs.unlinkSync(CODEX_PLUGIN_STATE());
     }
     fs.rmSync(root, { recursive: true, force: true });

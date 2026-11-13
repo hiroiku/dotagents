@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { installCodexStub, codexLog, pathWithoutCodex } from './codex-stub.mjs';
+import { installCodexStub, codexLog, pathWithoutCodex, pathWithHangingCodex } from './codex-stub.mjs';
 
 const REPO = path.resolve(new URL('..', import.meta.url).pathname);
 const CLI = path.join(REPO, 'bin', 'agents-setup');
@@ -275,6 +275,29 @@ test('Codex plugin: codex の無いマシンでは知らせて配備は続け、
   assert.match(st.out, /Codex plugin dotagents@dotagents — not installed, run update/);
   run(home, ['update', '-g']);
   assert.match(run(home, ['status', '-g']).out, /no drift/, 'codex が入れば update で入る');
+});
+
+test('Codex plugin: codex が応答しないマシンでは、上限まで待って警告し、プロジェクトへの配達は済ませる', () => {
+  const home = freshHome();
+  // 待つ上限を短くした installer の写しで確かめる。本物の上限まで待つと、テスト全体より長くかかる。
+  const { cli } = makeCorpus();
+  const source = read(cli);
+  const LIMIT = /const CODEX_CLI_TIMEOUT_MS = [\d_]+;/;
+  assert.ok(LIMIT.test(source), 'installer が待つ上限を持つ');
+  fs.writeFileSync(cli, source.replace(LIMIT, 'const CODEX_CLI_TIMEOUT_MS = 500;'));
+  const env = { PATH: pathWithHangingCodex() };
+  const started = Date.now();
+  const r = run(home, ['install', ...BASE, '-g'], { cli, env, allowFail: true });
+  assert.ok(Date.now() - started < 20_000, '応答を待ち続けない');
+  assert.equal(r.code, 1, 'plugin が入らなかったことは、ほかの失敗と同じく警告として伝える');
+  assert.match(r.out, /codex plugin marketplace add .* failed: no response within 0\.5s/);
+  assert.equal(r.out.match(/failed: no response/g).length, 1, '応答しない codex を続けて呼ばない');
+  assert.ok(fs.existsSync(codexRules(home)), 'プロジェクトへの配達は届く');
+  const st = run(home, ['status', '-g'], { cli, env, allowFail: true });
+  assert.equal(st.code, 1);
+  assert.match(st.out, /Codex plugin dotagents@dotagents — not installed, run update/);
+  run(home, ['update', '-g'], { cli });
+  assert.match(run(home, ['status', '-g'], { cli }).out, /no drift/, 'codex が応答するようになれば update で入る');
 });
 
 test('6.0 の移行: プロジェクトへ生成していた .codex/hooks.json は、触られていなければ update が刈り込む', () => {
