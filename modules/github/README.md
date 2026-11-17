@@ -24,6 +24,7 @@ The line that decides whether a feature was worth using:
 | A stale status is worse than none | A board nobody trusts gets replaced by asking the person, and then everyone pays for the asking. That is why the status moves when the work starts, not when it is remembered. |
 | The branch name is the only tie | `.worktrees/issue-{id}` and `issues/issue#{id}` make the mapping from a working tree to an issue readable without a lookup, by a person or by the next session. GitHub keeps no other: the branch link an issue can hold does not reach the pull request. |
 | A linked pull request has one reliable route | `addCloseIssueReferences` fills the issue's Linked pull requests whatever the base branch is. `Closes #123` in the body is interpreted only for a pull request that targets the default branch, and one opened from a branch linked to the issue never appears, though the documentation says it does. Measured, not read. |
+| The body is the summary, the comments are the log | A thread answers "what happened" and cannot answer "where are we" without being read end to end, which a person will not do. The body is rewritten as the state changes, so it is always the answer to the second question; the comments keep the first, and one line there says what the rewrite changed. |
 | The closing reason is data | Done and abandoned are two different histories: one becomes the release note, the other is the record of a decision to stop. A farewell comment is neither. |
 
 ## Where the call could have gone otherwise
@@ -32,7 +33,7 @@ The line that decides whether a feature was worth using:
 
 **One API name is written down, against the habit of the rest.** The rules avoid naming tools, because `--help` is newer than any document written about it. `addCloseIssueReferences` is the exception: GitHub's own documentation states the opposite of what the API does, so a reader who trusts the documentation takes a route that silently produces nothing. What cannot be derived from the documentation is the part worth carrying.
 
-**No template for the issue body.** What a good report contains is judgment, and a capable model already has it. The module settles where a meaning goes, never how to word it.
+**No template for the issue body, but a place for what it must hold.** What a good report contains is judgment, and a capable model already has it, so the module gives no headings and no wording. It does settle where three meanings go: the present state, what was decided, and what a person is asked to decide stay in the body, and the history stays in the comments. That is a rule about where a meaning goes, the same kind as every other here, not a format. The reason is the reader: nobody reads a long thread to rebuild the state, so whatever a decision needs has to be readable from the body alone.
 
 **No menu item named where the name can change.** The rules say to pick the closing reason that matches what happened, not to pick `not planned`; to move to the status that means in progress, not to a column spelled *In Progress*. GitHub renames things, and a rule written against the current wording of a menu stops being followed the day it changes.
 
