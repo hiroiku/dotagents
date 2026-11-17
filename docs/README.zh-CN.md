@@ -130,7 +130,7 @@ dotagents update -g             # 以及 dotagents update -C <项目>
 
 一切都是幂等且**由哈希所有**的:安装程序只会触及自己放置且仍然识别的内容。你自己的技能永远不会被触碰,你就地编辑过的文件会被保留并报告(可用 `--force` 覆盖),而 `uninstall` 只会移除记录所载明的、由它放置的内容——除此之外一概不动。
 
-项目的记录放在所交付内容的旁边,即 `.claude/dotagents.json` 与 `.codex/dotagents.json`。把它和交付的文件一起提交,那么每个 clone、每个 worktree,以及移动过的工作副本,都知道 dotagents 在那里拥有什么。它不含时间戳,因此什么都没改变的 `update` 不会留下任何 diff。由于记录可能来自别人的 clone,它只认领位于自己代理目录之内的文件。7.0 及更早版本存放在 `~/.dotagents/state/projects/` 的记录,会在下一次 `update` 时迁入项目;有记录在等待迁移时,`status` 会告知。
+项目的记录放在所交付内容的旁边,即 `.claude/dotagents.json` 与 `.codex/dotagents.json`。把它和交付的文件一起提交,那么每个 clone、每个 worktree,以及移动过的工作副本,都知道 dotagents 在那里拥有什么。它不含时间戳,因此什么都没改变的 `update` 不会留下任何 diff。它沿用文件现有的缩进,所以项目的格式化工具整理过一次之后,后来的 `update` 不会把它改回去。由于记录可能来自别人的 clone,它只认领位于自己代理目录之内的文件。7.0 及更早版本存放在 `~/.dotagents/state/projects/` 的记录,会在下一次 `update` 时迁入项目;有记录在等待迁移时,`status` 会告知。
 
 6.0 之前的版本把规则作为一个带标记的块,写进 `CLAUDE.md` 或 `AGENTS.md` 这类规则文件之中。等到曾读取该块的每个代理都在新的位置拿到了自己的规则,`update` 就会剥除那个块,文件的其余部分则保持原样。
 

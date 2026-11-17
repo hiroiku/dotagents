@@ -130,7 +130,7 @@ dotagents update -g             # 그리고 dotagents update -C <프로젝트>
 
 모든 것은 멱등이며 **해시로 소유**된다: 자신이 배치했고 지금도 인식할 수 있는 것만 건드린다. 직접 작성한 스킬은 절대 건드리지 않고, 그 자리에서 수정한 파일은 그대로 두고 보고하며(`--force`로 덮어쓰기), `uninstall`이 제거하는 것도 기록이 배치했다고 말하는 것뿐이다 — 그 외에는 건드리지 않는다.
 
-프로젝트의 기록은 전달된 것 옆에, `.claude/dotagents.json`과 `.codex/dotagents.json`에 놓인다. 전달된 파일과 함께 커밋하면 clone, worktree, 옮겨 간 checkout 어디서든 dotagents가 거기서 무엇을 소유하는지 알 수 있다. 기록에는 타임스탬프가 없으므로, 아무것도 바꾸지 않는 `update`는 diff를 남기지 않는다. 기록은 다른 사람의 clone에서 건너올 수도 있으므로, 자기 에이전트의 디렉터리 안에 있는 파일만 자기 것으로 인정한다. 7.0 이하가 `~/.dotagents/state/projects/`에 두던 기록은 다음 `update` 때 프로젝트로 옮겨 가며, 옮길 기록이 기다리고 있으면 `status`가 알려 준다.
+프로젝트의 기록은 전달된 것 옆에, `.claude/dotagents.json`과 `.codex/dotagents.json`에 놓인다. 전달된 파일과 함께 커밋하면 clone, worktree, 옮겨 간 checkout 어디서든 dotagents가 거기서 무엇을 소유하는지 알 수 있다. 기록에는 타임스탬프가 없으므로, 아무것도 바꾸지 않는 `update`는 diff를 남기지 않는다. 들여쓰기는 지금 파일의 것을 지키므로, 프로젝트의 formatter로 한 번 정리한 기록을 나중의 `update`가 되돌리지 않는다. 기록은 다른 사람의 clone에서 건너올 수도 있으므로, 자기 에이전트의 디렉터리 안에 있는 파일만 자기 것으로 인정한다. 7.0 이하가 `~/.dotagents/state/projects/`에 두던 기록은 다음 `update` 때 프로젝트로 옮겨 가며, 옮길 기록이 기다리고 있으면 `status`가 알려 준다.
 
 6.0 이전 버전은 규칙을 `CLAUDE.md`나 `AGENTS.md` 같은 규칙 파일 안에 표시를 단 블록으로 써 넣었다. 그 블록을 읽던 모든 에이전트가 새 자리에서 규칙을 받게 되면, `update`는 그 블록을 걷어 내고 파일의 나머지는 원래대로 둔다.
 

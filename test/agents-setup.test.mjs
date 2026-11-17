@@ -315,6 +315,23 @@ test('6.0 の移行: プロジェクトへ生成していた .codex/hooks.json �
   assert.match(run(home, ['status', '-C', proj]).out, /no drift/);
 });
 
+test('記録の字下げ: プロジェクトが字下げを変えた記録は、書き直しても同じ字下げのまま', () => {
+  const home = freshHome();
+  const proj = freshProject();
+  run(home, ['install', 'review', '--agent', 'all', '-C', proj]);
+  for (const agent of ['claude', 'codex']) {
+    const file = recordFile(proj, agent);
+    fs.writeFileSync(file, JSON.stringify(JSON.parse(read(file)), null, '\t') + '\n');
+  }
+
+  run(home, ['install', 'prompting', '--agent', 'all', '-C', proj]);
+  for (const agent of ['claude', 'codex']) {
+    const text = read(recordFile(proj, agent));
+    assert.deepEqual(JSON.parse(text).modules, ['prompting', 'review'], `${agent} の記録は書き直されている`);
+    assert.equal(text, JSON.stringify(JSON.parse(text), null, '\t') + '\n', `${agent} の記録はタブの字下げのまま`);
+  }
+});
+
 test('外科的 uninstall: 自前スキルとユーザーの設定に触れず、配布物だけが消える', () => {
   const home = freshHome();
   fs.mkdirSync(path.join(home, '.claude/skills/my-own-skill'), { recursive: true });

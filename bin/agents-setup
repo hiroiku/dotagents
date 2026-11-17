@@ -117,9 +117,19 @@ function writeFileAtomic(file, data, mode) {
 const fileHash = (v) => (typeof v === 'string' ? v : v?.hash);
 const fileOwner = (v) => (typeof v === 'string' ? null : v?.module ?? null);
 
+// 書き直す JSON は、今のファイルの字下げを保つ。記録をリポジトリーに置くプロジェクトでは
+// そのプロジェクトの formatter が字下げを決めていて、書き直すたびに戻すと整形の検査が落ちる。
+function jsonIndentOf(file) {
+  try {
+    return /^[{[]\r?\n([ \t]+)\S/.exec(fs.readFileSync(file, 'utf8'))?.[1] ?? 2;
+  } catch {
+    return 2;
+  }
+}
+
 function writeJson(file, obj) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  writeFileAtomic(file, JSON.stringify(obj, null, 2) + '\n');
+  writeFileAtomic(file, JSON.stringify(obj, null, jsonIndentOf(file)) + '\n');
 }
 
 function lstatOrNull(p) {
