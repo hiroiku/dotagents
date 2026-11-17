@@ -1,6 +1,6 @@
 {
   "schema": 7,
-  "version": "7.13.0",
+  "version": "7.15.0",
   "modules": [
     "prompting"
   ],
@@ -14,11 +14,11 @@
       "module": "prompting"
     },
     ".claude/skills/dotagents/.claude-plugin/plugin.json": {
-      "hash": "sha256:ba84d9f63bab0c3b92c680f4036e077eb4a585b8418591be8ee5388ac8a40b75",
+      "hash": "sha256:b1e207f0ec5cc9e382623e95b40731d65061209865a911cd8b57b2271dcc6ede",
       "module": null
     },
     ".claude/skills/dotagents/skills/prompting/SKILL.md": {
-      "hash": "sha256:4a9765c6a6ca46a489817a7225f76b1b1b40fcff60dc4f45275a9b0b7be279f9",
+      "hash": "sha256:bb7153a2794253d42386289650866bb35a6332c277027409e353221b04d700f8",
       "module": "prompting"
     }
   }
