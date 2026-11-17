@@ -942,7 +942,7 @@ function codexPluginFiles() {
         policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' }, category: 'Developer Tools' }],
     }),
     [`${CODEX_PLUGIN_DIR}/.codex-plugin/plugin.json`]: json({
-      name: PLUGIN, version: pkg().version, description: 'dotagents — rules and hooks for the projects that installed them',
+      name: PLUGIN, version: pkg().version, description: 'dotagents — 入れたプロジェクトへ届ける規則と hook',
     }),
     [`${CODEX_PLUGIN_DIR}/hooks/hooks.json`]: json({ hooks }),
   };
