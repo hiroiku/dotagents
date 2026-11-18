@@ -43,6 +43,8 @@ The line that decides whether a feature was worth using:
 
 **Releases are a skill of their own.** The issue skill is read when work is planned or picked up, and cutting a version is neither, so a rule kept there is not in context when it applies. The reconciliation of milestones moved with it. The note is written for whoever uses the version, so it names what changed for them rather than the commits, files and identifiers behind it; no template is given, for the same reason the issue body has none. A repository whose workflow already creates the release keeps it, and only the body is written, so the two never race.
 
+**A version can be tagged and never ship.** A tag is cut for staging, and the release is then skipped in favour of a later one. The previous version is therefore the last one that reached its users, the last tag with a release, because a note measured from a skipped tag drops the changes nobody has received yet. The skipped version's milestone hands its issues to the next one and closes, so a milestone always answers what the next shipped version will carry. The tag stays: it still names a commit that was deployed somewhere.
+
 **Branch names are fixed here, though `git` leaves them alone.** That module says nothing about them because a branch name is gone the week after the work lands. Here the name is doing a job while it is alive: it is what ties a working tree to the issue it belongs to, and it is read by whoever opens the repository next.
 
 **AI signatures are refused here as well as in commits.** The `git` module keeps them out of commit messages. Issue bodies, comments and pull requests are the same text read by the same people, and they are the half that is public.
