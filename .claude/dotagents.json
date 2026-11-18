@@ -1,6 +1,6 @@
 {
   "schema": 7,
-  "version": "7.19.0",
+  "version": "7.20.0",
   "modules": [
     "github",
     "prompting"
@@ -15,11 +15,11 @@
       "module": "prompting"
     },
     ".claude/skills/dotagents/.claude-plugin/plugin.json": {
-      "hash": "sha256:4d3d9a372f33c66280d04d875b985a35d5b726b1e78c121137f8effc86f0f3ce",
+      "hash": "sha256:adb669f48497a0070f71fb07df412d4bd1197cae56118c5232f45e42a2965158",
       "module": null
     },
     ".claude/skills/dotagents/skills/issues/SKILL.md": {
-      "hash": "sha256:40cf4756fef81ec85715b5f3d4b569685fcdcce8e2f7fd4df571a6c21b7a0b0a",
+      "hash": "sha256:8d8aeb09102ff35ffdec46224956a8d5aeecd85ff01426e6a47e8a4b5a726a19",
       "module": "github"
     },
     ".claude/skills/dotagents/skills/prompting/SKILL.md": {
@@ -27,7 +27,7 @@
       "module": "prompting"
     },
     ".claude/skills/dotagents/skills/releases/SKILL.md": {
-      "hash": "sha256:c3fea015813ac991bbe74c16727e415c495059ae9963a40f8055226f8431b0e7",
+      "hash": "sha256:20176fa2d96e177eecffe2df8594b8cdeacc888240c95d782978f46064ed5873",
       "module": "github"
     }
   }
