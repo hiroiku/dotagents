@@ -143,7 +143,7 @@ bin/agents-setup      CLI (list / install / update / uninstall / status)
 test/                 installer의 계약 테스트 (npm test · bun test)
 modules/              함께 실려 오는 본보기 한 벌 — 배포원은 hiroiku
 ├── review/           반증으로서의 리뷰, OWASP, WCAG — 자기만의 context에서
-├── code/             고칠 곳은 한 곳, 주석은 무엇을 위한 것인가
+├── code/             고칠 곳은 한 곳, 덧대기보다 가장 좋은 설계, 주석은 무엇을 위한 것인가
 ├── git/              커밋 제목, squash, rebase, worktree
 ├── testing/          좋은 테스트의 열두 가지 성질
 ├── gate/             작업 중의 전체 검사와 기다리기만 하는 명령을 멈추는 hook

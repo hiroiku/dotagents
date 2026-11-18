@@ -143,7 +143,7 @@ bin/agents-setup      CLI 本體(list / install / update / uninstall / status)
 test/                 安裝程式的契約測試(npm test · bun test)
 modules/              隨套件同行的範例一套——來自 hiroiku
 ├── review/           反證式審查、OWASP、WCAG——在自己的 context 裡
-├── code/             改動只落在一處,註解是為了什麼而存在
+├── code/             改動只落在一處,選最好的設計而不是打補丁,註解是為了什麼而存在
 ├── git/              提交標題、squash、rebase、worktree
 ├── testing/          好測試的十二種性質
 ├── gate/             在工作途中攔下全量檢查與只為等待的命令的 hook

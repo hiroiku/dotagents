@@ -168,7 +168,7 @@ bin/agents-setup      the CLI (list / install / update / uninstall / status)
 test/                 contract tests for the installer (npm test · bun test)
 modules/              the sample set that travels with it — from hiroiku
 ├── review/           adversarial review, OWASP, WCAG — in a context of their own
-├── code/             one place to change, and what a comment is for
+├── code/             one place to change, the best design over a patch, and what a comment is for
 ├── git/              commit titles, squash, rebase, worktrees
 ├── testing/          the twelve properties of a good test
 ├── gate/             a hook that stops full-scope checks mid-work and wait-only commands

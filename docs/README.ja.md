@@ -168,7 +168,7 @@ bin/agents-setup      CLI(list / install / update / uninstall / status)
 test/                 installer の契約テスト(npm test · bun test)
 modules/              一緒に旅する見本の一式 — 配布元は hiroiku
 ├── review/           反証としてのレビュー、OWASP、WCAG — 自分の context で
-├── code/             直す場所を 1 か所に、コメントが何のためにあるか
+├── code/             直す場所を 1 か所に、継ぎ足しより最も良い設計を、コメントが何のためにあるか
 ├── git/              コミットタイトル、squash、rebase、worktree
 ├── testing/          良いテストの 12 の性質
 ├── gate/             作業中の全体検査と待つだけのコマンドを止める hook

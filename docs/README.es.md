@@ -143,7 +143,7 @@ bin/agents-setup      la CLI (list / install / update / uninstall / status)
 test/                 pruebas de contrato del instalador (npm test · bun test)
 modules/              el conjunto de muestra que viaja con ella — de hiroiku
 ├── review/           revisión adversarial, OWASP, WCAG — en su propio contexto
-├── code/             un solo sitio para cada cambio, para qué sirve un comentario
+├── code/             un solo sitio para cada cambio, el mejor diseño en vez de un parche, para qué sirve un comentario
 ├── git/              títulos de commit, squash, rebase, worktrees
 ├── testing/          las doce propiedades de una buena prueba
 ├── gate/             un hook que detiene las comprobaciones completas a mitad del trabajo y los comandos que solo esperan
