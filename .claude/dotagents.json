@@ -1,6 +1,6 @@
 {
   "schema": 7,
-  "version": "7.18.0",
+  "version": "7.19.0",
   "modules": [
     "github",
     "prompting"
@@ -15,7 +15,7 @@
       "module": "prompting"
     },
     ".claude/skills/dotagents/.claude-plugin/plugin.json": {
-      "hash": "sha256:8a023bdd3bc7ab5ffb6f2dc2b30451fb6ab4bc5b9eb2b8432868477b618f5191",
+      "hash": "sha256:4d3d9a372f33c66280d04d875b985a35d5b726b1e78c121137f8effc86f0f3ce",
       "module": null
     },
     ".claude/skills/dotagents/skills/issues/SKILL.md": {
@@ -27,7 +27,7 @@
       "module": "prompting"
     },
     ".claude/skills/dotagents/skills/releases/SKILL.md": {
-      "hash": "sha256:9ee9e63e90a05159d5a3dc6217e8a24acb22cfeaae61b0e2a9f47e4a2938f0a9",
+      "hash": "sha256:c3fea015813ac991bbe74c16727e415c495059ae9963a40f8055226f8431b0e7",
       "module": "github"
     }
   }
