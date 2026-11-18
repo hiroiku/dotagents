@@ -149,7 +149,7 @@ modules/              l'ensemble d'exemple qui voyage avec elle — de hiroiku
 ├── gate/             un hook qui arrête les vérifications complètes en cours de travail et les commandes qui ne font qu'attendre
 ├── prompting/        quoi lire avant d'éditer un prompt
 ├── architecture/     une règle de dépendance imposée par le build
-└── github/           ce qu'une issue peut porter, et la boucle autour
+└── github/           ce qu'une issue peut porter, la boucle autour et la release qui la livre
 ```
 
 Un paquet, une version : le mécanisme et les règles qu'il dépose sont toujours la paire qui a été vérifiée ensemble. Ici, `modules/` est la provenance de l'exemple, non son domicile — une fois déposée, la copie dans `~/.dotagents/modules/` est à toi.

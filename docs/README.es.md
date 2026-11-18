@@ -149,7 +149,7 @@ modules/              el conjunto de muestra que viaja con ella — de hiroiku
 ├── gate/             un hook que detiene las comprobaciones completas a mitad del trabajo y los comandos que solo esperan
 ├── prompting/        qué leer antes de editar un prompt
 ├── architecture/     una regla de dependencias que impone la compilación
-└── github/           qué puede cargar un issue, y el ciclo a su alrededor
+└── github/           qué puede cargar un issue, el ciclo a su alrededor y la release en la que sale
 ```
 
 Un paquete, una versión: el mecanismo y las reglas que coloca son siempre la pareja que se verificó junta. Aquí `modules/` es de donde sale la muestra, no donde vive — una vez colocada, la copia en `~/.dotagents/modules/` es tuya.

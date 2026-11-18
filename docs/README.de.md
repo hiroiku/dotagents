@@ -149,7 +149,7 @@ modules/              der Beispielsatz, der mitreist — von hiroiku
 ├── gate/             ein Hook, der Gesamtprüfungen mitten in der Arbeit und reine Warte-Befehle stoppt
 ├── prompting/        was vor dem Bearbeiten eines Prompts zu lesen ist
 ├── architecture/     eine Abhängigkeitsregel, die der Build erzwingt
-└── github/           was ein Issue tragen kann, und die Schleife darum
+└── github/           was ein Issue tragen kann, die Schleife darum und das Release, in dem es erscheint
 ```
 
 Ein Paket, eine Version: Der Mechanismus und die Regeln, die er legt, sind immer das Paar, das gemeinsam geprüft wurde. `modules/` hier ist die Herkunft des Beispiels, nicht sein Wohnort — einmal gelegt, gehört die Kopie in `~/.dotagents/modules/` dir.

@@ -1,6 +1,6 @@
 # github
 
-A module about working through GitHub: which mechanism carries which meaning, and what the loop around one issue looks like from picking it up to cleaning up after it. The rules themselves are in [skills/issues/SKILL.md](skills/issues/SKILL.md), written in Japanese.
+A module about working through GitHub: which mechanism carries which meaning, and what the loop around one issue looks like from picking it up to cleaning up after it. The rules themselves are in [skills/issues/SKILL.md](skills/issues/SKILL.md) and [skills/releases/SKILL.md](skills/releases/SKILL.md), written in Japanese.
 
 ## Everything becomes a label
 
@@ -26,6 +26,7 @@ The line that decides whether a feature was worth using:
 | A linked pull request has one reliable route | `addCloseIssueReferences` fills the issue's Linked pull requests whatever the base branch is. `Closes #123` in the body is interpreted only for a pull request that targets the default branch, and one opened from a branch linked to the issue never appears, though the documentation says it does. Measured, not read. |
 | The body is the summary, the comments are the log | A thread answers "what happened" and cannot answer "where are we" without being read end to end, which a person will not do. The body is rewritten as the state changes, so it is always the answer to the second question; the comments keep the first, and one line there says what the rewrite changed. |
 | A milestone is a release, not a period | A sprint as a milestone answers what was being done in those two weeks and nothing else. A release answers what shipped in `v1.67.0` and what has no release yet, which is what people come to ask. The milestone carries the tag's name, so the two can be matched without a table. |
+| A tag is not a release note | A tag says where a version is and nothing about what changed. A release on that tag is where a person looks for the second, and without one the answer has to be rebuilt from commits that were written for the people who made them. |
 | The closing reason is data | Done and abandoned are two different histories: one becomes the release note, the other is the record of a decision to stop. A farewell comment is neither. |
 
 ## Where the call could have gone otherwise
@@ -38,12 +39,14 @@ The line that decides whether a feature was worth using:
 
 **No menu item named where the name can change.** The rules say to pick the closing reason that matches what happened, not to pick `not planned`; to move to the status that means in progress, not to a column spelled *In Progress*. GitHub renames things, and a rule written against the current wording of a menu stops being followed the day it changes.
 
-**The milestone is the plan; git is what shipped.** A milestone set by hand drifts as work slips or lands early, and nothing fails when it does. So it is reconciled from the commits between two tags when the release is cut, and closed after that. How a version is chosen — which branch becomes which release — belongs to the project, so the rule defers to it, and asks before creating a version that does not exist yet.
+**The milestone is the plan; git is what shipped.** A milestone set by hand drifts as work slips or lands early, and nothing fails when it does. So it is reconciled from the commits between two tags when the release is cut, and closed after that. The release note is written from the same commits, not from the milestone, for the same reason. How a version is chosen — which branch becomes which release — belongs to the project, so the rule defers to it, and asks before creating a version that does not exist yet.
+
+**Releases are a skill of their own.** The issue skill is read when work is planned or picked up, and cutting a version is neither, so a rule kept there is not in context when it applies. The reconciliation of milestones moved with it. The note is written for whoever uses the version, so it names what changed for them rather than the commits, files and identifiers behind it; no template is given, for the same reason the issue body has none. A repository whose workflow already creates the release keeps it, and only the body is written, so the two never race.
 
 **Branch names are fixed here, though `git` leaves them alone.** That module says nothing about them because a branch name is gone the week after the work lands. Here the name is doing a job while it is alive: it is what ties a working tree to the issue it belongs to, and it is read by whoever opens the repository next.
 
 **AI signatures are refused here as well as in commits.** The `git` module keeps them out of commit messages. Issue bodies, comments and pull requests are the same text read by the same people, and they are the half that is public.
 
-**Named for the host, not for issues.** Pull requests, releases and Actions run on the same platform and have the same shape of problem. The module is `github` so the next skill has a place to land.
+**Named for the host, not for issues.** Pull requests, releases and Actions run on the same platform and have the same shape of problem. The module is `github` so the next skill has a place to land, and releases were the first to land there.
 
 This module expects `gh` on `PATH` — detected, never installed.

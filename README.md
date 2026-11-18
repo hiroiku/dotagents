@@ -174,7 +174,7 @@ modules/              the sample set that travels with it — from hiroiku
 ├── gate/             a hook that stops full-scope checks mid-work and wait-only commands
 ├── prompting/        what to read before editing a prompt
 ├── architecture/     a dependency rule the build can enforce
-└── github/           what an issue can carry, and the loop around one
+└── github/           what an issue can carry, the loop around one, and the release it ships in
 ```
 
 One package, one version: the mechanism and the rules it places are always the pair that was verified together. `modules/` here is where the sample comes from, not where it lives — once placed, the copy in `~/.dotagents/modules/` is yours.
