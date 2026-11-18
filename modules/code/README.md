@@ -1,6 +1,6 @@
 # code
 
-A module for the conventions that govern the writing of code and have no moment to be triggered on. They are in [AGENTS.md](AGENTS.md): _a change to a feature or an item touches one place, its source, and everything else derives from it; a fix or a feature is compared with the design commonly used for that kind of problem before it is bolted onto what is there; the recommendation is the best design, with the effort reported rather than weighed; and a comment carries the intent of the code it sits on and what matters there._
+A module for the conventions that govern the writing of code and have no moment to be triggered on. They are in [AGENTS.md](AGENTS.md): _a change to a feature or an item touches one place, its source, and everything else derives from it; a fix or a feature is compared with the design regarded as best for that kind of problem before it is bolted onto what is there; the recommendation is the best design, with the effort reported rather than weighed; and a comment carries the intent of the code it sits on and what matters there._
 
 ## One place to change
 
@@ -12,7 +12,7 @@ It covers code, settings and documents alike. The project it was written down fo
 
 ## Compare before extending, and recommend the best design
 
-A fix is usually designed inside the code that has the bug. The options weighed are the ones that fit the current shape, and the one picked is the smallest change to it. Each patch is reasonable on its own; together they produce a shape nobody would have chosen, and each one brings the next bug with it. So before extending, the work is compared with the design generally used for the same kind of problem, and the difference and the reason for the choice go into the proposal or the report, where the person deciding can see them.
+A fix is usually designed inside the code that has the bug. The options weighed are the ones that fit the current shape, and the one picked is the smallest change to it. Each patch is reasonable on its own; together they produce a shape nobody would have chosen, and each one brings the next bug with it. So before extending, the work is compared with the design regarded as best for the same kind of problem: the one that proven products and libraries adopt and that is valued for safety, stability, maintainability, performance and scale. A design that is common because it is quick to write is not the yardstick; measuring against it would approve the same patching one step removed. The difference and the reason for the choice go into the proposal or the report, where the person deciding can see them.
 
 The recommendation then goes to the best design: safe, stable, one source with no list kept by hand, fast, and still sound when the data or the users grow. Effort is the usual reason a worse option gets recommended, and it is the wrong one: a patched shape costs the rebuild later, plus every bug it causes until then. Effort is still real, so it is not hidden. It is reported as material for the decision — how long, what slips, what else is affected — and the person who owns the schedule decides.
 
