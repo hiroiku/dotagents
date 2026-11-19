@@ -1,4 +1,4 @@
 {
-  "description": "GitHub での進め方。issue の sub-issue への分解、クエリーで絞れる軸への意味づけ、本文をいまの状態と判断を求めることの要約に保つこと、作業に遅れない Projects のステータス、issue ごとの worktree とブランチ、閉じる issue へ紐づける PR、版ごとに何が変わったかを残すリリース。トラッカーが GitHub のプロジェクトに入れる。",
+  "description": "GitHub での進め方。issue の sub-issue への分解、クエリーで絞れる軸への意味づけ、本文をいまの状態と判断を求めることの要約に保つこと、作業に遅れない Projects のステータス、issue ごとの worktree とブランチ、閉じる issue へ紐づける PR、取り込み先に入った issue を閉じる時期、版ごとに何が変わったかを残すリリース。トラッカーが GitHub のプロジェクトに入れる。",
   "requires": ["gh"]
 }
