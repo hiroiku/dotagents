@@ -37,7 +37,6 @@ description: GitHub の issue で作業を計画・追跡・照会するとき�
 
 - worktree を `.worktrees/issue-{id}` に作り、`issues/issue#{id}` という名前のブランチを作って、そこで作業する。
 - sub-issue は親 issue のブランチにマージする。統合先のブランチにマージするのは親のブランチだけにする。
-- sub-issue がすべてマージされたら、親 issue をクローズする。
 - マージが完了したら、worktree とブランチを削除する。
 
 ## PR

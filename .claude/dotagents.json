@@ -1,11 +1,15 @@
 {
   "schema": 7,
-  "version": "7.22.0",
+  "version": "7.23.0",
   "modules": [
     "github",
     "prompting"
   ],
   "files": {
+    ".claude/rules/dotagents/github.md": {
+      "hash": "sha256:db73523c23cd47b37d5ee5fe7129913d8d8a598e9ef8264dd44bbcb24c75d637",
+      "module": "github"
+    },
     ".claude/rules/dotagents/project.md": {
       "hash": "sha256:fa2341cfef97b17b008f0691614bc0e8aee0262f128d59aa423484a27f9f8bc2",
       "module": null
@@ -15,11 +19,11 @@
       "module": "prompting"
     },
     ".claude/skills/dotagents/.claude-plugin/plugin.json": {
-      "hash": "sha256:8be641c0c8c427def2662cc920824e4cb237b8948bbd9ac40052357ff4bd5167",
+      "hash": "sha256:d4cf21b7dff7b3cc373c7baf6dc47f018f21b1bba18d268576ee4cd55f217c1b",
       "module": null
     },
     ".claude/skills/dotagents/skills/issues/SKILL.md": {
-      "hash": "sha256:858eb0c2303afb96666ccc8810ae05b1d7609800a9ffddf754cdabac8f9bcbc1",
+      "hash": "sha256:a57723dac850be732f8c4b67b98aa2494c020ae0ef1c08845cb226f1e84f2c44",
       "module": "github"
     },
     ".claude/skills/dotagents/skills/prompting/SKILL.md": {
