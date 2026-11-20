@@ -1,26 +1,29 @@
 {
-  "name": "@hiroiku/dotagents",
-  "version": "7.23.0",
-  "description": "AI エージェント規則のパッケージマネージャ。module を ~/.dotagents/modules に置き、Claude Code と Codex へ選んで配る",
+  "name": "dotagents",
+  "version": "8.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI に仕事を任せるためのハーネス。Claude Code、Codex、Pi へ同じ中身で届ける。",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hiroiku/dotagents.git"
   },
-  "bin": {
-    "dotagents": "bin/agents-setup",
-    "agents-setup": "bin/agents-setup"
-  },
-  "scripts": {
-    "test": "node --test",
-    "prepublishOnly": "npm test"
-  },
-  "files": [
-    "bin",
-    "modules"
+  "keywords": [
+    "pi-package"
   ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "pi": {
+    "extensions": [
+      "./plugin/hosts/pi/index.js"
+    ],
+    "skills": [
+      "./plugin/skills"
+    ]
+  },
   "engines": {
-    "node": ">=24",
-    "bun": ">=1.3"
+    "node": ">=22"
   }
 }

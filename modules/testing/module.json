@@ -1,6 +1,0 @@
-{
-  "description": "Test Desiderata に基づくテスト設計と、作業中と共有のブランチへの push の前の検証の進め方。",
-  "replaces": [
-    "harness"
-  ]
-}

@@ -1,0 +1,51 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude session",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude subagent",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude tool",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude edited",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

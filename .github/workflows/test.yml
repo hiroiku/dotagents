@@ -11,8 +11,7 @@ jobs:
         with:
           node-version: 24
       - run: npm test
-  # 同じテストを bun のランナーでも走らせる。CLI は node と bun のどちらからでも
-  # 入口になるので、どちらか一方でしか通らない変更を通さない。
+  # hook は bun があれば bun で動かす(起動が速い)。どちらか一方でしか通らない変更を通さない。
   bun:
     runs-on: ubuntu-latest
     steps:

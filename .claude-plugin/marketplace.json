@@ -1,0 +1,14 @@
+{
+  "name": "dotagents",
+  "owner": {
+    "name": "hiroiku"
+  },
+  "description": "AI に仕事を任せるためのハーネス。常設の核、役の定義、スキル、外へ届く操作を確かめる仕組みを、Claude Code、Codex、Pi へ同じ中身で届ける。",
+  "plugins": [
+    {
+      "name": "dotagents",
+      "source": "./plugin",
+      "description": "AI に仕事を任せるためのハーネス。常設の核、役の定義、スキル、外へ届く操作を確かめる仕組みを、Claude Code、Codex、Pi へ同じ中身で届ける。"
+    }
+  ]
+}

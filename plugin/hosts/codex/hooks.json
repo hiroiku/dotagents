@@ -1,0 +1,53 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|clear|compact)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/src/hook.mjs\" codex session",
+            "timeout": 10,
+            "additionalContextLimit": 20000
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/src/hook.mjs\" codex subagent",
+            "timeout": 10,
+            "additionalContextLimit": 20000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/src/hook.mjs\" codex tool",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/src/hook.mjs\" codex edited",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,180 +1,75 @@
 # dotagents
 
-**A package manager for the rules your AI agents follow.** Skills, review agents and hooks — packaged as modules, installed into the projects you choose.
+A harness for delegating work to AI coding agents. One set of contents — an always-on core, role definitions, skills, and a guard for operations that reach outside your machine — delivered natively to **Claude Code**, **Codex** and **Pi**.
 
-English | [日本語](docs/README.ja.md) | [简体中文](docs/README.zh-CN.md) | [繁體中文](docs/README.zh-TW.md) | [한국어](docs/README.ko.md) | [Deutsch](docs/README.de.md) | [Español](docs/README.es.md) | [Français](docs/README.fr.md)
+English | [日本語](docs/README.ja.md)
 
-[![npm](https://img.shields.io/npm/v/%40hiroiku%2Fdotagents)](https://www.npmjs.com/package/@hiroiku/dotagents)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+## What it does
 
-- **The module is the unit.** One directory declares what it needs, carries what it delivers, and explains why it exists. Install it into a project or a whole machine; drop it just as cleanly.
-- **Agents read the result natively.** No runtime, no daemon, nothing wired into your shell — the installer writes plain files where each agent already looks, and gets out of the way.
-- **One rule set, many agents.** The same module reaches Claude Code and Codex, each in the form that agent understands.
+- **Judgment over rules.** The always-on text is about 1,400 characters for the lead session and 800 for a subagent. It states the goal, the line between deciding and asking, and five design qualities. Everything else loads on demand.
+- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, per-command time limits for builder and reviewer roles, an edit-time check.
+- **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside (shared branches, tags, merges, releases, deploys, remote data, repository settings, messages to people) — and each project can delegate the kinds it trusts.
+- **The outcome is the unit.** Related issues are bundled, built by one builder in one worktree, verified once per bundle, and mapped to issues by commit (`Closes #n`).
+- **Measured.** Every confirmation and block is logged without command text; `stats` shows how often the harness actually intervenes.
 
 ## Install
 
-One package. It brings the mechanism and **places a curated set of modules in `~/.dotagents/modules/` as ordinary directories you own** — delete the ones you don't want, edit the ones you nearly want, drop your own beside them. Everything that comes from me says `from hiroiku`, so you can always tell whose opinion you are reading.
+Each host installs the same directory (`plugin/`) with its own package mechanism. There is no installer and nothing on npm.
 
-```sh
-bun add -g @hiroiku/dotagents      # once — or: npm i -g @hiroiku/dotagents
-
-dotagents list                     # what you can install
-dotagents install review           # into the current project
-dotagents install review -g        # for every project on this machine
-dotagents install review -C ~/x    # into a specific project
-```
-
-Nothing to clone, nothing to fetch, and no state to migrate before you can work: the modules travel inside the package, so the first command places them and the next installs one straight away.
-
-The target defaults to this project — the smallest blast radius — and the wider scope always takes a flag. What goes in never defaults: name a module, or pick interactively. A non-interactive shell stops rather than choosing for you.
-
-`dotagents install` asks for **modules first, then installation agents**. Select **Claude Code, Codex, or both** in the second picker; each row shows how many selected modules are installed and whether they have drifted. Naming modules still opens the agent picker unless `--agent` is supplied.
-
-```sh
-dotagents install
-dotagents install review prompting --agent codex
-dotagents install git --agent claude,codex
-dotagents install review -g --agent codex
-```
-
-Each agent remembers its own module set. `update`, `uninstall`, and `status` operate on all recorded agents unless narrowed with `--agent codex` or `--agent claude`. Non-interactive installation requires module names. Without `--agent`, it uses recorded agents; a fresh installation uses Claude, plus Codex when `.codex/` exists. Specify `--agent` for deterministic scripts.
-
-The interactive picker shows the target and keeps **this run's selection** (`[ ]` / `[x]`) separate from **what is already installed**: gray `○` available, green `●` installed, yellow `↑` update available, blue `~` modified locally, and red `!` missing or blocked. The focused module's description, origin, and drift details appear below the list. Only the modules you check are delivered: installed modules you leave unchecked stay as they were delivered, even when their source has changed, until `update` redelivers them. Unchecking never uninstalls; `uninstall` has a picker of its own.
-
-The picker and `status` compare delivered contents, not just package versions. Source changes and local edits can both be reported; a version change alone does not mark every module as outdated. Changes to what is generated from several modules — the plugin metadata and the Codex plugin — are reported separately. Symbols and labels remain visible with `NO_COLOR`.
-
-Node or Bun, whichever the machine has — the CLI runs on either runtime.
-
-## What a module is
-
-A directory with a `module.json`. Everything else is optional, and each kind has one destination:
-
-```
-modules/<name>/
-├── module.json    what it is, what it expects on PATH, what it replaces
-├── README.md      why it exists — for people, never deployed
-├── AGENTS.md      rules injected into every session
-├── skills/        rules read only when their moment arrives
-├── agents/        subagent roles, with their own context and tools
-├── hooks/         event handlers that run as the agent works
-└── codex/         optional native Codex assets
-```
-
-| Kind | Claude Code | Codex |
+| Host | Install for yourself | Update |
 |---|---|---|
-| `skills/` | `.claude/skills/dotagents/skills/` — `/dotagents:*` | `.agents/skills/dotagents-*/`; the skill `name` is also namespaced as `dotagents-*` |
-| `agents/*.md` | `agents/` inside the plugin | Converted to `.codex/agents/dotagents-*.toml`; bundled reviewers use a `read-only` sandbox |
-| `hooks/` | `hooks/` inside the plugin | Claude hooks are not automatically translated; supply native `codex/hooks.json`, which is merged into the dotagents Codex plugin. The executables in `hooks/` then arrive in `.codex/dotagents/<module>/` for it to call |
-| `codex/` | Not delivered | Native assets copied into `.codex/`; `codex/agents/dotagents-<name>.toml` overrides the generated role of the same name |
-| `AGENTS.md` | `.claude/rules/dotagents/<module>.md` | `.codex/dotagents/<module>/AGENTS.md`, read at session start by a `SessionStart` hook in the dotagents Codex plugin |
+| Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | turn on auto-update for the marketplace in `/plugin`, or `claude plugin update dotagents@dotagents` |
+| Codex | `codex plugin marketplace add hiroiku/dotagents` then `codex plugin add dotagents@dotagents`, and trust its hooks in `/hooks` | `codex plugin marketplace upgrade dotagents` (hooks need trusting again after an update) |
+| Pi | `pi install git:github.com/hiroiku/dotagents` | `pi update --extensions` |
 
-### Two rules decide where everything goes
+### Install into a repository
 
-1. **The project's own instructions live in `AGENTS.md` at the project root.** They belong to the project, whichever agent reads them, and dotagents never writes there. Claude Code, Codex, Cursor and OpenCode all read that file. Claude Code reads it on its own only while the project has no `CLAUDE.md`, so dotagents also delivers `.claude/rules/dotagents/project.md`, a one-line import of it (`@../../../AGENTS.md`): a `CLAUDE.md` of yours no longer hides it, and one that links to `AGENTS.md` does not load it twice.
-2. **Everything dotagents delivers lives inside an agent's own directory** — `.claude/`, `.agents/`, `.codex/`. Nothing is placed at the root, and no file of yours is edited.
+To make everyone who pulls a repository run the same harness at the same version, vendor it:
 
-So a module's `AGENTS.md` arrives as a file of its own. Claude Code loads `.claude/rules/` at launch alongside your instructions. Codex reads one instruction file per directory, so its rules are handed over by a `SessionStart` hook instead — at startup, after `/clear`, and again after compaction. With `-g`, the same files go to `~/.claude/rules/dotagents/` and `~/.codex/dotagents/`, and your `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` stay yours. Other agents that read the project `AGENTS.md` see the project's instructions but not the delivered rules.
+```sh
+node plugin/scripts/dotagents.mjs vendor /path/to/repo   # then commit what it wrote
+```
 
-Codex delivery follows the official [skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills) and [custom agent](https://learn.chatgpt.com/docs/agent-configuration/subagents) formats. With `-g`, skills live in `~/.agents/skills/` and agents in `~/.codex/agents/`. `update` migrates the previous `.codex/skills/dotagents-*` layout, retaining and reporting edited old files. Installations still using the legacy `.agents/.dotagents.json` record need one `update` without `--agent` before selecting individual agents.
+This copies the plugin to `.claude/skills/dotagents-repo/`, where Claude Code loads it once a collaborator trusts the folder, and points Pi (`.pi/settings.json`) and Codex (`.codex/agents/`, `.agents/plugins/marketplace.json`) at the same copy. The copy takes precedence over a personal install in that repository. Re-run `vendor` to upgrade; `unvendor` removes it.
 
-All bundled modules support Codex. Agent conversion reads single-line `name`, `description`, and `tools` metadata and uses the Markdown body as `developer_instructions`. Claude model names are omitted so Codex inherits its own settings. Supply native TOML for more advanced metadata or tool controls. Native assets follow the same hash ownership rules; conflicting user configuration is preserved and reported.
+## The project declaration
 
-Start a new Codex session after installation. Codex gets its rules and hooks from a single dotagents plugin on the machine: `install` and `update` keep it installed through the `codex` CLI, and `uninstall` removes it along with the last Codex installation. Its hooks read the files delivered to the session's project — falling back to the main checkout from a worktree — and to your home, so one plugin serves every project. Codex runs those hooks, and so hands over the rules, only after you trust them through its native [`/hooks` flow](https://learn.chatgpt.com/docs/hooks): once per machine, and again only when a hook definition changes. The installer says when that is due and never changes trust settings itself. Without the `codex` CLI on `PATH`, installation goes ahead and says so; run `update` once it is there. `.codex/hooks.json` and `.codex/config.toml` stay your project's own, and custom agents in `.codex/agents/` load once Codex trusts the project.
+Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks and every role's context read it. All keys are optional.
 
-A module may declare what it expects on `PATH`. Requirements are **detected, never installed**: `list` and `install` report what is missing and block nothing, so adding the tool later needs no reinstall.
+```json
+{
+  "protected": ["develop", "release/*"],
+  "delegated": ["push:develop", "merge:develop", "tag", "remote:staging"],
+  "checks": { "edit": "biome check {file}", "commit": "npm run check:changed", "push": "npm run check", "release": "npm run e2e" },
+  "decisions": ["Contrast is set by the designer. Do not flag it in review."]
+}
+```
 
-It may also declare a retired name it took over (`replaces`), so a record that remembers the old one follows the rules to wherever they went — renamed, or split across several. The installer keeps no table of its own: the corpus says where a name went, and when the migration has run its course the line is deleted from the module, not from the installer.
+`delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
 
-[modules/](./modules/) is the canonical definition of that set. The installer holds no list: not of the files, and not of the modules either — it reads whatever is in `~/.dotagents/modules/`. The set is a starting point as much as a default, not something you are meant to take whole: [review](./modules/review/README.md) hands verification to a context that did not write the code, [code](./modules/code/README.md) one place to change and what a comment is for, [git](./modules/git/README.md) · [testing](./modules/testing/README.md) · [prompting](./modules/prompting/README.md) the conventions a model cannot guess, each in reach at the moment it applies, [architecture](./modules/architecture/README.md) a dependency rule that is right for some projects and not others, [github](./modules/github/README.md) which mechanism of an issue carries which meaning, and the loop from picking one up to cleaning up after it.
+## Contents
 
-Modules are cut so that one of them can be wrong for you without taking the rest with it. Nothing here is a bundle: install `git` and `testing` on a machine where the review roles would not fit, or `review` alone into the one repository that needs it.
-
-There is one place a module can live: `~/.dotagents/modules/`. The sample set is *placed* there rather than read from inside the package, so the set you can install and the set you can edit are the same set. Anything in the same shape works — however you got it, put the directory there and it is a module.
-
-Once placed, a module is yours:
-
-| | |
+| Path | What |
 |---|---|
-| you left it alone | refreshed when the package brings a newer version |
-| you edited it | kept and reported (`--force` to take the sample version) |
-| you deleted it | never placed again |
+| `plugin/core/` | The always-on core, and the lead-only text. A test enforces their size. |
+| `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents, Codex agent TOML and Pi child roles. |
+| `plugin/skills/` | `flow` (bundle, verify, integrate, issues, releases), `design`, `review`, `prompting`, `setup`. |
+| `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `check.mjs`, and the host adapters' shared code. |
+| `plugin/hosts/` | Thin adapters: Claude Code hooks, Codex hooks, a Pi extension. |
+| `plugin/scripts/dotagents.mjs` | `vendor`, `unvendor`, `doctor`, `stats`. |
 
-`list` still says where each one came from — `from hiroiku` for the set I ship, the same with `edited by you` once you have changed it, and nothing at all for the ones you wrote.
+## Limits
 
-## Where it lives
+The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, not what a script does internally. It binds only agents that run this harness. Rules that must hold for everyone belong in branch protection and CI; `doctor` reports shared branches that GitHub does not protect.
 
-```
-~/.dotagents/         everything that is yours, in one place
-├── modules/          every module — the sample set is placed here too
-├── codex/            the plugin that install hands to Codex
-└── state/            what -g placed, the projects deployed to, and which samples you changed
-```
-
-The installer itself never lives here; it is replaced where it came from. The modules do live here, including the ones the package placed — that is the point. `state/` records what `-g` placed, which projects have a deployment (the Codex plugin stays while one of them uses Codex), and which sample copies you have since changed or removed. A project's own record travels with the project.
-
-`DOTAGENTS_HOME` moves the whole thing; nothing else needs to be told. One root, and every path derives from it — `status` and `--help` print the one in effect, so a machine never hides where its rules came from.
-
-## Commands
+## Development
 
 ```sh
-dotagents update               # redeliver what is recorded — no arguments, it remembers what you chose
-dotagents uninstall            # choose what to remove from what is installed here
-dotagents uninstall <module>   # drop one module, keep the rest
-dotagents status               # verify every delivered file — exit 1 on drift
-dotagents update --agent codex # refresh only Codex
-dotagents status --agent codex # inspect only Codex
-dotagents --help               # every command, option, example
+npm test    # node --test, no dependencies
 ```
 
-`install` is additive and `uninstall` subtractive, so the set a deployment holds is built up and torn down one module at a time. Both touch only the modules they are given; the rest stay as they were delivered. `update` works from what the manifest remembers: it redelivers that whole set and prunes any legacy layout it finds.
+Coming from 7.x: remove what it delivered with `dotagents uninstall` in each project, then install as above. The npm package `@hiroiku/dotagents` is no longer published.
 
-In a terminal, `uninstall` with no names lists the modules installed at the target. When the selection is installed in both Claude Code and Codex, a second picker asks which to remove it from. In a non-interactive shell, naming none removes everything.
+## License
 
-**Only `uninstall` removes rules from a deployment.** Deleting a module from `~/.dotagents/modules/` is a small, everyday act; rewriting every project you installed it into is not. So when a delivered module no longer has a source, `update` keeps the files — its rules included — keeps the record, and says what it kept and how to remove it. `status` reports the state as drift, because with no source there is nothing to verify the files against.
-
-**Nothing moves on its own.** What arrives are the texts that govern your agents, so the delivery is never automatic and never silent: every command prints what it placed, kept and removed.
-
-## One update path
-
-New rules arrive by updating the package, not by running a command. Update it the way you installed it, then redeliver:
-
-```sh
-bun add -g @hiroiku/dotagents   # or: npm i -g @hiroiku/dotagents
-dotagents update -g             # and: dotagents update -C <project>
-```
-
-| | Where it comes from | How it moves |
-|---|---|---|
-| **The mechanism** (`@hiroiku/dotagents`) | npm | like any other tool you install |
-| **The sample set** (`hiroiku`) | inside that same package | placed in `~/.dotagents/modules/`, refreshed wherever you left it alone |
-| **Modules of your own** | `~/.dotagents/modules/` | they are yours; nothing else writes there |
-
-One path, not two. Two would mean one of them going stale — and the code that migrates your setup would be trapped inside the thing being migrated, waiting on the very update it is supposed to deliver. Here a fix and the rules it fixes arrive together, in one version you can name.
-
-## What the installer will and will not touch
-
-Everything is idempotent and **hash-owned**: it touches only what it placed and still recognizes. Your own skills are never touched, files you edited in place are kept and reported (`--force` to overwrite), and `uninstall` removes exactly what the record says it placed — nothing else.
-
-A project's record sits beside what was delivered, in `.claude/dotagents.json` and `.codex/dotagents.json`. Commit it with the delivered files, and every clone, worktree and moved checkout knows what dotagents owns there. It holds no timestamps, so an `update` that changes nothing leaves no diff, and it keeps the indentation it finds: once your formatter has reformatted it, a later `update` does not undo that. Because a record can arrive from someone else's clone, it only ever claims files inside its own agent's directory. A record that 7.0 or earlier kept in `~/.dotagents/state/projects/` moves into the project on the next `update`; `status` says when one is waiting.
-
-Versions before 6.0 wrote the rules as a marked block inside a rules file such as `CLAUDE.md` or `AGENTS.md`. `update` strips that block and leaves the rest of the file as it was, once every agent that read the block has its rules in the new place.
-
-Project-scope plugins load only when Claude Code starts at the repository root, and only after you accept the workspace trust dialog. Changes to agents and hooks take effect on the next session or after `/reload-plugins`; edits to a `SKILL.md` are picked up immediately.
-
-## Layout
-
-```
-bin/agents-setup      the CLI (list / install / update / uninstall / status)
-test/                 contract tests for the installer (npm test · bun test)
-modules/              the sample set that travels with it — from hiroiku
-├── review/           adversarial review, OWASP, WCAG — in a context of their own
-├── code/             one place to change, the best design over a patch, and what a comment is for
-├── git/              commit titles, squash, rebase, worktrees
-├── testing/          the twelve properties of a good test
-├── gate/             a hook that stops full-scope checks mid-work and wait-only commands
-├── prompting/        what to read before editing a prompt
-├── architecture/     a dependency rule the build can enforce
-└── github/           what an issue can carry, the loop around one, and the release it ships in
-```
-
-One package, one version: the mechanism and the rules it places are always the pair that was verified together. `modules/` here is where the sample comes from, not where it lives — once placed, the copy in `~/.dotagents/modules/` is yours.
+MIT
