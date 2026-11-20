@@ -32,6 +32,17 @@ const OUTWARD = [
   ['git push --atomic origin main v8.0.0', ['push:main', 'tag:v8.0.0']],
   ['git push origin :refs/tags/v1.0.0', ['tag:v1.0.0']],
   ['gh pr merge 12 --squash', ['merge:develop']],
+  // rtk を前に付けても、実行されるのは後ろの道具である。
+  ['rtk git push origin main', ['push:main']],
+  ['rtk -v git push origin v1.2.3', ['tag:v1.2.3']],
+  ['rtk gh pr merge 12 --squash', ['merge:develop']],
+  ['npx rtk git push origin main', ['push:main']],
+  ['rtk bypass git push origin main', ['push:main']],
+  ['rtk proxy --skip-env git push --force origin main', ['rewrite:main']],
+  ['rtk err git push origin main', ['push:main']],
+  ['rtk run -c "cd sub && git push origin main"', ['push:main']],
+  ['rtk run --command="git push origin main"', ['push:main']],
+  ['rtk summary --shell bash "git push origin main | tail -1"', ['push:main']],
   ['gh pr merge 12 --admin --squash', ['bypass:*']],
   ['gh release create v1 --notes x', ['release:v1']],
   ['gh workflow run deploy.yml --ref master', ['workflow:deploy.yml']],
@@ -57,6 +68,12 @@ const OUTWARD = [
 ];
 
 const HARMLESS = [
+  'rtk git status',
+  'rtk git push --dry-run origin main',
+  'rtk test npm test',
+  'rtk gain',
+  'rtk run -c "git log --oneline"',
+  'rtk err',
   'git push',
   'git push -u origin work/x',
   'git push --dry-run origin main',
@@ -151,6 +168,7 @@ test('作る役と確かめる役は、プロジェクトが push と版の段�
   const nested = decide({ tool: 'shell', command: 'cd packages/app && CI=1 npm run e2e 2>&1 | tail -20', cwd, role: 'reviewer' }, tools);
   assert.equal(nested.kind, 'pace');
   assert.match(nested.reason, /版の段/);
+  assert.equal(decide({ tool: 'shell', command: 'rtk npm run check', cwd, role: 'builder' }, tools).kind, 'pace');
   // 引数を足して絞った実行と、この役の段のコマンドは通す。
   for (const command of ['npm run check -- src/a.ts', 'npm test -- auth.spec.ts', 'npm run check:changed', 'npx vitest run src/a.spec.ts', 'echo npm run check']) {
     assert.equal(decide({ tool: 'shell', command, cwd, role: 'builder' }, tools), null, command);

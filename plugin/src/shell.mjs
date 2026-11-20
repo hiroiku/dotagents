@@ -12,6 +12,8 @@ const KEYWORDS = new Set(['then', 'do', 'else', 'elif', 'if', 'while', 'until', 
 const HEADERS = new Set(['for', 'case', 'select', 'function']);
 const PREFIXES = new Set(['sudo', 'command', 'exec', 'nohup', 'builtin']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash']);
+// rtk(出力を縮めて別の道具を実行する道具)の、後ろのコマンドをそのまま実行する下位のコマンド。
+const RTK_RUNNERS = new Set(['run', 'bypass', 'proxy', 'err', 'test', 'summary']);
 
 // 文字列を、連結の区切りで分けた語の並びにする。リダイレクトの先は語に入れず、並びの targets に集める。
 export function parse(text) {
@@ -126,7 +128,7 @@ function skipHeredoc(text, from, terminator, strip) {
   return Math.min(i, text.length);
 }
 
-// 前に付く語(代入、env、sudo、timeout、npx など)を外し、実行される道具を先頭にする。
+// 前に付く語(代入、env、sudo、timeout、npx、rtk など)を外し、実行される道具を先頭にする。
 // 代入は assignments に集める。
 export function unwrap(input) {
   const words = input.slice();
@@ -160,6 +162,25 @@ export function unwrap(input) {
       words.shift();
       dropFlags(['-s', '-k', '--signal', '--kill-after']);
       words.shift();
+    } else if (head === 'rtk') {
+      // `rtk git push` は git push を実行する。rtk を外して、実行される道具を読む。
+      // 文字列で渡す形(`rtk run -c '…'`、`rtk err --shell sh '…'`)は、シェルに渡す形へ直して、中身を読ませる。
+      words.shift();
+      dropFlags([]);
+      if (RTK_RUNNERS.has(words[0])) {
+        words.shift();
+        let script;
+        let viaShell = false;
+        while (words[0]?.startsWith('-')) {
+          const flag = words.shift();
+          if (flag === '-c' || flag === '--command') script = words.shift();
+          else if (flag.startsWith('--command=')) script = flag.slice('--command='.length);
+          else if (flag === '--shell') viaShell = Boolean(words.shift());
+          else if (flag.startsWith('--shell=')) viaShell = true;
+        }
+        if (script === undefined && viaShell && words.length) script = words.join(' ');
+        if (script !== undefined) words.splice(0, words.length, 'sh', '-c', script);
+      }
     } else if (head === 'nice') {
       words.shift();
       if (words[0] === '-n') words.splice(0, 2);
