@@ -109,7 +109,7 @@ test('任せた種類は、種類だけでも対象つきでも通る。線を�
 test('役の名前を、判定で使う役に直す', () => {
   assert.equal(roleOf({}), 'lead');
   assert.equal(roleOf({ agentId: 'a1', agentType: 'dotagents:builder' }), 'builder');
-  assert.equal(roleOf({ agentId: 'a1', agentType: 'dotagents-repo:reviewer' }), 'reviewer');
+  assert.equal(roleOf({ agentId: 'a1', agentType: 'another-plugin:reviewer' }), 'reviewer');
   assert.equal(roleOf({ agentId: 'a1', agentType: 'dotagents-builder' }), 'builder');
   assert.equal(roleOf({ agentId: 'a1', agentType: 'general-purpose' }), 'worker');
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ホストの仕組みが持たない仕事だけを行う、小さな道具。
 //
-//   vendor [dir]        プロジェクトに入れる。pull した人のセッションにも届く形で、この plugin を写す。
+//   vendor [dir]        プロジェクトに入れる。自分では入れていない人のセッションにも届くよう、この plugin を写す。
 //   unvendor [dir]      プロジェクトに入れたものを外す。
 //   doctor [dir]        プロジェクトの宣言、ブランチの保護、置いたものの版を点検する。
 //   stats [--days n]    仕組みが何をしたかの記録を集計する。
@@ -16,12 +16,11 @@ import { BUDGET, PLUGIN_ROOT, coreText } from '../src/context.mjs';
 import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declaration.mjs';
 import { KIND_LABELS } from '../src/guard.mjs';
 import { logDir } from '../src/log.mjs';
-import { codexAgent, roles } from '../src/roles.mjs';
-import { PROFILE_NAME, VENDORED_DIR, VENDORED_NAME, VENDORED_RECORD } from '../src/vendored.mjs';
 
-export { PROFILE_NAME, VENDORED_NAME };
-
-const RECORD = VENDORED_RECORD;
+export const NAME = 'dotagents';
+const VENDORED_DIR = path.join('.claude', 'skills', NAME);
+const RECORD = 'VENDORED.json';
+const PI_SETTINGS = path.join('.pi', 'settings.json');
 const KNOWN_KEYS = new Set([...POLICY_KEYS, 'decisions']);
 
 const readJson = (file, fallback) => {
@@ -49,52 +48,41 @@ function setIn(file, keys, value) {
 
 // ---------------------------------------------------------------- vendor
 
+// 同じハーネスを 2 つ読み込ませない仕事は、ホストに任せる。ここで片方を切ると、もう片方が読み込まれなかった
+// ときに、どちらも働かない。
+//
+// - Claude Code: 写しを、利用者が自分の環境に入れたものと同じ名前にする。同じ名前の plugin が両方にあると、
+//   利用者の環境のものだけを読む。写しは、自分では入れていない人のための控えになる。
+// - Pi: 写しの場所ではなく、同じリポジトリーの版の tag を宣言する。同じリポジトリーの package が両方に
+//   宣言されていると、プロジェクトの側だけを読む。
+// - Codex: リポジトリーに置いた plugin を読まないので、何も置かない。
+const piPackage = () => `git:${String(readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {}).repository).replace(/^https?:\/\//, '').replace(/\.git$/, '')}`;
+const otherPiPackages = (settings) => {
+  const packages = readJson(settings, {}).packages;
+  const source = (entry) => String(typeof entry === 'string' ? entry : entry?.source);
+  return (Array.isArray(packages) ? packages : []).filter((entry) => source(entry) !== piPackage() && !source(entry).startsWith(`${piPackage()}@`));
+};
+
 export function vendor(dir) {
   const root = path.resolve(dir);
   const target = path.join(root, VENDORED_DIR);
+  if (target === PLUGIN_ROOT) throw new Error('写し自身から、同じ場所へは入れ直せない。入れてある plugin の道具から実行する。');
+  if (fs.existsSync(target) && !fs.existsSync(path.join(target, RECORD))) throw new Error(`${target} に、この道具が置いたのではないものがある。7.x の残りなら、先に消す。`);
   fs.rmSync(target, { recursive: true, force: true });
   fs.cpSync(PLUGIN_ROOT, target, { recursive: true, filter: (source) => !['node_modules', '.DS_Store'].includes(path.basename(source)) });
-  for (const manifest of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'package.json']) setIn(path.join(target, manifest), ['name'], VENDORED_NAME);
-  writeJson(path.join(target, RECORD), { from: PROFILE_NAME, version: version() });
+  writeJson(path.join(target, RECORD), { version: version() });
 
-  // Claude Code: 置いた場所から読み込まれる。利用者の設定に入れた同じハーネスは、このプロジェクトでは切る。
-  // hook は切らなくても引き下がるが(src/vendored.mjs)、スキルと役が二重に並ぶのを避ける。
-  setIn(path.join(root, '.claude', 'settings.json'), ['enabledPlugins', `${PROFILE_NAME}@${PROFILE_NAME}`], false);
-
-  // Pi: 置いた場所を package として宣言する。
-  const piSettings = path.join(root, '.pi', 'settings.json');
-  const source = path.join('..', VENDORED_DIR).split(path.sep).join('/');
-  const packages = list(readJson(piSettings, {}).packages).filter((entry) => entry !== source);
-  setIn(piSettings, ['packages'], [...packages, source]);
-
-  // Codex: 役は TOML で、スキルは置いた場所へのリンクで届ける。hook は、置いた場所を plugin として入れると動く。
-  const agentsDir = path.join(root, '.codex', 'agents');
-  fs.mkdirSync(agentsDir, { recursive: true });
-  for (const role of roles(target)) {
-    const { file, content } = codexAgent(role, VENDORED_NAME);
-    fs.writeFileSync(path.join(agentsDir, file), content);
-  }
-  const market = path.join(root, '.agents', 'plugins', 'marketplace.json');
-  const catalog = readJson(market, { name: path.basename(root), interface: { displayName: path.basename(root) }, plugins: [] });
-  catalog.plugins = [
-    ...(catalog.plugins ?? []).filter((plugin) => plugin.name !== VENDORED_NAME),
-    { name: VENDORED_NAME, source: { source: 'local', path: `./${VENDORED_DIR.split(path.sep).join('/')}` }, policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' }, category: 'Developer Tools' },
-  ];
-  writeJson(market, catalog);
+  const settings = path.join(root, PI_SETTINGS);
+  setIn(settings, ['packages'], [...otherPiPackages(settings), `${piPackage()}@v${version()}`]);
   return { target, version: version() };
 }
 
 export function unvendor(dir) {
   const root = path.resolve(dir);
-  fs.rmSync(path.join(root, VENDORED_DIR), { recursive: true, force: true });
-  setIn(path.join(root, '.claude', 'settings.json'), ['enabledPlugins', `${PROFILE_NAME}@${PROFILE_NAME}`], undefined);
-  const piSettings = path.join(root, '.pi', 'settings.json');
-  const source = path.join('..', VENDORED_DIR).split(path.sep).join('/');
-  if (fs.existsSync(piSettings)) setIn(piSettings, ['packages'], list(readJson(piSettings, {}).packages).filter((entry) => entry !== source));
-  for (const role of roles()) fs.rmSync(path.join(root, '.codex', 'agents', codexAgent(role, VENDORED_NAME).file), { force: true });
-  const market = path.join(root, '.agents', 'plugins', 'marketplace.json');
-  const catalog = readJson(market, null);
-  if (catalog) writeJson(market, { ...catalog, plugins: (catalog.plugins ?? []).filter((plugin) => plugin.name !== VENDORED_NAME) });
+  const target = path.join(root, VENDORED_DIR);
+  if (fs.existsSync(path.join(target, RECORD))) fs.rmSync(target, { recursive: true, force: true });
+  const settings = path.join(root, PI_SETTINGS);
+  if (fs.existsSync(settings)) setIn(settings, ['packages'], otherPiPackages(settings));
 }
 
 // ---------------------------------------------------------------- doctor
@@ -216,7 +204,6 @@ function main(argv) {
   if (command === 'vendor') {
     const result = vendor(dir);
     console.log(`${result.target} に ${result.version} を置いた。置いたものと、書き換えた設定をコミットする。`);
-    console.log(`Codex の hook は、利用者ごとに 1 回 \`codex plugin add ${VENDORED_NAME}\` で入れる。`);
   } else if (command === 'unvendor') {
     unvendor(dir);
     console.log('外した。');

@@ -16,7 +16,6 @@ import { readDeclaration } from './declaration.mjs';
 import { decide, roleOf } from './guard.mjs';
 import { record } from './log.mjs';
 import { codexAgent, roles } from './roles.mjs';
-import { standsDown } from './vendored.mjs';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
@@ -80,7 +79,6 @@ function editedFiles(host, input) {
 
 export function handle(host, event, input, now = Date.now()) {
   const cwd = input.cwd ?? process.cwd();
-  if (standsDown(cwd)) return null;
   const project = path.basename(cwd);
   if (event === 'session' || event === 'subagent') {
     if (event === 'session') prune(now);

@@ -26,13 +26,21 @@ Hooks run with `bun` when it is installed and with `node` otherwise (about 20 ms
 
 ### Install into a repository
 
-To make everyone who pulls a repository run the same harness at the same version, vendor it:
+To cover collaborators who have not installed the harness themselves, vendor it:
 
 ```sh
 node plugin/scripts/dotagents.mjs vendor /path/to/repo   # then commit what it wrote
 ```
 
-This copies the plugin to `.claude/skills/dotagents-repo/`, where Claude Code loads it once a collaborator trusts the folder, and points Pi (`.pi/settings.json`) and Codex (`.codex/agents/`, `.agents/plugins/marketplace.json`) at the same copy. The copy takes precedence over a personal install in that repository. Re-run `vendor` to upgrade; `unvendor` removes it.
+This copies the plugin to `.claude/skills/dotagents/` and declares the same version for Pi in `.pi/settings.json`. Each host keeps one copy, so nothing is injected or asked twice:
+
+| Host | You also installed it yourself | You did not |
+|---|---|---|
+| Claude Code | Your install runs. The copy is skipped because its name is taken. | The copy loads once you trust the folder and start the session at the repository root. |
+| Pi | The version the repository declares replaces yours there. | Pi installs the declared version once you trust the project. |
+| Codex | Your install runs. | Nothing runs. Codex does not load plugins from a repository, so each person installs it. |
+
+The repository never switches your own install off. Re-run `vendor` to upgrade; `unvendor` removes it.
 
 ## The project declaration
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
-import { PROFILE_NAME, VENDORED_NAME, doctor, stats, unvendor, vendor } from '../plugin/scripts/dotagents.mjs';
+import { NAME, doctor, stats, unvendor, vendor } from '../plugin/scripts/dotagents.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PLUGIN = path.join(ROOT, 'plugin');
@@ -14,7 +14,7 @@ const json = (...parts) => JSON.parse(fs.readFileSync(path.join(...parts), 'utf8
 test('3 つのホストの定義は、同じ名前と版を持つ', () => {
   const manifests = [json(PLUGIN, '.claude-plugin', 'plugin.json'), json(PLUGIN, '.codex-plugin', 'plugin.json'), json(PLUGIN, 'package.json'), json(ROOT, 'package.json')];
   assert.deepEqual([...new Set(manifests.map((manifest) => manifest.version))].length, 1);
-  for (const manifest of manifests.slice(0, 3)) assert.equal(manifest.name, PROFILE_NAME);
+  for (const manifest of manifests.slice(0, 3)) assert.equal(manifest.name, NAME);
   assert.equal(json(ROOT, '.claude-plugin', 'marketplace.json').plugins[0].source, './plugin');
   assert.equal(json(ROOT, '.agents', 'plugins', 'marketplace.json').plugins[0].source.path, './plugin');
 });
@@ -52,30 +52,43 @@ test('スキルと役の定義は、どのホストでも読める形をして�
   assert.match(agent.content, /^name = "dotagents-builder"\ndescription = ".+"\ndeveloper_instructions = ".+"\n$/);
 });
 
-test('プロジェクトに入れると、別の名前の写しと、利用者の側を切る設定が置かれる。外すと元に戻る', () => {
+test('プロジェクトに入れると、同じ名前の写しが置かれ、ほかの設定には触れない。外すと元に戻る', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
   fs.mkdirSync(path.join(dir, '.claude'));
-  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] } }));
+  const settings = { permissions: { allow: ['Bash(ls:*)'] } };
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify(settings));
   vendor(dir);
-  const copy = path.join(dir, '.claude', 'skills', VENDORED_NAME);
-  assert.equal(json(copy, '.claude-plugin', 'plugin.json').name, VENDORED_NAME);
+  const copy = path.join(dir, '.claude', 'skills', NAME);
+  // 同じ名前にする。利用者が自分の環境にも入れていれば、Claude Code はそちらだけを読む。
+  assert.equal(json(copy, '.claude-plugin', 'plugin.json').name, NAME);
   assert.equal(json(copy, 'VENDORED.json').version, json(PLUGIN, 'package.json').version);
   assert.ok(fs.existsSync(path.join(copy, 'src', 'guard.mjs')) && fs.existsSync(path.join(copy, 'skills', 'flow', 'SKILL.md')));
-  const settings = json(dir, '.claude', 'settings.json');
-  assert.deepEqual(settings.permissions, { allow: ['Bash(ls:*)'] });
-  assert.equal(settings.enabledPlugins[`${PROFILE_NAME}@${PROFILE_NAME}`], false);
-  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, [`../.claude/skills/${VENDORED_NAME}`]);
-  assert.ok(fs.existsSync(path.join(dir, '.codex', 'agents', `${VENDORED_NAME}-builder.toml`)));
-  assert.equal(json(dir, '.agents', 'plugins', 'marketplace.json').plugins[0].source.path, `./.claude/skills/${VENDORED_NAME}`);
+  // 利用者の環境に入れたものを、プロジェクトの設定で切らない。切ると、写しが読み込まれない場面で、どちらも働かない。
+  assert.deepEqual(json(dir, '.claude', 'settings.json'), settings);
+  // Pi には、同じリポジトリーの版の tag を宣言する。利用者も入れていれば、Pi はプロジェクトの側だけを読む。
+  const pinned = `git:github.com/hiroiku/dotagents@v${json(PLUGIN, 'package.json').version}`;
+  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, [pinned]);
+  assert.equal(fs.existsSync(path.join(dir, '.codex')), false);
+  assert.equal(fs.existsSync(path.join(dir, '.agents')), false);
+  const others = ['npm:@example/tools', { source: 'git:github.com/example/other@v1', skills: [] }];
+  fs.writeFileSync(path.join(dir, '.pi', 'settings.json'), JSON.stringify({ theme: 'dark', packages: [...others, 'git:github.com/hiroiku/dotagents@v8.0.0'] }));
   vendor(dir);
-  assert.equal(json(dir, '.pi', 'settings.json').packages.length, 1);
-  assert.equal(json(dir, '.agents', 'plugins', 'marketplace.json').plugins.length, 1);
+  assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: [...others, pinned] });
   assert.ok(doctor(dir, { remote: false }).some((entry) => entry.level === 'ok' && entry.text.includes('プロジェクトに入れた版')));
   unvendor(dir);
   assert.equal(fs.existsSync(copy), false);
-  assert.deepEqual(json(dir, '.claude', 'settings.json').enabledPlugins, {});
-  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, []);
-  assert.equal(fs.existsSync(path.join(dir, '.codex', 'agents', `${VENDORED_NAME}-builder.toml`)), false);
+  assert.deepEqual(json(dir, '.claude', 'settings.json'), settings);
+  assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: others });
+});
+
+test('この道具が置いたのではないものがある場所には、入れも外しもしない', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
+  const own = path.join(dir, '.claude', 'skills', NAME, 'skills', 'mine', 'SKILL.md');
+  fs.mkdirSync(path.dirname(own), { recursive: true });
+  fs.writeFileSync(own, 'x');
+  assert.throws(() => vendor(dir), /置いたのではないもの/);
+  unvendor(dir);
+  assert.equal(fs.readFileSync(own, 'utf8'), 'x');
 });
 
 test('点検は、宣言の誤りと 7.x の残りを知らせる', () => {

@@ -113,14 +113,18 @@ test('スキルの読み込みは、判定せずに数える', () => {
   assert.match(lines, /"event":"skill","project":"[^"]+","role":"lead","name":"flow"/);
 });
 
-test('プロジェクトにハーネスの写しがあれば、利用者の環境に入れた側は何もしない', () => {
+// 写しが読み込まれているかは、ファイルの有無からは分からない(信頼されていないフォルダー、下のディレクトリーで
+// 始めたセッション、写しを読まないホスト)。譲ると、どちらも働かない場合ができる。重なりは、ホストが名前で防ぐ。
+test('プロジェクトにハーネスの写しがあっても、受け口は譲らない', () => {
   const cwd = project();
-  fs.mkdirSync(path.join(cwd, '.claude', 'skills', 'dotagents-repo'), { recursive: true });
-  fs.writeFileSync(path.join(cwd, '.claude', 'skills', 'dotagents-repo', 'VENDORED.json'), '{}');
+  fs.mkdirSync(path.join(cwd, '.claude', 'skills', 'dotagents'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.claude', 'skills', 'dotagents', 'VENDORED.json'), '{}');
   const nested = path.join(cwd, 'packages', 'app');
   fs.mkdirSync(nested, { recursive: true });
   for (const dir of [cwd, nested]) {
-    assert.equal(run('claude', 'session', { cwd: dir }), null);
-    assert.equal(run('claude', 'tool', { cwd: dir, tool_name: 'Bash', tool_input: { command: 'npm publish' } }), null);
+    for (const host of ['claude', 'codex']) {
+      assert.match(run(host, 'session', { cwd: dir }).additionalContext, /# 核/);
+      assert.notEqual(run(host, 'tool', { cwd: dir, tool_name: 'Bash', tool_input: { command: 'npm publish' } }), null);
+    }
   }
 });
