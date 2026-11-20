@@ -1,6 +1,6 @@
 {
   "name": "dotagents",
-  "version": "8.0.2",
+  "version": "8.0.3",
   "private": true,
   "type": "module",
   "description": "AI に仕事を任せるためのハーネス。Claude Code、Codex、Pi へ同じ中身で届ける。",

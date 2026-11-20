@@ -46,6 +46,21 @@ test('セッションの開始では進める役の文を、サブエージェ�
   assert.match(fs.readFileSync(agent, 'utf8'), /^name = "dotagents-builder"/);
 });
 
+test('サブエージェントの文脈が作り直されたときは、進める役の文ではなく、その役の文を返す', () => {
+  const cwd = project();
+  // Claude Code は、作り直しのあと、サブエージェントの中でセッションの開始を知らせる。役の ID と種類が付く。
+  const rebuilt = (agentType) => run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'compact', agent_id: 'a1', agent_type: agentType });
+  const start = (agentType) => run('claude', 'subagent', { cwd, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: agentType });
+  for (const agentType of ['general-purpose', 'dotagents:builder', 'dotagents:reviewer']) {
+    const output = rebuilt(agentType);
+    assert.equal(output.hookEventName, 'SessionStart');
+    assert.doesNotMatch(output.additionalContext, /# 進める役/, agentType);
+    assert.equal(output.additionalContext, start(agentType).additionalContext, `${agentType}: 始まったときと同じ文`);
+  }
+  // 役として起こしたメインのセッション(claude --agent)は、ID を持たない。進める役のままである。
+  assert.match(run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'compact', agent_type: 'general-purpose' }).additionalContext, /# 進める役/);
+});
+
 test('Claude Code では確かめ、Codex では止める', () => {
   const cwd = project();
   const input = { cwd, tool_name: 'Bash', tool_input: { command: 'npm publish' } };

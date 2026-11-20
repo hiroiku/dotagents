@@ -81,7 +81,9 @@ export function handle(host, event, input) {
   const project = path.basename(cwd);
   if (event === 'session' || event === 'subagent') {
     if (host === 'codex' && event === 'session') syncCodexAgents();
-    const role = event === 'session' ? 'lead' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
+    // Claude Code は、サブエージェントの文脈を作り直したときにも、そのサブエージェントの中でセッションの開始を知らせる。
+    // その知らせには役の ID が付く。ID が付いた知らせに進める役の文を返すと、作り直しのあと、役が進める役として振る舞う。
+    const role = event === 'session' && !input.agent_id ? 'lead' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
     const text = contextFor({ role, cwd });
     record({ host, event: 'context', project, role, agentType: input.agent_type, chars: text.length });
     return { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: text } };
