@@ -33,7 +33,7 @@ export function projectFacts({ role, cwd }) {
   if (checks.length) {
     const lines = ['# 検査の入口', ...checks.map(([key, label]) => `- ${label}: \`${value.checks[key]}\``)];
     const heavy = checks.filter(([key]) => key === 'push' || key === 'release').map(([key, label]) => (key === 'push' ? 'push の段' : `${label}の段`));
-    if (heavy.length && (role === 'builder' || role === 'reviewer')) lines.push('', `${heavy.join('と')}は、進める役が回す。この役が実行すると止まる。`);
+    if (heavy.length && (role === 'builder' || role === 'reviewer')) lines.push('', `${heavy.join('と')}のコマンドは、進める役が回す。この役がそのまま実行すると止まる。対象を絞った実行は止まらない。`);
     parts.push(lines.join('\n'));
   }
   if (role === 'lead') {

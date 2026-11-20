@@ -38,10 +38,10 @@ test('プロジェクトの決定と検査の入口は、どの役にも届く',
   assert.match(contextFor({ role: 'lead', cwd }), /確かめずに進める: push:develop/);
   assert.doesNotMatch(contextFor({ role: 'builder', cwd }), /確かめずに進める/);
   // 進める役が回す段は、作る役と確かめる役にだけ、止まることを知らせる。
-  for (const role of ['builder', 'reviewer']) assert.match(contextFor({ role, cwd }), /push の段は、進める役が回す。この役が実行すると止まる。/, role);
-  for (const role of ['lead', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /この役が実行すると止まる/, role);
+  for (const role of ['builder', 'reviewer']) assert.match(contextFor({ role, cwd }), /push の段のコマンドは、進める役が回す。この役がそのまま実行すると止まる。対象を絞った実行は止まらない。/, role);
+  for (const role of ['lead', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /実行すると止まる/, role);
   const both = project({ checks: { push: 'npm run check', release: 'npm run e2e' } });
-  assert.match(contextFor({ role: 'builder', cwd: both }), /push の段と版の段は、進める役が回す。/);
+  assert.match(contextFor({ role: 'builder', cwd: both }), /push の段と版の段のコマンドは、進める役が回す。/);
   assert.doesNotMatch(contextFor({ role: 'builder', cwd: project({ checks: { edit: 'biome check {file}' } }) }), /進める役が回す/);
 });
 

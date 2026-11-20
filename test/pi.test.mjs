@@ -126,6 +126,22 @@ test('役を走らせる道具は進める役にだけ登録し、子の指示�
   assert.deepEqual(roleOfName('reviewer').tools, ['read', 'ls', 'find', 'grep', 'bash'], '確かめる役は書き換える道具を持たない');
 });
 
+test('役が、プロジェクトが push の段に置いた検査を実行すると止め、絞った実行は通す', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-pi-checks-'));
+  fs.mkdirSync(path.join(cwd, '.agents'));
+  fs.writeFileSync(path.join(cwd, '.agents', 'dotagents.json'), JSON.stringify({ checks: { push: 'npm run check' } }));
+  const ctx = { hasUI: false, cwd };
+  try {
+    const blocked = await asRole('builder', () => fakePi().handlers.tool_call(shell('npm run check'), ctx));
+    assert.equal(blocked.block, true);
+    assert.match(blocked.reason, /push の段に置いた検査/);
+    assert.equal(await asRole('builder', () => fakePi().handlers.tool_call(shell('npm run check -- src/a.ts', { timeout: 3600 }), ctx)), undefined);
+    assert.equal(await asRole(null, () => fakePi().handlers.tool_call(shell('npm run check'), ctx)), undefined, '進める役は回せる');
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test('役のコマンドに、時間の上限を足さない', async () => {
   for (const role of ['builder', 'reviewer', null]) {
     const event = { toolName: 'bash', toolCallId: 't', input: { command: 'npm test' } };
