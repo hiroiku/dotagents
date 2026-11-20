@@ -4,6 +4,7 @@
 //   outward    このプロジェクトで外へ届くコマンドの正規表現。
 //   delegated  確かめずに進めてよいと、プロジェクトが任せた種類。`種類` か `種類:対象`。
 //   limits     commandSeconds: 作る役と確かめる役の 1 コマンドの上限(秒)。
+//              roleMinutes: 1 体の役が働く時間の見込み(分)。超えると、止まって報告するよう知らせる。
 //   checks     検査の段ごとのコマンド(edit、commit、push、release)。edit は編集のたびに hook が実行し、
 //              `{file}` は編集したファイルに置き換わる。
 //   decisions  どの役も読む、続いている決定。

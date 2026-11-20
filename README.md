@@ -22,6 +22,8 @@ Each host installs the same directory (`plugin/`) with its own package mechanism
 | Codex | `codex plugin marketplace add hiroiku/dotagents` then `codex plugin add dotagents@dotagents`, and trust its hooks in `/hooks` | `codex plugin marketplace upgrade dotagents` (hooks need trusting again after an update) |
 | Pi | `pi install git:github.com/hiroiku/dotagents` | `pi update --extensions` |
 
+Hooks run with `bun` when it is installed and with `node` otherwise (about 20 ms against 125 ms per tool call on the machine this was measured on).
+
 ### Install into a repository
 
 To make everyone who pulls a repository run the same harness at the same version, vendor it:

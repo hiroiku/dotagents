@@ -14,6 +14,7 @@ import { commandSeconds, readDeclaration } from '../../src/declaration.mjs';
 import { decide } from '../../src/guard.mjs';
 import { record } from '../../src/log.mjs';
 import { readRole } from '../../src/roles.mjs';
+import { standsDown } from '../../src/vendored.mjs';
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SHELL_TOOLS = new Set(['bash', 'powershell']);
@@ -28,8 +29,10 @@ const roleNow = () => process.env.DOTAGENTS_ROLE || 'lead';
 const fail = (error) => record({ host: 'pi', event: 'error', message: error instanceof Error ? error.message : String(error) });
 
 // 例外は記録して通す。undefined を返せば、呼び出しは止まらず、結果も変わらない。
+// プロジェクトにハーネスの写しがあれば、利用者の環境に入れた側は何もしない。
 const safe = (handler) => async (event, ctx) => {
   try {
+    if (standsDown(ctx.cwd)) return undefined;
     return await handler(event, ctx);
   } catch (error) {
     fail(error);
@@ -195,7 +198,7 @@ export default function (pi) {
   pi.on('tool_result', safe(afterEdit));
 
   // 役の子が、さらに子を呼べないようにする。孫を許すと、確かめる手段の無い層が深くなる。
-  if (roleNow() !== 'lead') return;
+  if (roleNow() !== 'lead' || standsDown(process.cwd())) return;
   pi.registerTool({
     name: 'run_role',
     label: 'Run role',

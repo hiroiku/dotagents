@@ -25,7 +25,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
   "protected": ["develop", "release/*"],
   "outward": ["scripts/ship\\.sh"],
   "delegated": ["push:develop", "merge:develop", "tag", "remote:staging"],
-  "limits": { "commandSeconds": 175 },
+  "limits": { "commandSeconds": 175, "roleMinutes": 90 },
   "checks": {
     "edit": "biome check {file}",
     "commit": "npm run check:changed",
@@ -39,7 +39,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 - `protected`: 共有のブランチとして扱う名前。リモートのデフォルトブランチは、書かなくても含まれる。
 - `outward`: このプロジェクトで外へ届くコマンドの正規表現。
 - `delegated`: 確かめずに進めてよい種類。`種類` か `種類:対象` で書く。種類は push、tag、merge、release、deploy、remote、settings、workflow、message、instructions、project である。共有のブランチの書き換え、保護を飛ばすマージ、この宣言の書き換えは、任せられない。
-- `limits.commandSeconds`: 作る役と確かめる役の 1 コマンドの上限。
+- `limits.commandSeconds`: 作る役と確かめる役の 1 コマンドの上限(秒)。`limits.roleMinutes`: 1 体の役が働く時間の見込み(分。既定は 90)。超えると、止まって報告するよう役に知らせる。
 - `checks`: 検査の段ごとの入口。`edit` は編集のたびに hook が実行するので、数秒で終わるものだけを置く。CI も同じ入口を呼ぶ形にする。
 - `decisions`: どの役も読む、続いている決定。レビューで見ないもの、採っている設計の配置、環境の名前のように、会話から消えると困るものを 1 行ずつ書く。
 

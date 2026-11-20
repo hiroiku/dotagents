@@ -22,6 +22,8 @@ AI のコーディングエージェントに仕事を任せるためのハー�
 | Codex | `codex plugin marketplace add hiroiku/dotagents` のあと `codex plugin add dotagents@dotagents`。hook は `/hooks` で信頼する | `codex plugin marketplace upgrade dotagents`(更新のあと、hook をもう一度信頼する) |
 | Pi | `pi install git:github.com/hiroiku/dotagents` | `pi update --extensions` |
 
+hook は、`bun` があれば `bun` で、無ければ `node` で動く(計測した機械では、道具の呼び出し 1 回あたり約 20 ミリ秒と約 125 ミリ秒)。
+
 ### リポジトリーに入れる
 
 pull した人全員を、同じ版の同じハーネスで動かしたいときは、リポジトリーに写す。

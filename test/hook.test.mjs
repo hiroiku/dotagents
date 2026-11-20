@@ -105,3 +105,22 @@ test('確かめた回数と止めた回数が、記録に残る', () => {
   assert.ok(lines.some((entry) => entry.event === 'context' && entry.role === 'builder'));
   assert.ok(lines.every((entry) => !JSON.stringify(entry).includes('npm publish')), 'コマンドの文字列は残さない');
 });
+
+test('スキルの読み込みは、判定せずに数える', () => {
+  const cwd = project();
+  assert.equal(run('claude', 'tool', { cwd, tool_name: 'Skill', tool_input: { skill: 'dotagents:flow' } }), null);
+  const lines = fs.readFileSync(path.join(home, 'log', fs.readdirSync(path.join(home, 'log'))[0]), 'utf8');
+  assert.match(lines, /"event":"skill","project":"[^"]+","role":"lead","name":"flow"/);
+});
+
+test('プロジェクトにハーネスの写しがあれば、利用者の環境に入れた側は何もしない', () => {
+  const cwd = project();
+  fs.mkdirSync(path.join(cwd, '.claude', 'skills', 'dotagents-repo'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.claude', 'skills', 'dotagents-repo', 'VENDORED.json'), '{}');
+  const nested = path.join(cwd, 'packages', 'app');
+  fs.mkdirSync(nested, { recursive: true });
+  for (const dir of [cwd, nested]) {
+    assert.equal(run('claude', 'session', { cwd: dir }), null);
+    assert.equal(run('claude', 'tool', { cwd: dir, tool_name: 'Bash', tool_input: { command: 'npm publish' } }), null);
+  }
+});

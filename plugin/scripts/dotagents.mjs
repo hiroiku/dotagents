@@ -17,13 +17,11 @@ import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declarat
 import { KIND_LABELS } from '../src/guard.mjs';
 import { logDir } from '../src/log.mjs';
 import { codexAgent, roles } from '../src/roles.mjs';
+import { PROFILE_NAME, VENDORED_DIR, VENDORED_NAME, VENDORED_RECORD } from '../src/vendored.mjs';
 
-// プロジェクトに置く写しは、利用者の設定に入れたものと名前を分ける。Claude Code は、同じ名前の plugin が
-// 両方にあると、プロジェクトの側を読まないからである。
-export const PROFILE_NAME = 'dotagents';
-export const VENDORED_NAME = 'dotagents-repo';
-const VENDORED_DIR = path.join('.claude', 'skills', VENDORED_NAME);
-const RECORD = 'VENDORED.json';
+export { PROFILE_NAME, VENDORED_NAME };
+
+const RECORD = VENDORED_RECORD;
 const KNOWN_KEYS = new Set([...POLICY_KEYS, 'decisions']);
 
 const readJson = (file, fallback) => {
@@ -60,6 +58,7 @@ export function vendor(dir) {
   writeJson(path.join(target, RECORD), { from: PROFILE_NAME, version: version() });
 
   // Claude Code: 置いた場所から読み込まれる。利用者の設定に入れた同じハーネスは、このプロジェクトでは切る。
+  // hook は切らなくても引き下がるが(src/vendored.mjs)、スキルと役が二重に並ぶのを避ける。
   setIn(path.join(root, '.claude', 'settings.json'), ['enabledPlugins', `${PROFILE_NAME}@${PROFILE_NAME}`], false);
 
   // Pi: 置いた場所を package として宣言する。
@@ -173,11 +172,13 @@ export function stats({ days = 7, now = new Date() } = {}) {
   }
   const projects = {};
   for (const entry of entries) {
-    const project = (projects[entry.project ?? '(不明)'] ??= { asks: {}, denies: {}, checks: 0, contexts: {}, errors: 0 });
+    const project = (projects[entry.project ?? '(不明)'] ??= { asks: {}, denies: {}, checks: 0, budgets: 0, skills: {}, contexts: {}, errors: 0 });
     if (entry.event === 'guard') {
       const bucket = entry.decision === 'ask' ? project.asks : project.denies;
       bucket[entry.kind] = (bucket[entry.kind] ?? 0) + 1;
     } else if (entry.event === 'check') project.checks += 1;
+    else if (entry.event === 'budget') project.budgets += 1;
+    else if (entry.event === 'skill') project.skills[entry.name] = (project.skills[entry.name] ?? 0) + 1;
     else if (entry.event === 'context') {
       const role = (project.contexts[entry.role] ??= { count: 0, chars: 0 });
       role.count += 1;
@@ -186,6 +187,9 @@ export function stats({ days = 7, now = new Date() } = {}) {
   }
   return { days, since, projects };
 }
+
+// 1 回も読まれていないスキルも並べる。読まれないスキルは、説明が合っていないか、要らない。
+const skillNames = () => fs.readdirSync(path.join(PLUGIN_ROOT, 'skills')).sort();
 
 function printStats(result) {
   const sum = (bucket) => Object.values(bucket).reduce((total, count) => total + count, 0);
@@ -196,6 +200,8 @@ function printStats(result) {
     console.log(`  確かめた: ${sum(project.asks)} 回(1 日 ${(sum(project.asks) / result.days).toFixed(1)} 回) ${each(project.asks)}`);
     console.log(`  止めた: ${sum(project.denies)} 回 ${each(project.denies)}`);
     console.log(`  編集の段の検査が落ちた: ${project.checks} 回`);
+    console.log(`  見込みの時間を超えた役: ${project.budgets} 回`);
+    console.log(`  スキルの読み込み: ${skillNames().map((name) => `${name} ${project.skills[name] ?? 0}`).join('、')}`);
     console.log(`  常設の文: ${Object.entries(project.contexts).map(([role, value]) => `${role} ${value.count} 回・${value.chars} 字`).join('、') || 'なし'}`);
     if (project.errors) console.log(`  受け口の例外: ${project.errors} 回`);
   }

@@ -9,11 +9,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { prune, roleMinutes, tick } from './budget.mjs';
 import { editCheck } from './check.mjs';
 import { contextFor } from './context.mjs';
+import { readDeclaration } from './declaration.mjs';
 import { decide, roleOf } from './guard.mjs';
 import { record } from './log.mjs';
 import { codexAgent, roles } from './roles.mjs';
+import { standsDown } from './vendored.mjs';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
@@ -75,10 +78,12 @@ function editedFiles(host, input) {
   return typeof toolInput.file_path === 'string' ? [toolInput.file_path] : [];
 }
 
-export function handle(host, event, input) {
+export function handle(host, event, input, now = Date.now()) {
   const cwd = input.cwd ?? process.cwd();
+  if (standsDown(cwd)) return null;
   const project = path.basename(cwd);
   if (event === 'session' || event === 'subagent') {
+    if (event === 'session') prune(now);
     if (host === 'codex' && event === 'session') syncCodexAgents();
     const role = event === 'session' ? 'lead' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
     const text = contextFor({ role, cwd });
@@ -86,13 +91,21 @@ export function handle(host, event, input) {
     return { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: text } };
   }
   if (event === 'tool') {
+    // スキルの読み込みは、判定せずに数えるだけにする。読まれないスキルを見つけるためである。
+    if (input.tool_name === 'Skill') {
+      record({ host, event: 'skill', project, role: roleFrom(input), name: String(input.tool_input?.skill ?? '').split(':').pop() });
+      return null;
+    }
     for (const request of requests(host, input)) {
       const result = decide(request);
       if (!result) continue;
       record({ host, event: 'guard', project, role: request.role, agentType: input.agent_type, decision: result.decision, kind: result.kind, targets: result.findings?.map((finding) => `${finding.kind}:${finding.target}`) });
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: result.decision, permissionDecisionReason: result.reason } };
     }
-    return null;
+    const over = input.agent_id ? tick(input.agent_id, roleMinutes(readDeclaration(cwd).value), now) : null;
+    if (!over) return null;
+    record({ host, event: 'budget', project, role: roleFrom(input), agentType: input.agent_type });
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: over } };
   }
   if (event === 'edited') {
     const failures = editedFiles(host, input).map((file) => editCheck({ file, cwd })).filter(Boolean);
