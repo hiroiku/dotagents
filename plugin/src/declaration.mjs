@@ -3,22 +3,22 @@
 //   protected  共有のブランチとして扱う名前。リモートのデフォルトブランチは書かなくても含まれる。`*` が使える。
 //   outward    このプロジェクトで外へ届くコマンドの正規表現。
 //   delegated  確かめずに進めてよいと、プロジェクトが任せた種類。`種類` か `種類:対象`。
-//   limits     commandSeconds: 作る役と確かめる役の 1 コマンドの上限(秒)。
-//              roleMinutes: 1 体の役が働く時間の見込み(分)。超えると、止まって報告するよう知らせる。
 //   checks     検査の段ごとのコマンド(edit、commit、push、release)。edit は編集のたびに hook が実行し、
-//              `{file}` は編集したファイルに置き換わる。
+//              `{file}` は編集したファイルに置き換わる。push と release に置いたコマンドは、作る役と確かめる役が
+//              実行すると止まる。
 //   decisions  どの役も読む、続いている決定。
 //
 // decisions のほかは、確かめる線を動かすか、hook が実行するコマンドを決める。書き換えは、それ自体を確かめる
 // (guard.mjs の policy)。
+//
+// 時間や数の上限は、ここに持たない。数値は決まりとして読まれ、状況に合わなくても守られる。上限が要るプロジェクトは、
+// 理由と一緒に decisions に書く。
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 export const DECLARATION = path.join('.agents', 'dotagents.json');
-export const POLICY_KEYS = ['protected', 'outward', 'delegated', 'limits', 'checks'];
-// ホストは、裏で動く役の長いコマンドを 180 秒でバックグラウンドへ移す。その手前で終わらせる。
-export const DEFAULT_COMMAND_SECONDS = 175;
+export const POLICY_KEYS = ['protected', 'outward', 'delegated', 'checks'];
 
 export function parseDeclaration(text) {
   const value = JSON.parse(text);
@@ -50,10 +50,5 @@ export function readDeclaration(cwd) {
 }
 
 export const list = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string' && item) : []);
-
-export function commandSeconds(declaration) {
-  const seconds = declaration?.limits?.commandSeconds;
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_COMMAND_SECONDS;
-}
 
 export const policyOf = (declaration) => JSON.stringify(POLICY_KEYS.map((key) => declaration?.[key] ?? null));

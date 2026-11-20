@@ -10,10 +10,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { editCheck } from '../../src/check.mjs';
 import { contextFor } from '../../src/context.mjs';
-import { commandSeconds, readDeclaration } from '../../src/declaration.mjs';
 import { decide } from '../../src/guard.mjs';
 import { record } from '../../src/log.mjs';
 import { readRole } from '../../src/roles.mjs';
+import { piRun } from '../../src/usage.mjs';
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SHELL_TOOLS = new Set(['bash', 'powershell']);
@@ -68,10 +68,7 @@ async function guard(event, ctx) {
   const canAsk = Boolean(ctx.hasUI) && role === 'lead';
   const request = { cwd: ctx.cwd, role, canAsk };
   if (isShell) {
-    // Pi の bash には既定の時間切れが無い。上限のある役が上限を付けなかったときは、ここで付ける。
-    if (ROLES.includes(role) && typeof event.input.timeout !== 'number') event.input.timeout = commandSeconds(readDeclaration(ctx.cwd).value);
-    // bash の timeout は秒。判定はミリ秒で受ける
-    Object.assign(request, { tool: 'shell', command: event.input.command, timeoutMs: typeof event.input.timeout === 'number' ? event.input.timeout * 1000 : undefined });
+    Object.assign(request, { tool: 'shell', command: event.input.command });
   } else {
     const file = path.resolve(ctx.cwd, event.input.path);
     const after = afterOf(event, file);
@@ -138,6 +135,7 @@ async function runRole({ role, task, cwd }, signal, ctx) {
     args.push(`Task: ${task}`);
     const invocation = piInvocation(args);
     const messages = [];
+    const started = Date.now();
     let stderr = '';
     const outcome = await new Promise((resolve) => {
       const child = spawn(invocation.command, invocation.args, { cwd, env: { ...process.env, DOTAGENTS_ROLE: role }, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -169,6 +167,8 @@ async function runRole({ role, task, cwd }, signal, ctx) {
       if (signal?.aborted) abort();
       else signal?.addEventListener('abort', abort, { once: true });
     });
+    // 役が使った時間とトークンを残す。失敗した実行も、使った分は数える。
+    record({ host: 'pi', event: 'role', project: path.basename(cwd), role, agentType: role, ...piRun(messages, Math.round((Date.now() - started) / 1000)) });
     const last = messages.at(-1);
     const answer = finalText(messages);
     if (outcome.error) throw new Error(`子の pi を起動できませんでした: ${outcome.error.message}`);

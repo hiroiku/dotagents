@@ -1,6 +1,6 @@
 // Claude Code と Codex の hook の受け口。2 つのホストは同じ入出力(stdin の JSON と hookSpecificOutput)を使う。
 //
-//   node hook.mjs <claude|codex> <session|subagent|tool|edited>
+//   node hook.mjs <claude|codex> <session|subagent|tool|edited|stopped>
 //
 // ここは、ホストの言葉を判定の言葉に直すだけにする。判定は guard.mjs、文は context.mjs、検査は check.mjs が持つ。
 // 受け口の誤りで作業そのものを止めない。読めない入力と例外は通し、例外は記録に残す。
@@ -9,13 +9,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { prune, roleMinutes, tick } from './budget.mjs';
 import { editCheck } from './check.mjs';
 import { contextFor } from './context.mjs';
-import { readDeclaration } from './declaration.mjs';
 import { decide, roleOf } from './guard.mjs';
 import { record } from './log.mjs';
 import { codexAgent, roles } from './roles.mjs';
+import { claudeRun } from './usage.mjs';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
@@ -63,7 +62,7 @@ export function requests(host, input) {
     return [...String(toolInput.command ?? '').matchAll(PATCH_FILE)].map(([, file]) => ({ ...base, tool: 'edit', file: file.trim() }));
   }
   if (name === 'Bash' && typeof toolInput.command === 'string') {
-    return [{ ...base, tool: 'shell', command: toolInput.command, timeoutMs: toolInput.timeout, background: toolInput.run_in_background === true }];
+    return [{ ...base, tool: 'shell', command: toolInput.command, background: toolInput.run_in_background === true }];
   }
   const file = toolInput.file_path ?? toolInput.notebook_path;
   if (EDIT_TOOLS.has(name) && typeof file === 'string') return [{ ...base, tool: 'edit', file, after: afterOf(name, toolInput, path.resolve(cwd, file)) }];
@@ -77,11 +76,10 @@ function editedFiles(host, input) {
   return typeof toolInput.file_path === 'string' ? [toolInput.file_path] : [];
 }
 
-export function handle(host, event, input, now = Date.now()) {
+export function handle(host, event, input) {
   const cwd = input.cwd ?? process.cwd();
   const project = path.basename(cwd);
   if (event === 'session' || event === 'subagent') {
-    if (event === 'session') prune(now);
     if (host === 'codex' && event === 'session') syncCodexAgents();
     const role = event === 'session' ? 'lead' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
     const text = contextFor({ role, cwd });
@@ -100,10 +98,15 @@ export function handle(host, event, input, now = Date.now()) {
       record({ host, event: 'guard', project, role: request.role, agentType: input.agent_type, decision: result.decision, kind: result.kind, targets: result.findings?.map((finding) => `${finding.kind}:${finding.target}`) });
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: result.decision, permissionDecisionReason: result.reason } };
     }
-    const over = input.agent_id ? tick(input.agent_id, roleMinutes(readDeclaration(cwd).value), now) : null;
-    if (!over) return null;
-    record({ host, event: 'budget', project, role: roleFrom(input), agentType: input.agent_type });
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: over } };
+    return null;
+  }
+  if (event === 'stopped') {
+    // 役が使った時間とトークンを数えて残す。何も返さないので、役の終わり方は変わらない。
+    // 名前の無いものは、ホストが自分の機能のために走らせたエージェントなので数えない。
+    if (!input.agent_type || typeof input.agent_transcript_path !== 'string') return null;
+    const run = claudeRun(input.agent_transcript_path);
+    if (run) record({ host, event: 'role', project, role: roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type }), agentType: input.agent_type, ...run });
+    return null;
   }
   if (event === 'edited') {
     const failures = editedFiles(host, input).map((file) => editCheck({ file, cwd })).filter(Boolean);

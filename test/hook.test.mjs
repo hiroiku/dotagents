@@ -35,7 +35,7 @@ test('セッションの開始では進める役の文を、サブエージェ�
   const builder = run('claude', 'subagent', { cwd, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'dotagents:builder' });
   assert.equal(builder.hookEventName, 'SubagentStart');
   assert.doesNotMatch(builder.additionalContext, /# 進める役/);
-  assert.match(builder.additionalContext, /175 秒/);
+  assert.doesNotMatch(builder.additionalContext, /上限/);
   assert.equal(fs.existsSync(path.join(codexHome, 'agents')), false, 'Claude Code のセッションでは Codex の設定に触れない');
   assert.match(run('codex', 'session', { cwd }).additionalContext, /# 核/);
   // Codex は plugin で役を運べないので、セッションの開始で役の定義を置く。
@@ -56,15 +56,46 @@ test('Claude Code では確かめ、Codex では止める', () => {
   assert.equal(run('codex', 'tool', { ...input, tool_input: { command: 'DOTAGENTS_CONFIRMED=1 npm publish' } }), null);
 });
 
-test('サブエージェントの外へ届く操作と、長い上限を止める', () => {
-  const cwd = project();
+test('サブエージェントの外へ届く操作と、進める役が回す検査を止める', () => {
+  const cwd = project({ checks: { push: 'npm test' } });
   const worker = run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'general-purpose', tool_name: 'Bash', tool_input: { command: 'npm publish' } });
   assert.equal(worker.permissionDecision, 'deny');
-  const paced = run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'npm test', timeout: 600000 } });
+  const paced = run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'npm test' } });
   assert.equal(paced.permissionDecision, 'deny');
+  // 絞った実行は、長い時間を見込んでいても通す。時間では止めない。
+  assert.equal(run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'npm test -- a.spec.ts', timeout: 600000 } }), null);
   assert.equal(run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'general-purpose', tool_name: 'Bash', tool_input: { command: 'npm test', timeout: 600000 } }), null);
   // --agent で始めた対話のセッションは、役の名前を持つが、サブエージェントではない。
   assert.equal(run('claude', 'tool', { cwd, agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'npm test', timeout: 600000 } }), null);
+});
+
+test('道具の呼び出しが続いても、時間を理由に文を足さない', () => {
+  const cwd = project();
+  for (let i = 0; i < 3; i += 1) {
+    assert.equal(run('claude', 'tool', { cwd, agent_id: 'a2', agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'ls' } }), null);
+  }
+  assert.equal(fs.existsSync(path.join(home, 'state')), false, '役ごとの状態を持たない');
+});
+
+test('役が止まったときに、使った時間とトークンを記録に残す', () => {
+  const cwd = project();
+  const transcript = path.join(home, 'agent-a9.jsonl');
+  const usage = { input_tokens: 10, cache_creation_input_tokens: 90, cache_read_input_tokens: 1000, output_tokens: 50 };
+  fs.writeFileSync(transcript, [
+    { type: 'user', timestamp: '2026-11-20T10:00:00.000Z', message: { role: 'user', content: '依頼の文' } },
+    { type: 'assistant', timestamp: '2026-11-20T10:00:05.000Z', message: { id: 'm1', model: 'model-x', role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'secret-command' } }], usage } },
+    { type: 'user', timestamp: '2026-11-20T10:00:20.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } },
+    { type: 'assistant', timestamp: '2026-11-20T10:01:00.000Z', message: { id: 'm2', model: 'model-x', role: 'assistant', content: [{ type: 'text', text: '報告' }], usage } },
+  ].map((row) => JSON.stringify(row)).join('\n'));
+  const stop = { cwd, hook_event_name: 'SubagentStop', agent_id: 'a9', agent_type: 'dotagents:builder', agent_transcript_path: transcript };
+  assert.equal(run('claude', 'stopped', stop), null, '役の終わり方を変えない');
+  // 名前の無いエージェント(ホストが自分の機能のために走らせたもの)と、読めない記録は数えない。
+  assert.equal(run('claude', 'stopped', { ...stop, agent_type: '' }), null);
+  assert.equal(run('claude', 'stopped', { ...stop, agent_transcript_path: path.join(home, 'missing.jsonl') }), null);
+  const entries = fs.readdirSync(path.join(home, 'log')).flatMap((name) => fs.readFileSync(path.join(home, 'log', name), 'utf8').trim().split('\n').map((line) => JSON.parse(line))).filter((entry) => entry.event === 'role');
+  assert.equal(entries.length, 1);
+  const { t, ...entry } = entries[0];
+  assert.deepEqual(entry, { host: 'claude', event: 'role', project: path.basename(cwd), role: 'builder', agentType: 'dotagents:builder', model: 'model-x', seconds: 60, out: 100, in: 200, cached: 2000, tools: 1 });
 });
 
 test('編集の道具は、宣言と指示ファイルのときだけ確かめる', () => {
@@ -103,7 +134,7 @@ test('確かめた回数と止めた回数が、記録に残る', () => {
   assert.ok(lines.some((entry) => entry.event === 'guard' && entry.decision === 'ask' && entry.kind === 'release'));
   assert.ok(lines.some((entry) => entry.event === 'guard' && entry.decision === 'deny' && entry.kind === 'pace'));
   assert.ok(lines.some((entry) => entry.event === 'context' && entry.role === 'builder'));
-  assert.ok(lines.every((entry) => !JSON.stringify(entry).includes('npm publish')), 'コマンドの文字列は残さない');
+  assert.ok(lines.every((entry) => !/npm publish|secret-command|依頼の文/.test(JSON.stringify(entry))), 'コマンドの文字列も、依頼の文も残さない');
 });
 
 test('スキルの読み込みは、判定せずに数える', () => {

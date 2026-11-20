@@ -6,11 +6,11 @@ English | [日本語](docs/README.ja.md)
 
 ## What it does
 
-- **Judgment over rules.** The always-on text is about 1,400 characters for the lead session and 800 for a subagent. It states the goal, the line between deciding and asking, and five design qualities. Everything else loads on demand.
-- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, per-command time limits for builder and reviewer roles, an edit-time check.
+- **Judgment over rules.** The always-on text is about 1,600 characters for the lead session and 850 for a subagent. It states the goal, the line between deciding and asking, and five design qualities. Everything else loads on demand.
+- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, the heavy checks a project reserves for the lead, an edit-time check. The harness sets no time limits or agent counts: it states the trade-offs and leaves the numbers to the model, the host and the user.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside (shared branches, tags, merges, releases, deploys, remote data, repository settings, messages to people) — and each project can delegate the kinds it trusts.
 - **The outcome is the unit.** Related issues are bundled, built by one builder in one worktree, verified once per bundle, and mapped to issues by commit (`Closes #n`).
-- **Measured.** Every confirmation and block is logged without command text; `stats` shows how often the harness actually intervenes.
+- **Measured.** Every confirmation and block is logged without command text; `stats` shows how often the harness actually intervenes, and how much time and how many tokens each role used.
 
 ## Install
 

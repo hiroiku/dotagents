@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { EDIT_CHECK_SECONDS } from '../plugin/src/check.mjs';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
 import { NAME, doctor, stats, unvendor, vendor } from '../plugin/scripts/dotagents.mjs';
 
@@ -30,9 +31,19 @@ test('hook の定義が指すファイルは在り、2 つのホストが同じ�
         const file = hook.command.match(/"([^"]+\.mjs)"/)[1];
         assert.ok(file.startsWith(variable), hook.command);
         assert.ok(fs.existsSync(path.join(PLUGIN, file.slice(variable.length))), file);
-        assert.match(hook.command, new RegExp(` ${host} (session|subagent|tool|edited)$`));
+        assert.match(hook.command, new RegExp(` ${host} (session|subagent|tool|edited|stopped)$`));
       }
     }
+  }
+});
+
+// ホストは、時間切れになった hook を理由を返さずに打ち切る。検査は、その手前で自分から止まって理由を返す。
+test('編集の段の検査は、ホストが hook を打ち切るより先に、自分で止まる', () => {
+  for (const [host, dir] of [['claude', '.claude-plugin'], ['codex', '.codex-plugin']]) {
+    const hooks = json(PLUGIN, json(PLUGIN, dir, 'plugin.json').hooks).hooks;
+    const edited = Object.values(hooks).flat().flatMap((group) => group.hooks).filter((hook) => hook.command.endsWith(' edited'));
+    assert.ok(edited.length > 0, host);
+    for (const hook of edited) assert.ok(hook.timeout > EDIT_CHECK_SECONDS, `${host}: ${hook.timeout} 秒`);
   }
 });
 
@@ -115,6 +126,9 @@ test('集計は、記録からプロジェクトごとの回数を出す', () =>
       entry({ t: '2026-11-19T01:00:00Z', event: 'guard', project: 'p', decision: 'ask', kind: 'push' }),
       entry({ t: '2026-11-19T02:00:00Z', event: 'guard', project: 'p', decision: 'deny', kind: 'pace' }),
       entry({ t: '2026-11-19T03:00:00Z', event: 'context', project: 'p', role: 'lead', chars: 1400 }),
+      entry({ t: '2026-11-19T04:00:00Z', event: 'role', project: 'p', role: 'builder', agentType: 'dotagents:builder', model: 'm', seconds: 600, out: 1000, in: 200, cached: 5000, tools: 9 }),
+      entry({ t: '2026-11-19T05:00:00Z', event: 'role', project: 'p', role: 'builder', agentType: 'dotagents:builder', model: 'm', seconds: 300, out: 500, in: 100, cached: 4000 }),
+      entry({ t: '2026-11-19T06:00:00Z', event: 'role', project: 'p', role: 'worker', agentType: 'Explore' }),
       entry({ t: '2026-11-01T00:00:00Z', event: 'guard', project: 'p', decision: 'ask', kind: 'push' }),
       'broken line',
     ].join('\n'));
@@ -122,6 +136,7 @@ test('集計は、記録からプロジェクトごとの回数を出す', () =>
     assert.deepEqual(result.projects.p.asks, { push: 1 });
     assert.deepEqual(result.projects.p.denies, { pace: 1 });
     assert.deepEqual(result.projects.p.contexts.lead, { count: 1, chars: 1400 });
+    assert.deepEqual(result.projects.p.roles, { 'dotagents:builder(m)': { count: 2, seconds: 900, out: 1500, in: 300, cached: 9000 }, Explore: { count: 1, seconds: 0, out: 0, in: 0, cached: 0 } });
   } finally {
     if (previous === undefined) delete process.env.DOTAGENTS_HOME;
     else process.env.DOTAGENTS_HOME = previous;

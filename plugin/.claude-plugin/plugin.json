@@ -1,6 +1,6 @@
 {
   "name": "dotagents",
-  "version": "8.0.1",
+  "version": "8.0.2",
   "description": "AI に仕事を任せるためのハーネス。常設の核、役の定義、スキル、外へ届く操作を確かめる仕組みを、Claude Code、Codex、Pi へ同じ中身で届ける。",
   "author": {
     "name": "hiroiku"

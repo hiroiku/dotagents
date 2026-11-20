@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { attribution } from './attribution.mjs';
-import { DECLARATION, commandSeconds, list, parseDeclaration, policyOf, readDeclaration } from './declaration.mjs';
+import { DECLARATION, list, parseDeclaration, policyOf, readDeclaration } from './declaration.mjs';
 import { simpleCommands } from './shell.mjs';
 
 export const CONFIRMED = 'DOTAGENTS_CONFIRMED';
@@ -342,15 +342,33 @@ export function findings(request, declaration, tools) {
 const describe = (finding) => `${KIND_LABELS[finding.kind]}${finding.target && finding.target !== '*' ? `(${finding.target})` : ''}`;
 const entryOf = (finding) => `"${finding.kind}${finding.target && finding.target !== '*' ? `:${finding.target}` : ''}"`;
 
-// 上限は、作る役と確かめる役にだけ掛ける。長い確かめを任された別の役までは縛らない。
+// 作る役と確かめる役が回さない検査。push と版の段は、進める役が束ごとに 1 回回す。
+// 時間では切らない。止めるのは、プロジェクトがその段に置いたコマンドそのものだけで、引数を足して絞った実行は通す。
+// 同じコマンドを編集やコミットの段にも置いているなら、この役の持ち場なので止めない。
+const HEAVY_TIERS = [
+  ['release', '版の段'],
+  ['push', 'push の段'],
+];
+const commandLines = (text, cwd) => simpleCommands(text, cwd).map(({ words }) => words.join(' ')).filter(Boolean);
+
+function heavyChecks(declaration, cwd) {
+  const tier = (key) => (typeof declaration.checks?.[key] === 'string' ? commandLines(declaration.checks[key], cwd) : []);
+  const own = new Set([...tier('edit'), ...tier('commit')]);
+  const heavy = new Map();
+  for (const [key, label] of HEAVY_TIERS) for (const line of tier(key)) if (!own.has(line)) heavy.set(line, label);
+  return heavy;
+}
+
+// 掛けるのは、作る役と確かめる役にだけである。長い確かめを任された別の役までは縛らない。
 function pace(request, declaration) {
   if (request.tool !== 'shell' || !PACED.has(request.role)) return null;
-  const limit = commandSeconds(declaration);
-  if (Number.isFinite(request.timeoutMs) && request.timeoutMs > limit * 1000) {
-    return `この役の 1 コマンドの上限は ${limit} 秒です。時間の上限を ${limit * 1000} ミリ秒以下にして、変更に関係する検査だけに絞って実行し直してください。上限に収まらない検査は実行せず、進める役が回す検査として報告に書いてください。`;
+  const heavy = heavyChecks(declaration, request.cwd);
+  const hit = heavy.size ? commandLines(request.command, request.cwd).find((line) => heavy.has(line)) : undefined;
+  if (hit) {
+    return `\`${hit}\` は、このプロジェクトが ${heavy.get(hit)}に置いた検査です。進める役が束ごとに 1 回回すので、この役は回しません。変更したファイルと、それに依存するテストに絞って実行してください。この検査を回していないことは、報告に書いてください。`;
   }
   if (request.background && CHECKS.test(request.command)) {
-    return 'この役は、バックグラウンドで始めた処理の完了を受け取れません。検査は、時間の上限を付けてフォアグラウンドで実行してください。上限に収まらない検査は実行せず、報告に書いてください。';
+    return 'この役は、バックグラウンドで始めた処理の完了を受け取れません。検査は、フォアグラウンドで実行してください。';
   }
   return null;
 }
@@ -363,7 +381,7 @@ export function roleOf({ agentId, agentType } = {}) {
 }
 
 // request: { tool: 'shell' | 'edit' | 'connector', cwd, role: 'lead' | 'builder' | 'reviewer' | 'worker', canAsk,
-//            command, timeoutMs, background,   … shell
+//            command, background,              … shell
 //            file, after,                      … edit(after は書き換えたあとの全文。分からなければ省く)
 //            name }                            … connector(道具の名前)
 export function decide(request, tools = { git: run('git'), gh: run('gh') }) {

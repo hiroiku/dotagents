@@ -126,11 +126,10 @@ test('役を走らせる道具は進める役にだけ登録し、子の指示�
   assert.deepEqual(roleOfName('reviewer').tools, ['read', 'ls', 'find', 'grep', 'bash'], '確かめる役は書き換える道具を持たない');
 });
 
-test('上限のある役が時間の上限を付けなかったコマンドには、上限を付ける', async () => {
-  const event = { toolName: 'bash', toolCallId: 't', input: { command: 'npm test' } };
-  assert.equal(await asRole('builder', () => fakePi().handlers.tool_call(event, noUi())), undefined);
-  assert.equal(event.input.timeout, 175);
-  const lead = { toolName: 'bash', toolCallId: 't', input: { command: 'npm test' } };
-  await fakePi().handlers.tool_call(lead, noUi());
-  assert.equal(lead.input.timeout, undefined, '進める役のコマンドには付けない');
+test('役のコマンドに、時間の上限を足さない', async () => {
+  for (const role of ['builder', 'reviewer', null]) {
+    const event = { toolName: 'bash', toolCallId: 't', input: { command: 'npm test' } };
+    assert.equal(await asRole(role, () => fakePi().handlers.tool_call(event, noUi())), undefined);
+    assert.deepEqual(event.input, { command: 'npm test' }, String(role));
+  }
 });

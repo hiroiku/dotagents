@@ -143,18 +143,39 @@ test('確かめる手段の無いホストでは止め、了承の印を付け�
   assert.equal(decide({ tool: 'shell', command: `${CONFIRMED}=1 git push origin main`, cwd, role: 'worker', canAsk: false }, tools).decision, 'deny');
 });
 
-test('作る役と確かめる役のコマンドには、時間の上限がある', () => {
+test('作る役と確かめる役は、プロジェクトが push と版の段に置いた検査を回さない', () => {
+  const cwd = project({ checks: { edit: 'biome check {file}', commit: 'npm run check:changed', push: 'npm run check', release: 'npm test && npm run e2e' } });
+  const heavy = decide({ tool: 'shell', command: 'npm run check', cwd, role: 'builder' }, tools);
+  assert.equal(heavy.kind, 'pace');
+  assert.match(heavy.reason, /`npm run check` は、このプロジェクトが push の段に置いた検査/);
+  const nested = decide({ tool: 'shell', command: 'cd packages/app && CI=1 npm run e2e 2>&1 | tail -20', cwd, role: 'reviewer' }, tools);
+  assert.equal(nested.kind, 'pace');
+  assert.match(nested.reason, /版の段/);
+  // 引数を足して絞った実行と、この役の段のコマンドは通す。
+  for (const command of ['npm run check -- src/a.ts', 'npm test -- auth.spec.ts', 'npm run check:changed', 'npx vitest run src/a.spec.ts', 'echo npm run check']) {
+    assert.equal(decide({ tool: 'shell', command, cwd, role: 'builder' }, tools), null, command);
+  }
+  // 進める役と、長い確かめを任された別の役は縛らない。
+  for (const role of ['lead', 'worker']) assert.equal(decide({ tool: 'shell', command: 'npm run check', cwd, role }, tools), null, role);
+  // 同じコマンドをコミットの段にも置いているなら、この役の持ち場である。
+  const shared = project({ checks: { commit: 'npm test', push: 'npm test' } });
+  assert.equal(decide({ tool: 'shell', command: 'npm test', cwd: shared, role: 'builder' }, tools), null);
+});
+
+test('時間や数の上限では止めない', () => {
+  // 段の宣言が無ければ、どのコマンドも、どれだけ長い時間を見込んでいても通す。
+  for (const cwd of [project(), project({ limits: { commandSeconds: 60, roleMinutes: 1 } })]) {
+    for (const role of ['builder', 'reviewer', 'worker', 'lead']) {
+      assert.equal(decide({ tool: 'shell', command: 'npm test', cwd, role, timeoutMs: 7200000 }, tools), null, role);
+    }
+  }
+});
+
+test('作る役と確かめる役は、完了を受け取れない検査をバックグラウンドで始めない', () => {
   const cwd = project();
-  const long = decide({ tool: 'shell', command: 'npm test', cwd, role: 'builder', timeoutMs: 600000 }, tools);
-  assert.equal(long.kind, 'pace');
-  assert.match(long.reason, /175 秒/);
-  assert.equal(decide({ tool: 'shell', command: 'npm test', cwd, role: 'builder', timeoutMs: 175000 }, tools), null);
   assert.equal(decide({ tool: 'shell', command: 'npm test', cwd, role: 'reviewer', background: true }, tools).kind, 'pace');
   assert.equal(decide({ tool: 'shell', command: 'npm run dev', cwd, role: 'builder', background: true }, tools), null);
-  // 進める役と、長い確かめを任された別の役は縛らない。
-  for (const role of ['lead', 'worker']) assert.equal(decide({ tool: 'shell', command: 'npm test', cwd, role, timeoutMs: 600000, background: true }, tools), null);
-  const custom = project({ limits: { commandSeconds: 600 } });
-  assert.equal(decide({ tool: 'shell', command: 'cargo test', cwd: custom, role: 'builder', timeoutMs: 600000 }, tools), null);
+  for (const role of ['lead', 'worker']) assert.equal(decide({ tool: 'shell', command: 'npm test', cwd, role, background: true }, tools), null, role);
 });
 
 test('AI の関与を示す記述は、任せていても止める', () => {

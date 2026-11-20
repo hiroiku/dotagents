@@ -12,7 +12,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 | プロジェクトに入れる(自分では入れていない人にも届ける) | `dotagents.mjs vendor <dir>` |
 | プロジェクトから外す | `dotagents.mjs unvendor <dir>` |
 | 宣言、ブランチの保護、入れた版を点検する | `dotagents.mjs doctor <dir>` |
-| 確かめた回数と止めた回数を見る | `dotagents.mjs stats --days 7` |
+| 確かめた回数、止めた回数、役が使った時間とトークンを見る | `dotagents.mjs stats --days 7` |
 
 プロジェクトに入れたときは、置かれたものと書き換わった設定をコミットする。版を上げるときは、もう一度 `vendor` を実行する。
 
@@ -27,7 +27,6 @@ description: このハーネスをプロジェクトに入れるとき、外す�
   "protected": ["develop", "release/*"],
   "outward": ["scripts/ship\\.sh"],
   "delegated": ["push:develop", "merge:develop", "tag", "remote:staging"],
-  "limits": { "commandSeconds": 175, "roleMinutes": 90 },
   "checks": {
     "edit": "biome check {file}",
     "commit": "npm run check:changed",
@@ -41,8 +40,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 - `protected`: 共有のブランチとして扱う名前。リモートのデフォルトブランチは、書かなくても含まれる。
 - `outward`: このプロジェクトで外へ届くコマンドの正規表現。
 - `delegated`: 確かめずに進めてよい種類。`種類` か `種類:対象` で書く。種類は push、tag、merge、release、deploy、remote、settings、workflow、message、instructions、project である。共有のブランチの書き換え、保護を飛ばすマージ、この宣言の書き換えは、任せられない。
-- `limits.commandSeconds`: 作る役と確かめる役の 1 コマンドの上限(秒)。`limits.roleMinutes`: 1 体の役が働く時間の見込み(分。既定は 90)。超えると、止まって報告するよう役に知らせる。
-- `checks`: 検査の段ごとの入口。`edit` は編集のたびに hook が実行するので、数秒で終わるものだけを置く。CI も同じ入口を呼ぶ形にする。
+- `checks`: 検査の段ごとの入口。`edit` は編集のたびに hook が実行するので、数秒で終わるものだけを置く。`push` と `release` に置いたコマンドは、作る役と確かめる役が実行すると止まる(引数を足して絞った実行は止まらない)。CI も同じ入口を呼ぶ形にする。
 - `decisions`: どの役も読む、続いている決定。レビューで見ないもの、採っている設計の配置、環境の名前のように、会話から消えると困るものを 1 行ずつ書く。
 
 `decisions` のほかは、確かめる線を動かす。書き換えるときは、利用者に確かめが出る。
@@ -51,4 +49,6 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 
 - `delegated` は、利用者がその種類を任せると言ったときに足す。`stats` で同じ種類の確かめが続いていたら、任せるかを利用者に尋ねる。
 - `checks` は、プロジェクトの script と workflow を読んで、今ある入口を当てはめる。無い段は、作ることを提案する。
+- 速さと消費のどちらを優先するか、束を並べてよいか、確かめをどこまで頼むかを利用者が決めたら、`decisions` に 1 行で残す。会話にだけあると、新しいセッションと、文脈を圧縮したあとに届かない。
+- ハーネスの文に、時間や数の上限は無い。上限が要るプロジェクトは、理由と一緒に `decisions` に書く。
 - `doctor` が、共有のブランチが GitHub で守られていないと知らせたら、利用者に伝える。ハーネスを入れていない人と道具は、この仕組みでは止まらない。
