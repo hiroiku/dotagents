@@ -162,6 +162,18 @@ test('作る役と確かめる役は、プロジェクトが push と版の段�
   assert.equal(decide({ tool: 'shell', command: 'npm test', cwd: shared, role: 'builder' }, tools), null);
 });
 
+test('デフォルトブランチが develop でも、main と master への push は確かめる', () => {
+  const develop = { ...tools, git: (cwd, ...args) => (args[0] === 'symbolic-ref' && args.some((arg) => arg.startsWith('refs/remotes')) ? 'origin/develop' : args[0] === 'symbolic-ref' ? 'work/x' : null) };
+  const found = (command, declaration = {}) => findings({ tool: 'shell', command, cwd: '/repo' }, declaration, develop).map((finding) => `${finding.kind}:${finding.target}`);
+  assert.deepEqual(found('git push origin develop'), ['push:develop']);
+  assert.deepEqual(found('git push origin master'), ['push:master']);
+  assert.deepEqual(found('git push origin HEAD:main'), ['push:main']);
+  assert.deepEqual(found('git push --force origin master'), ['rewrite:master']);
+  assert.deepEqual(found('git push origin work/x'), []);
+  // 任せると決めたプロジェクトでは、確かめない。
+  assert.equal(delegated(['push:master'], { kind: 'push', target: 'master' }), true);
+});
+
 test('時間や数の上限では止めない', () => {
   // 段の宣言が無ければ、どのコマンドも、どれだけ長い時間を見込んでいても通す。
   for (const cwd of [project(), project({ limits: { commandSeconds: 60, roleMinutes: 1 } })]) {
@@ -227,7 +239,9 @@ test('本物の git で、デフォルトブランチと手元のリモートを
   const ask = (command) => decide({ tool: 'shell', command, cwd, role: 'lead', canAsk: true })?.findings.map((finding) => `${finding.kind}:${finding.target}`) ?? [];
   assert.deepEqual(ask('git push origin trunk'), ['push:trunk']);
   assert.deepEqual(ask('git push'), ['push:trunk']);
-  assert.deepEqual(ask('git push origin main'), []);
+  // main と master は、デフォルトブランチでなくても共有のブランチとして扱う。ほかの名前は、宣言しなければ手元の作業である。
+  assert.deepEqual(ask('git push origin main'), ['push:main']);
+  assert.deepEqual(ask('git push origin work/x'), []);
   assert.deepEqual(ask('git push origin v1.0.0'), ['tag:v1.0.0']);
   git('remote', 'add', 'disk', path.join(cwd, '..', 'bare.git'));
   assert.deepEqual(ask('git push disk trunk'), []);

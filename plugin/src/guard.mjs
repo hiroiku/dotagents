@@ -92,10 +92,14 @@ export function delegated(entries, finding) {
 
 // ---------------------------------------------------------------- git と gh
 
+// main と master は、デフォルトブランチでなくても共有のブランチとして扱う。デフォルトが develop のプロジェクトでは、
+// 本番のブランチがこの名前で残っていることが多く、宣言を書くまで、そこへの push が確かめなしで通っていた。
+const CONVENTIONAL = ['main', 'master'];
+
 function guardedBranches(dir, remote, declaration, git) {
   const head = git(dir, 'symbolic-ref', '-q', '--short', `refs/remotes/${remote}/HEAD`);
-  const defaults = head ? [head.slice(remote.length + 1)] : ['main', 'master'];
-  return { defaults, guarded: [...defaults, ...list(declaration.protected)] };
+  const defaults = head ? [head.slice(remote.length + 1)] : CONVENTIONAL;
+  return { defaults, guarded: [...new Set([...defaults, ...CONVENTIONAL, ...list(declaration.protected)])] };
 }
 
 function gitPush(words, cwd, declaration, git) {
