@@ -38,6 +38,15 @@ test('hook の定義が指すファイルは在り、2 つのホストが同じ�
 });
 
 // ホストは、時間切れになった hook を理由を返さずに打ち切る。検査は、その手前で自分から止まって理由を返す。
+test('セッションの開始の知らせは、始まり方を選ばずに受ける', () => {
+  // 開き直し(resume)を外すと、ハーネスを入れる前や、前の版のころに始まったセッションを開き直しても、いまの文が届かない。
+  for (const host of ['claude', 'codex']) {
+    for (const entry of json(PLUGIN, 'hosts', host, 'hooks.json').hooks.SessionStart) {
+      for (const source of ['startup', 'resume', 'clear', 'compact']) assert.ok(!entry.matcher || new RegExp(entry.matcher).test(source), `${host}: ${source}`);
+    }
+  }
+});
+
 test('編集の段の検査は、ホストが hook を打ち切るより先に、自分で止まる', () => {
   for (const [host, dir] of [['claude', '.claude-plugin'], ['codex', '.codex-plugin']]) {
     const hooks = json(PLUGIN, json(PLUGIN, dir, 'plugin.json').hooks).hooks;
