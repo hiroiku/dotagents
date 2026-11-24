@@ -99,8 +99,10 @@ const CONVENTIONAL = ['main', 'master'];
 
 // 選んだ流の値。流ごとの共有のブランチの既定と統合先を、流の部品(styles/)から読む。
 export function styleValues(declaration) {
-  const values = Object.assign({}, ...chosenStyles(declaration).chosen.map((style) => style.values));
-  return { shared: list(values.shared), integration: typeof values.integration === 'string' ? values.integration : null, pulls: list(values.pulls) };
+  const { chosen } = chosenStyles(declaration);
+  const values = Object.assign({}, ...chosen.map((style) => style.values));
+  const flow = chosen.find((style) => style.axis === 'git')?.name ?? null;
+  return { flow, shared: list(values.shared), integration: typeof values.integration === 'string' ? values.integration : null, pulls: list(values.pulls) };
 }
 
 // 共有のブランチ。リモートの既定のブランチ、main と master、選んだ流の既定、宣言の protected を合わせる。
@@ -110,44 +112,56 @@ function guardedBranches(dir, remote, declaration, git) {
   return { defaults, guarded: [...new Set([...defaults, ...CONVENTIONAL, ...styleValues(declaration).shared, ...list(declaration.protected)])] };
 }
 
-function gitPush(words, cwd, declaration, git) {
+// git の前に付く大域の指定を外し、下位のコマンドと、それが動く場所と、残りの語を返す。
+function gitCommand(words, cwd) {
   let dir = cwd;
   let i = 1;
   while (i < words.length && words[i].startsWith('-')) {
     if (words[i] === '-C') dir = path.resolve(dir, words[i + 1] ?? '.');
     i += words[i] === '-C' || words[i] === '-c' ? 2 : 1;
   }
-  if (words[i] !== 'push') return [];
+  return { dir, sub: words[i], rest: words.slice(i + 1) };
+}
+
+const isLocalRemote = (dir, remote, git) => /^(?:\/|\.{1,2}\/|file:)/.test(git(dir, 'remote', 'get-url', remote) ?? remote);
+
+// push を読み、外へ届く操作(found)と、書き換えて残すブランチ(updated)を返す。
+function parsePush(words, cwd, declaration, git) {
+  const none = { found: [], updated: [] };
+  const { dir, sub, rest } = gitCommand(words, cwd);
+  if (sub !== 'push') return none;
   const args = [];
   const flags = new Set();
-  for (let k = i + 1; k < words.length; k += 1) {
-    const word = words[k];
+  for (let k = 0; k < rest.length; k += 1) {
+    const word = rest[k];
     if (!word.startsWith('-')) args.push(word);
     else if (['-o', '--push-option', '--repo', '--receive-pack', '--exec'].includes(word)) k += 1;
     else flags.add(word.split('=')[0]);
   }
-  if (flags.has('--dry-run') || flags.has('-n')) return [];
+  if (flags.has('--dry-run') || flags.has('-n')) return none;
   const remote = args[0] ?? 'origin';
   // 手元のディスクにあるリモートは、手元の外ではない。
-  if (/^(?:\/|\.{1,2}\/|file:)/.test(git(dir, 'remote', 'get-url', remote) ?? remote)) return [];
+  if (isLocalRemote(dir, remote, git)) return none;
   const force = flags.has('--force') || flags.has('-f') || flags.has('--force-with-lease') || flags.has('--force-if-includes');
   const remove = flags.has('--delete') || flags.has('-d');
   const { defaults, guarded } = guardedBranches(dir, remote, declaration, git);
   const current = () => git(dir, 'symbolic-ref', '-q', '--short', 'HEAD');
   const found = [];
-  const branch = (name, rewrites) => {
-    if (!name || !matches(guarded, name)) return;
-    found.push({ kind: rewrites ? 'rewrite' : 'push', target: name });
+  const updated = [];
+  const branch = (name, rewrites, removes = false) => {
+    if (!name) return;
+    if (!removes) updated.push(name);
+    if (matches(guarded, name)) found.push({ kind: rewrites || removes ? 'rewrite' : 'push', target: name });
   };
   if (flags.has('--all') || flags.has('--mirror') || flags.has('--branches')) {
-    for (const name of defaults) branch(name, force || flags.has('--mirror'));
+    for (const name of defaults) if (matches(guarded, name)) found.push({ kind: force || flags.has('--mirror') ? 'rewrite' : 'push', target: name });
   }
   if (flags.has('--tags') || flags.has('--mirror')) found.push({ kind: 'tag', target: '*' });
   const specs = args.slice(1);
   if (!specs.length && !flags.has('--all') && !flags.has('--mirror') && !flags.has('--tags')) {
     const name = current();
     const upstream = name && git(dir, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', `${name}@{upstream}`);
-    branch(upstream?.startsWith(`${remote}/`) ? upstream.slice(remote.length + 1) : name, force);
+    branch(upstream?.startsWith(`${remote}/`) ? upstream.slice(remote.length + 1) : name, force, remove);
   }
   for (let k = 0; k < specs.length; k += 1) {
     let spec = specs[k];
@@ -170,10 +184,12 @@ function gitPush(words, cwd, declaration, git) {
     // 守るブランチの名前でなければ、tag かどうかを git に尋ねる。答えが無いときは、版の番号の形なら tag として読む。
     const named = at < 0 && !matches(guarded, target) && (git(dir, 'rev-parse', '-q', '--verify', `refs/tags/${target}`) || /^(?:[\w.-]+\/)?v?\d+\.\d+/.test(target));
     if (named && !git(dir, 'rev-parse', '-q', '--verify', `refs/heads/${target}`)) found.push({ kind: 'tag', target });
-    else branch(target, forced || remove || (at >= 0 && source === ''));
+    else branch(target, forced, remove || (at >= 0 && source === ''));
   }
-  return found;
+  return { found, updated, dir };
 }
+
+const gitPush = (words, cwd, declaration, git) => parsePush(words, cwd, declaration, git).found;
 
 const API_KINDS = [
   [/\/pulls\/\d+\/merge$|\/merges$/, 'merge'],
@@ -317,6 +333,132 @@ function editFinding(request) {
   return after !== null && after === before ? null : { kind, target: path.basename(file) };
 }
 
+// ---------------------------------------------------------------- 止める手順
+//
+// 外へ届く操作の確かめとは別に、外すと費用が大きく、見分けが確かな手順だけを止めて、理由を返す。任せることはできない。
+// 追従の merge と PR の base は、利用者が明示して求めたときに、進める役が了承の印を付けて実行し直せる。
+// CI の待ちは、利用者に確かめない。待つか、要らない実行を止めるかは、役が決められるからである。
+
+export const PROCEDURE_LABELS = {
+  follow: '追従の merge',
+  base: '流の統合先と違う PR の base',
+  ci: 'CI が走っている間の push',
+};
+
+// merge と pull で、値を 1 つ取る指定。
+const GIT_VALUED = new Set(['-m', '-s', '-X', '-F', '--file', '--strategy', '--strategy-option', '--into-name', '--cleanup', '--depth', '--deepen', '--shallow-since', '--shallow-exclude', '-j', '--jobs', '--upload-pack', '-o', '--server-option', '--negotiation-tip']);
+const REBASING = /^(?:true|merges|interactive|i|m|preserve|p)$/;
+
+function positional(words, valued) {
+  const out = [];
+  for (let k = 0; k < words.length; k += 1) {
+    if (!words[k].startsWith('-')) out.push(words[k]);
+    else if (valued.has(words[k])) k += 1;
+  }
+  return out;
+}
+
+// 取り込む ref を、ブランチの名前に直す。リモートの名前と refs/ の頭を外す。
+function branchOf(ref, remotes) {
+  if (ref.startsWith('refs/heads/')) return ref.slice(11);
+  const name = ref.replace(/^refs\/remotes\//, '');
+  const remote = remotes.find((candidate) => name.startsWith(`${candidate}/`));
+  return remote ? name.slice(remote.length + 1) : name;
+}
+
+function follow(command, declaration, git) {
+  const { dir, sub, rest } = gitCommand(command.words, command.cwd);
+  if (sub !== 'merge' && sub !== 'pull') return null;
+  const flag = (...names) => rest.find((word) => names.includes(word.split('=')[0]));
+  if (flag('--abort', '--continue', '--quit', '--skip', '--ff-only', '--help', '-h')) return null;
+  const current = git(dir, 'symbolic-ref', '-q', '--short', 'HEAD');
+  if (!current) return null;
+  const args = positional(rest, GIT_VALUED);
+  const remotes = (git(dir, 'remote') ?? 'origin').split('\n').filter(Boolean);
+  const remote = sub === 'pull' && args[0] ? args[0] : 'origin';
+  const { guarded } = guardedBranches(dir, remote, declaration, git);
+  // 共有のブランチの上で、作業ブランチを取り込む merge は、統合そのものなので止めない。
+  if (matches(guarded, current)) return null;
+  if (sub === 'pull') {
+    const rebase = flag('--rebase', '-r');
+    if (rebase && !/=false$/.test(rebase)) return null;
+    if (!rebase && !flag('--no-rebase')) {
+      const config = (key) => git(dir, 'config', '--get', key) ?? '';
+      if (REBASING.test(config(`branch.${current}.rebase`) || config('pull.rebase')) || config('pull.ff') === 'only') return null;
+    }
+    return { kind: 'follow', reason: `rebase なしの git pull は、作業ブランチ(${current})に merge の跡を残します。\`git pull --rebase\` で追従してください。いつもそうするなら \`git config pull.rebase true\` を設定します。` };
+  }
+  let refs = args.map((ref) => (/^@\{u(?:pstream)?\}$/.test(ref) ? git(dir, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', ref) ?? '' : ref));
+  if (!refs.length) refs = [git(dir, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}') ?? ''];
+  const shared = refs.filter(Boolean).filter((ref) => matches(guarded, branchOf(ref, remotes)));
+  if (!shared.length) return null;
+  return { kind: 'follow', reason: `追従に merge は使いません。共有のブランチ(${shared.join('、')})の変更は、作業ブランチ(${current})を rebase して取り込みます(\`git fetch\` のあと \`git rebase ${shared[0]}\`)。merge の跡が残ると、取り込むときの差分と履歴が読めなくなります。` };
+}
+
+function optionValue(words, short, long) {
+  for (let k = 0; k < words.length; k += 1) {
+    const word = words[k];
+    if (word === short || word === long) return words[k + 1];
+    if (word.startsWith(`${long}=`)) return word.slice(long.length + 1);
+    if (short && word.startsWith(short) && word.length > short.length && !word.startsWith('--')) return word.slice(short.length);
+  }
+  return undefined;
+}
+
+function prBase(command, declaration, git) {
+  const { words, cwd } = command;
+  if (words[0] !== 'gh' || words[1] !== 'pr' || words[2] !== 'create') return null;
+  const rest = words.slice(3);
+  if (rest.includes('--help') || rest.includes('-h') || optionValue(rest, '-R', '--repo')) return null;
+  const { flow, integration, pulls } = styleValues(declaration);
+  if (!integration) return null;
+  const remoteDefault = () => git(cwd, 'symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD')?.replace(/^origin\//, '') ?? null;
+  const base = optionValue(rest, '-B', '--base') ?? remoteDefault();
+  const target = integration === 'default' ? remoteDefault() : integration;
+  if (!base || !target || base === target) return null;
+  const head = (optionValue(rest, '-H', '--head') ?? git(cwd, 'symbolic-ref', '-q', '--short', 'HEAD') ?? '').replace(/^[^:]+:/, '');
+  const allowed = pulls.map((entry) => entry.split('->').map((part) => part.trim()));
+  if (allowed.some(([from, to]) => to && glob(to).test(base) && (from === '*' || glob(from).test(head)))) return null;
+  const others = allowed.map(([from, to]) => (from === '*' ? `${to} への直し` : `${from} から ${to} へ`)).join('、');
+  return { kind: 'base', reason: `この git の流れ(${flow})では、PR の base は ${target} にします${others ? `(ほかに通すのは ${others})` : ''}。base を ${base} にする PR は作りません。` };
+}
+
+function ciRunning(command, declaration, tools) {
+  const { updated, dir } = parsePush(command.words, command.cwd, declaration, tools.git);
+  for (const branch of new Set(updated)) {
+    let pr;
+    try {
+      pr = JSON.parse(tools.gh(dir, 'pr', 'view', branch, '--json', 'number,state,statusCheckRollup') ?? '');
+    } catch {
+      continue;
+    }
+    if (pr?.state !== 'OPEN' || !Array.isArray(pr.statusCheckRollup)) continue;
+    const running = pr.statusCheckRollup.filter((check) => check?.__typename === 'CheckRun' && check.workflowName && check.status && check.status !== 'COMPLETED');
+    if (!running.length) continue;
+    const names = [...new Set(running.map((check) => check.workflowName))].join('、');
+    const runs = [...new Set(running.map((check) => String(check.detailsUrl ?? '').match(/\/actions\/runs\/(\d+)/)?.[1]).filter(Boolean))];
+    const cancel = runs.length ? `\`${runs.map((id) => `gh run cancel ${id}`).join(' && ')}\`` : '`gh run cancel`';
+    return { kind: 'ci', reason: `${branch} の PR #${pr.number} で、workflow(${names})がまだ走っています。終わるのを待ってから push してください。もう要らない実行なら、${cancel} で止めてから push します。走っている間に push すると、同じ確かめに 2 回分の費用を払うことになります。` };
+  }
+  return null;
+}
+
+export function procedure(request, declaration, tools) {
+  if (request.tool !== 'shell') return null;
+  for (const command of simpleCommands(request.command, request.cwd)) {
+    if (!command.words.length) continue;
+    const head = command.words[0];
+    const stop = head === 'git' ? follow(command, declaration, tools.git) ?? ciRunning(command, declaration, tools) : head === 'gh' ? prBase(command, declaration, tools.git) : null;
+    if (!stop) continue;
+    if (stop.kind !== 'ci' && request.role === 'lead') {
+      if (command.assignments[CONFIRMED] === '1') continue;
+      return { ...stop, reason: `${stop.reason} 利用者が明示して求めたときだけ、先頭に ${CONFIRMED}=1 を付けて実行し直してください。` };
+    }
+    return stop;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- 判定
 
 export function findings(request, declaration, tools) {
@@ -392,17 +534,30 @@ export function roleOf({ agentId, agentType } = {}) {
   return PACED.has(name) ? name : 'worker';
 }
 
+// 1 回の判定の中では、同じ問い合わせを 1 回だけにする。push の読み取りは、確かめと止める手順の両方が使う。
+function remembered(tools) {
+  const memo = new Map();
+  return Object.fromEntries(Object.entries(tools).map(([name, call]) => [name, (cwd, ...args) => {
+    const key = JSON.stringify([name, cwd, args]);
+    if (!memo.has(key)) memo.set(key, call(cwd, ...args));
+    return memo.get(key);
+  }]));
+}
+
 // request: { tool: 'shell' | 'edit' | 'connector', cwd, role: 'lead' | 'builder' | 'reviewer' | 'worker', canAsk,
 //            command, background,              … shell
 //            file, after,                      … edit(after は書き換えたあとの全文。分からなければ省く)
 //            name }                            … connector(道具の名前)
-export function decide(request, tools = { git: run('git'), gh: run('gh') }) {
+export function decide(request, given = { git: run('git'), gh: run('gh') }) {
+  const tools = remembered(given);
   const { value: declaration } = readDeclaration(request.cwd);
   if (request.tool === 'shell') {
     const stamp = attribution(request.command, request.cwd);
     if (stamp) return { decision: 'deny', kind: 'attribution', reason: stamp };
     const slow = pace(request, declaration);
     if (slow) return { decision: 'deny', kind: 'pace', reason: slow };
+    const stop = procedure(request, declaration, tools);
+    if (stop) return { decision: 'deny', kind: stop.kind, reason: stop.reason };
   }
   const open = findings(request, declaration, tools).filter((finding) => !delegated(declaration.delegated, finding));
   if (!open.length) return null;

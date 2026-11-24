@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { PLUGIN_ROOT, budgetOf, standingSize } from '../src/context.mjs';
 import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declaration.mjs';
 import { catalog, chosenStyles } from '../src/style.mjs';
-import { KIND_LABELS } from '../src/guard.mjs';
+import { KIND_LABELS, PROCEDURE_LABELS } from '../src/guard.mjs';
 import { logDir } from '../src/log.mjs';
 
 export const NAME = 'dotagents';
@@ -191,9 +191,12 @@ const skillNames = () => fs.readdirSync(path.join(PLUGIN_ROOT, 'skills')).sort()
 // トークンの数を、桁が一目で分かる形にする。
 const amount = (value) => (value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1e3 ? `${Math.round(value / 1e3)}k` : String(value));
 
+// 止めた理由の名前。外へ届く操作の種類、止める手順、役の持ち場、AI の署名。
+const LABELS = { ...KIND_LABELS, ...PROCEDURE_LABELS, pace: '進める役が回す検査', attribution: 'AI の関与を示す記述' };
+
 function printStats(result) {
   const sum = (bucket) => Object.values(bucket).reduce((total, count) => total + count, 0);
-  const each = (bucket) => Object.entries(bucket).sort((a, b) => b[1] - a[1]).map(([kind, count]) => `${KIND_LABELS[kind] ?? kind} ${count}`).join('、') || 'なし';
+  const each = (bucket) => Object.entries(bucket).sort((a, b) => b[1] - a[1]).map(([kind, count]) => `${LABELS[kind] ?? kind} ${count}`).join('、') || 'なし';
   console.log(`直近 ${result.days} 日`);
   for (const [name, project] of Object.entries(result.projects)) {
     console.log(`\n${name}`);
