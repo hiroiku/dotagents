@@ -279,17 +279,36 @@ test('入れて外すと、ほかの設定は 1 文字も変わらない', () =>
   uninstall(dir);
   assert.equal(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'), claude);
   assert.equal(toml(dir), codex);
-  // 書いた表の後ろに利用者が足したものは、外すときに残す。
+  // 書いた表の後ろに利用者が足した注釈は、外すときに残す。
   install(dir);
-  fs.appendFileSync(path.join(dir, '.codex', 'config.toml'), '# 手で足した\nnotify = ["x"]\n');
+  fs.appendFileSync(path.join(dir, '.codex', 'config.toml'), '\n# 手で足した\n');
   uninstall(dir);
-  assert.match(toml(dir), /# 手で足した\nnotify = \["x"\]\n$/);
+  assert.equal(toml(dir), `${codex}\n# 手で足した\n`);
+  fs.writeFileSync(path.join(dir, '.codex', 'config.toml'), codex);
   vendor(dir);
   const vendored = snapshot(dir);
   vendor(dir);
   assert.deepEqual(snapshot(dir), vendored, '写し直しても変わらない');
   unvendor(dir);
   assert.equal(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'), claude);
+});
+
+test('Codex の設定で、この道具の表に利用者が足した行は、入れ直すときは表の中に残し、外すときは表ごと外す', () => {
+  const codex = '[profiles.a]\nmodel = "x"\n';
+  const dir = project({ '.codex/config.toml': codex });
+  install(dir);
+  const pinned = toml(dir).replace('[marketplaces.dotagents]\n', '[marketplaces.dotagents]\nref = "v9.0.0"\n');
+  fs.writeFileSync(path.join(dir, '.codex', 'config.toml'), pinned);
+  install(dir);
+  assert.equal(toml(dir), pinned, '入れ直しても、表の中の利用者の行は動かない');
+  vendor(dir);
+  assert.ok(toml(dir).startsWith(codex), toml(dir));
+  assert.doesNotMatch(toml(dir), /ref = /);
+  unvendor(dir);
+  assert.equal(toml(dir), codex);
+  fs.writeFileSync(path.join(dir, '.codex', 'config.toml'), pinned);
+  uninstall(dir);
+  assert.equal(toml(dir), codex, 'ほかの表の字は変わらない');
 });
 
 test('この道具の印が無い marketplace の目録は、入れても外しても消さない', () => {

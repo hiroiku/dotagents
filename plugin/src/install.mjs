@@ -185,30 +185,33 @@ function claude(plan, mode, market) {
 
 // ---------------------------------------------------------------- Codex
 //
-// TOML は、この道具が書いた行だけを足し引きする。書くときは、ファイルの終わりに、空の行を 1 つ挟んで足す。
-// 外すときは、この道具の表の見出しと、その直後に続く、この道具が書いた鍵の行と、見出しの直前の空の行 1 つを外す。
-// 表の後ろに利用者が書いた行は残す。複数行の文字列の中の行は、見出しとして読まない。
+// TOML は、この道具の表だけを足し引きし、ほかの表の字は変えない。
+//
+// - 入れるとき: この道具の表が無ければ、ファイルの終わりに、空の行を 1 つ挟んで足す。あれば、表の中の、この道具が
+//   書く鍵の行だけをそろえ、利用者が表に足した行は残す。
+// - 外すとき: この道具の表を、利用者が足した行も含めて、見出しから最後の値の行まで外す。見出しの直前の空の行 1 つも
+//   外す。表の後ろの注釈と空の行は、次の表か利用者のものなので残す。
+//
+// 複数行の文字列と、複数行にまたがる配列の中の行は、見出しとして読まない。
 
-const codexBlock = (mode, market) => ({
-  reference: [`[marketplaces.${MARKETPLACE}]`, 'source_type = "git"', `source = "https://github.com/${repository()}.git"`, '', `[plugins."${NAME}@${MARKETPLACE}"]`, 'enabled = true'],
-  copy: [`[plugins."${NAME}@${market}"]`, 'enabled = true'],
-})[mode];
+const codexTables = (mode, market) => ({
+  reference: [
+    [`[marketplaces.${MARKETPLACE}]`, [['source_type', '"git"'], ['source', `"https://github.com/${repository()}.git"`]]],
+    [`[plugins."${NAME}@${MARKETPLACE}"]`, [['enabled', 'true']]],
+  ],
+  copy: [[`[plugins."${NAME}@${market}"]`, [['enabled', 'true']]]],
+})[mode] ?? [];
 
-// この道具の表なら、その表に書く鍵を返す。
-function codexKeys(line) {
-  const header = line.trim();
-  if (header === `[marketplaces.${MARKETPLACE}]`) return ['source_type', 'source'];
-  const market = header.match(new RegExp(`^\\[plugins\\."${NAME}@([\\w-]+)"\\]$`))?.[1];
-  return isOurMarket(market) ? ['enabled'] : null;
-}
+const isCodexTable = (header) => header === `[marketplaces.${MARKETPLACE}]` || isOurMarket(header.match(new RegExp(`^\\[plugins\\."${NAME}@([\\w-]+)"\\]$`))?.[1]);
 
 const MULTILINE = ['"""', "'''"];
 
-// 行ごとに、複数行の文字列の外で始まるかを返す。
-function outsideStrings(lines) {
+// 行ごとに、文字列と配列の外(TOML の一番上の段)で始まるかを返す。
+function topLevel(lines) {
   let open = null;
+  let depth = 0;
   return lines.map((line) => {
-    const outside = open === null;
+    const top = open === null && depth === 0;
     for (let at = 0; at < line.length; at += 1) {
       if (open !== null) {
         if (open === MULTILINE[0] && line[at] === '\\') at += 1;
@@ -223,28 +226,59 @@ function outsideStrings(lines) {
       } else if (line[at] === '"' || line[at] === "'") {
         const quote = line[at];
         for (at += 1; at < line.length && line[at] !== quote; at += 1) if (quote === '"' && line[at] === '\\') at += 1;
-      }
+      } else if (line[at] === '[') depth += 1;
+      else if (line[at] === ']') depth = Math.max(0, depth - 1);
     }
-    return outside;
+    return top;
+  });
+}
+
+// 表ごとに、見出しの行と、最後の値の行を返す。
+function tablesIn(lines) {
+  const top = topLevel(lines);
+  const headers = lines.flatMap((line, at) => (top[at] && /^\s*\[/.test(line) ? [at] : []));
+  return headers.map((start, index) => {
+    let end = start;
+    for (let at = start + 1; at < (headers[index + 1] ?? lines.length); at += 1) {
+      const text = lines[at].trim();
+      if (!top[at] || (text && !text.startsWith('#'))) end = at;
+    }
+    return { start, end, header: lines[start].trim(), keyAt: (key) => lines.slice(start + 1, end + 1).findIndex((line, offset) => top[start + 1 + offset] && new RegExp(`^\\s*${key}\\s*=`).test(line)) };
   });
 }
 
 function codexText(text, mode, market) {
   const lines = text === null ? [] : text.split('\n');
-  const outside = outsideStrings(lines);
+  const wanted = codexTables(mode, market);
   const drop = new Set();
-  for (let at = 0; at < lines.length; at += 1) {
-    const keys = outside[at] && /^\s*\[/.test(lines[at]) ? codexKeys(lines[at]) : null;
-    if (!keys) continue;
-    drop.add(at);
-    if (at > 0 && !lines[at - 1].trim()) drop.add(at - 1);
-    for (let next = at + 1; next < lines.length && keys.some((key) => new RegExp(`^\\s*${key}\\s*=`).test(lines[next])); next += 1) drop.add(next);
+  const replace = new Map();
+  const after = new Map();
+  const present = new Set();
+  for (const table of tablesIn(lines)) {
+    if (!isCodexTable(table.header)) continue;
+    const keys = present.has(table.header) ? null : wanted.find(([header]) => header === table.header)?.[1];
+    if (!keys) {
+      for (let at = table.start; at <= table.end; at += 1) drop.add(at);
+      if (table.start > 0 && !lines[table.start - 1].trim()) drop.add(table.start - 1);
+      continue;
+    }
+    present.add(table.header);
+    const missing = [];
+    for (const [key, value] of keys) {
+      const offset = table.keyAt(key);
+      const line = `${key} = ${value}`;
+      if (offset < 0) missing.push(line);
+      else if (lines[table.start + 1 + offset] !== line) replace.set(table.start + 1 + offset, line);
+    }
+    if (missing.length) after.set(table.start, missing);
   }
-  const kept = drop.size ? lines.filter((_, at) => !drop.has(at)).join('\n') : text;
-  const add = codexBlock(mode, market);
-  if (!add) return kept !== null && !kept.trim() ? null : kept;
-  const body = kept === null || !kept.trim() ? '' : `${kept.endsWith('\n') ? kept : `${kept}\n`}\n`;
-  return `${body}${add.join('\n')}\n`;
+  const add = wanted.filter(([header]) => !present.has(header));
+  if (!drop.size && !replace.size && !after.size && !add.length) return text;
+  const kept = lines.flatMap((line, at) => (drop.has(at) ? [] : [replace.get(at) ?? line, ...(after.get(at) ?? [])])).join('\n');
+  const blocks = add.map(([header, keys]) => [header, ...keys.map(([key, value]) => `${key} = ${value}`)].join('\n'));
+  if (!blocks.length) return kept.trim() ? kept : null;
+  const body = kept.trim() ? `${kept.endsWith('\n') ? kept : `${kept}\n`}\n` : '';
+  return `${body}${blocks.join('\n\n')}\n`;
 }
 
 function codex(plan, mode, market) {
