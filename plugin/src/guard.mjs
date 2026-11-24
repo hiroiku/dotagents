@@ -97,12 +97,12 @@ export function delegated(entries, finding) {
 // 本番のブランチがこの名前で残っていることが多く、宣言を書くまで、そこへの push が確かめなしで通っていた。
 const CONVENTIONAL = ['main', 'master'];
 
-// 選んだ流の値。流ごとの共有のブランチの既定と統合先を、流の部品(styles/)から読む。
+// 選んだ流の値。流ごとの共有のブランチの既定を、流の部品(styles/)から読む。
 export function styleValues(declaration) {
   const { chosen } = chosenStyles(declaration);
   const values = Object.assign({}, ...chosen.map((style) => style.values));
   const flow = chosen.find((style) => style.axis === 'git')?.name ?? null;
-  return { flow, shared: list(values.shared), integration: typeof values.integration === 'string' ? values.integration : null, pulls: list(values.pulls) };
+  return { flow, shared: list(values.shared) };
 }
 
 // 共有のブランチ。リモートの既定のブランチ、main と master、選んだ流の既定、宣言の protected を合わせる。
@@ -341,7 +341,7 @@ function editFinding(request) {
 
 export const PROCEDURE_LABELS = {
   follow: '追従の merge',
-  base: '流の統合先と違う PR の base',
+  base: '既定のブランチでも流が共有するブランチでもない PR の base',
   ci: 'CI が走っている間の push',
 };
 
@@ -410,17 +410,14 @@ function prBase(command, declaration, git) {
   if (words[0] !== 'gh' || words[1] !== 'pr' || words[2] !== 'create') return null;
   const rest = words.slice(3);
   if (rest.includes('--help') || rest.includes('-h') || optionValue(rest, '-R', '--repo')) return null;
-  const { flow, integration, pulls } = styleValues(declaration);
-  if (!integration) return null;
-  const remoteDefault = () => git(cwd, 'symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD')?.replace(/^origin\//, '') ?? null;
-  const base = optionValue(rest, '-B', '--base') ?? remoteDefault();
-  const target = integration === 'default' ? remoteDefault() : integration;
-  if (!base || !target || base === target) return null;
-  const head = (optionValue(rest, '-H', '--head') ?? git(cwd, 'symbolic-ref', '-q', '--short', 'HEAD') ?? '').replace(/^[^:]+:/, '');
-  const allowed = pulls.map((entry) => entry.split('->').map((part) => part.trim()));
-  if (allowed.some(([from, to]) => to && glob(to).test(base) && (from === '*' || glob(from).test(head)))) return null;
-  const others = allowed.map(([from, to]) => (from === '*' ? `${to} への直し` : `${from} から ${to} へ`)).join('、');
-  return { kind: 'base', reason: `この git の流れ(${flow})では、PR の base は ${target} にします${others ? `(ほかに通すのは ${others})` : ''}。base を ${base} にする PR は作りません。` };
+  // どの流も、作業は既定のブランチへ統合する。ほかに base にしてよいのは、流が共有するブランチ(release/*)だけである。
+  const { flow, shared } = styleValues(declaration);
+  if (!flow) return null;
+  const target = git(cwd, 'symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD')?.replace(/^origin\//, '') ?? null;
+  const base = optionValue(rest, '-B', '--base') ?? target;
+  if (!base || !target || base === target || matches(shared, base)) return null;
+  const others = shared.length ? `(ほかに通すのは ${shared.join('、')})` : '';
+  return { kind: 'base', reason: `この git の流れ(${flow})では、PR の base は ${target} にします${others}。base を ${base} にする PR は作りません。` };
 }
 
 function ciRunning(command, declaration, tools) {

@@ -1,8 +1,6 @@
 ---
 roles: lead
-integration: default
 shared: ["release/*"]
-pulls: ["* -> release/*"]
 ---
 
 # git の流れ(release-branches)

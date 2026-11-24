@@ -7,7 +7,7 @@ English | [日本語](docs/README.ja.md)
 ## What it does
 
 - **One page per role.** Each role reads everything it needs on every run: the lead session about 3,900 characters, a builder about 2,000, a reviewer about 2,400. Choosing styles adds their text only to the roles that need it. A test keeps the lead under 6,000 and a subagent under 4,000 characters whatever styles a project picks. The only skills left are the ones a user asks for: `setup`, `prompting`, `releases`, `triage`.
-- **Styles chosen by declaration.** A project picks a git flow (`trunk`, `release-branches`, `develop-master`) and a design shape (`layered`). Only the chosen text is injected, and the git flow also sets the shared branches and the pull-request base the hooks enforce.
+- **Styles chosen by declaration.** A project picks a git flow (`trunk` or `release-branches`) and a design shape (`layered`). Only the chosen text is injected, and the git flow also sets the shared branches and the pull-request base the hooks enforce.
 - **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, the heavy checks a project reserves for the lead, an edit-time check, and three procedures (below). The harness sets no time limits or agent counts.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside (shared branches, tags, merges, releases, deploys, remote data, repository settings, messages to people) — and each project can delegate the kinds it trusts.
 - **Measured.** Every confirmation and block is logged without command text; `stats` shows how often the harness intervenes, by kind, and how much time and how many tokens each role used.
@@ -17,7 +17,7 @@ English | [日本語](docs/README.ja.md)
 | Procedure | Stopped when | Passes when |
 |---|---|---|
 | Catching up by merge | On a non-shared branch, `git merge` of a shared branch, or `git pull` without rebase | On a shared branch (integrating work); `pull.rebase` is set; `--ff-only` |
-| Pull-request base | `gh pr create` whose base differs from the chosen git flow's integration branch | `develop` → `master` in `develop-master`; fixes to `release/*` in `release-branches`; no git flow chosen |
+| Pull-request base | `gh pr create` whose base is not the default branch while a git flow is chosen | a base the flow shares (`release/*` in `release-branches`); no git flow chosen |
 | Pushing while CI runs | The pushed branch has an open pull request whose workflow run has not finished | `gh` is missing or its answer cannot be read |
 
 The first two can be re-run by the lead with `DOTAGENTS_CONFIRMED=1` when the user explicitly asks for it. The CI one tells the agent to wait or `gh run cancel` the run.
@@ -70,7 +70,6 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 |---|---|---|
 | `git: trunk` | Integrate into the default branch only; release by tag | default branch |
 | `git: release-branches` | Same development as trunk; cut `release/…` per release line and cherry-pick fixes from the default branch | default branch, `release/*` |
-| `git: develop-master` | Integrate into `develop`; promote to `master` by a pull request from `develop` | `develop`, `master` |
 | `architecture: layered` | Six layers with inward dependencies; the copied check enforces the direction | — |
 
 `protected` adds to a flow's shared branches. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.

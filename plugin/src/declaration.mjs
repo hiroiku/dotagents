@@ -7,8 +7,8 @@
 //   checks     検査の段ごとのコマンド(edit、commit、push、release)。edit は編集のたびに hook が実行し、
 //              `{file}` は編集したファイルに置き換わる。push と release に置いたコマンドは、作る役と確かめる役が
 //              実行すると止まる。
-//   style      選んだ流。軸ごとに名前を 1 つ(git、architecture)。部品は styles/ にあり、流によって、共有のブランチの
-//              既定と統合先が決まる(style.mjs)。
+//   style      選んだ流。軸ごとに名前を 1 つ(git、architecture)。部品は styles/ にあり、git の流によって、共有のブランチの
+//              既定と、PR の base にしてよいブランチが決まる(style.mjs)。
 //   decisions  どの役も読む、続いている決定。
 //
 // decisions のほかは、確かめる線を動かすか、hook が実行するコマンドを決める。書き換えは、それ自体を確かめる

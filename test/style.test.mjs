@@ -30,12 +30,12 @@ test('どの流を選んでも、役が毎回読む文は上限に収まる', ()
 
 test('流の部品は、入れる役と、仕組みが読む値を持つ', () => {
   const root = styles({
-    'git/a.md': '---\nroles: lead\nintegration: develop\nshared: ["develop", "master"]\n---\n\n# A\n',
+    'git/a.md': '---\nroles: lead\nshared: ["release/*"]\n---\n\n# A\n',
     'architecture/b.md': '---\nroles: all\n---\nB',
     'git/broken.md': '---\nroles: someone\n---\nC',
   });
   const a = readStyle('git', 'a', root);
-  assert.deepEqual(a.values, { roles: 'lead', integration: 'develop', shared: ['develop', 'master'] });
+  assert.deepEqual(a.values, { roles: 'lead', shared: ['release/*'] });
   assert.equal(a.body, '# A');
   assert.deepEqual(catalog(root), { architecture: ['b'], git: ['a', 'broken'] });
   assert.throws(() => readStyle('git', 'broken', root), /roles/);
@@ -49,14 +49,22 @@ test('流の部品は、入れる役と、仕組みが読む値を持つ', () =>
 });
 
 test('知らない流は、進める役にだけ知らせ、無いものとして動く', () => {
-  const cwd = project({ style: { git: 'no-such-flow' } });
-  assert.match(contextFor({ role: 'lead', cwd }), /知らない流がある\(git: "no-such-flow"\)/);
-  for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /知らない流/, role);
-  assert.equal(contextFor({ role: 'builder', cwd }), contextFor({ role: 'builder', cwd: project({}) }));
+  // develop-master は 9.0.0 で外した。宣言に残っていても、知らない流として扱う。
+  for (const name of ['no-such-flow', 'develop-master']) {
+    const cwd = project({ style: { git: name } });
+    assert.match(contextFor({ role: 'lead', cwd }), new RegExp(`知らない流がある\\(git: "${name}"\\)`));
+    for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /知らない流/, role);
+    assert.equal(contextFor({ role: 'builder', cwd }), contextFor({ role: 'builder', cwd: project({}) }));
+    assert.doesNotMatch(contextFor({ role: 'lead', cwd }), /# git の流れ/);
+  }
+  const tools = { git: (cwd, ...args) => (args[0] === 'symbolic-ref' && args.some((arg) => arg.startsWith('refs/remotes')) ? 'origin/main' : args[0] === 'symbolic-ref' ? 'work/x' : null), gh: () => null };
+  const pushed = (command) => findings({ tool: 'shell', command, cwd: '/repo' }, { style: { git: 'develop-master' } }, tools).map((finding) => `${finding.kind}:${finding.target}`);
+  assert.deepEqual(pushed('git push origin develop'), []);
+  assert.deepEqual(pushed('git push origin master'), ['push:master']);
 });
 
 test('git の流は、進める役にだけ入る', () => {
-  for (const name of ['trunk', 'release-branches', 'develop-master']) {
+  for (const name of ['trunk', 'release-branches']) {
     const cwd = project({ style: { git: name } });
     assert.ok(contextFor({ role: 'lead', cwd }).includes(readStyle('git', name).body), name);
     for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /# git の流れ/, `${name}: ${role}`);
@@ -70,9 +78,8 @@ test('git の流は、共有のブランチの既定を決め、宣言の protec
   // 入れ子の名前の release ブランチも、共有のブランチである。
   assert.deepEqual(pushed('git push origin release/drive-web/v1.73', { style: { git: 'release-branches' } }), ['push:release/drive-web/v1.73']);
   assert.deepEqual(pushed('git push origin release/drive-web/v1.73', { style: { git: 'trunk' } }), []);
-  assert.deepEqual(pushed('git push origin develop', { style: { git: 'develop-master' } }), ['push:develop']);
   assert.deepEqual(pushed('git push origin develop', {}), []);
-  assert.deepEqual(pushed('git push origin staging', { style: { git: 'develop-master' }, protected: ['staging'] }), ['push:staging']);
+  assert.deepEqual(pushed('git push origin staging', { style: { git: 'trunk' }, protected: ['staging'] }), ['push:staging']);
   assert.deepEqual(pushed('git push origin main', { style: { git: 'trunk' } }), ['push:main']);
 });
 

@@ -1,8 +1,6 @@
 ---
 roles: lead
-integration: default
 shared: []
-pulls: []
 ---
 
 # git の流れ(trunk)

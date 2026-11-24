@@ -43,7 +43,6 @@ test('作業ブランチの上で、共有のブランチを merge する追従�
   assert.equal(kind('git merge', { upstream: 'origin/main' }), 'follow');
   assert.equal(kind('git merge @{u}', { upstream: 'origin/main' }), 'follow');
   // 流が決める共有のブランチも、宣言の protected も見る。
-  assert.equal(kind('git merge origin/develop', { declaration: { style: { git: 'develop-master' } } }), 'follow');
   assert.equal(kind('git merge origin/release/drive-web/v1.73', { declaration: { style: { git: 'release-branches' } } }), 'follow');
   assert.equal(kind('git merge origin/staging', { declaration: { protected: ['staging'] } }), 'follow');
   for (const command of ['git merge work/y', 'git merge --abort', 'git merge --continue', 'git merge --ff-only origin/main', 'git merge origin/develop', 'git rebase origin/main']) assert.equal(kind(command), null, command);
@@ -53,7 +52,7 @@ test('共有のブランチの上で、作業ブランチを取り込む merge �
   assert.equal(kind('git merge --no-ff work/x', { branch: 'main' }), null);
   assert.equal(kind('git merge origin/main', { branch: 'main' }), null);
   assert.equal(kind('git pull', { branch: 'main' }), null);
-  assert.equal(kind('git merge develop', { branch: 'master', declaration: { style: { git: 'develop-master' } } }), null);
+  assert.equal(kind('git merge work/x', { branch: 'release/drive-web/v1.73', declaration: { style: { git: 'release-branches' } } }), null);
   // 今いるブランチが分からない(HEAD が切り離されている)ときは通す。
   assert.equal(kind('git merge origin/main', { branch: null }), null);
 });
@@ -80,25 +79,25 @@ test('追従の merge と PR の base は、利用者が求めたときに進め
   assert.equal(kind(`${CONFIRMED}=1 gh pr create --base develop`, { declaration }), null);
 });
 
-test('PR の base が流の統合先と違えば止め、流が決めた昇格と直しの PR は通す', () => {
-  const develop = { style: { git: 'develop-master' } };
-  const stopped = run('gh pr create --draft --base master', { declaration: develop, remoteHead: 'origin/master' });
+test('git の流を選んだプロジェクトでは、PR の base が既定のブランチでなければ止め、流が共有する base は通す', () => {
+  const trunk = { style: { git: 'trunk' } };
+  const stopped = run('gh pr create --draft --base develop', { declaration: trunk });
   assert.equal(stopped.kind, 'base');
-  assert.match(stopped.reason, /develop-master.*base は develop/);
-  // base を書かなければ、既定のブランチへの PR になる。
-  assert.equal(kind('gh pr create --fill', { declaration: develop, remoteHead: 'origin/master' }), 'base');
-  assert.equal(kind('gh pr create --base develop', { declaration: develop, remoteHead: 'origin/master' }), null);
-  assert.equal(kind('gh pr create -Bdevelop', { declaration: develop }), null);
-  assert.equal(kind('gh pr create --base master --head develop', { declaration: develop }), null);
-  assert.equal(kind('gh pr create -B master', { declaration: develop, branch: 'develop' }), null);
+  assert.match(stopped.reason, /trunk.*base は main/);
+  assert.equal(kind('gh pr create --base main', { declaration: trunk }), null);
+  assert.equal(kind('gh pr create --fill', { declaration: trunk }), null);
+  assert.equal(kind('gh pr create -Bmain', { declaration: trunk }), null);
+  assert.equal(kind('gh pr create --base release/v1', { declaration: trunk }), 'base');
   const release = { style: { git: 'release-branches' } };
   assert.equal(kind('gh pr create --base release/drive-web/v1.73', { declaration: release }), null);
+  assert.equal(kind('gh pr create --base release/v1 --head work/fix', { declaration: release }), null);
   assert.equal(kind('gh pr create', { declaration: release }), null);
   assert.equal(kind('gh pr create --base=develop', { declaration: release }), 'base');
-  assert.match(run('gh pr create --base develop', { declaration: { style: { git: 'trunk' } } }).reason, /trunk.*base は main/);
+  assert.match(run('gh pr create --base develop', { declaration: release }).reason, /release-branches.*base は main.*release\/\*/);
   // git の流を選んでいなければ、base は見ない。別のリポジトリーへの PR も見ない。
   assert.equal(kind('gh pr create --base anything'), null);
-  assert.equal(kind('gh pr create --base x -R other/repo', { declaration: develop }), null);
+  assert.equal(kind('gh pr create --base anything', { declaration: { style: { git: 'develop-master' } } }), null);
+  assert.equal(kind('gh pr create --base x -R other/repo', { declaration: trunk }), null);
 });
 
 const rollup = (status, extra = {}) => ({ number: 12, state: 'OPEN', statusCheckRollup: [{ __typename: 'CheckRun', name: 'node', workflowName: 'test', status, detailsUrl: 'https://github.com/o/r/actions/runs/777/job/1', ...extra }] });
