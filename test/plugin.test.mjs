@@ -126,20 +126,15 @@ test('参照で入れると、各ホストのプロジェクトの設定に版�
   assert.deepEqual(json(dir, '.agents', 'dotagents.json'), { style: { git: 'trunk' } }, '宣言は残す');
 });
 
-test('入れるときに選んだ流を宣言に書き、知らない流は書かずに止める。雛形は無いものだけを写す', () => {
+test('入れるときに選んだ流を宣言に書き、知らない流は書かずに止める。プロジェクトに検査の道具は置かない', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
   fs.mkdirSync(path.join(dir, '.agents'));
   fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), JSON.stringify({ decisions: ['a'], style: { git: 'trunk' } }));
   assert.throws(() => install(dir, { style: { git: 'gitflow' } }), /gitflow という流は無い/);
-  const result = install(dir, { style: { architecture: 'layered' } });
+  assert.throws(() => install(dir, { style: { git: 'develop-master' } }), /develop-master という流は無い/);
+  install(dir, { style: { architecture: 'layered' } });
   assert.deepEqual(json(dir, '.agents', 'dotagents.json'), { decisions: ['a'], style: { git: 'trunk', architecture: 'layered' } });
-  assert.deepEqual(result.placed.sort(), ['scripts/layers/check.mjs', 'scripts/layers/layers.json']);
-  fs.writeFileSync(path.join(dir, 'scripts', 'layers', 'layers.json'), '{"mine":true}');
-  assert.deepEqual(install(dir).skipped.sort(), ['scripts/layers/check.mjs', 'scripts/layers/layers.json']);
-  assert.equal(fs.readFileSync(path.join(dir, 'scripts', 'layers', 'layers.json'), 'utf8'), '{"mine":true}', '写したあとはプロジェクトのもの');
-  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
-  assert.deepEqual(install(other, { style: { architecture: 'layered' }, template: false }).placed, []);
-  assert.equal(fs.existsSync(path.join(other, 'scripts')), false);
+  assert.equal(fs.existsSync(path.join(dir, 'scripts')), false);
 });
 
 test('写して入れると、リポジトリーの中の marketplace に置き、各ホストの設定がそこを指す。外すと元に戻る', () => {

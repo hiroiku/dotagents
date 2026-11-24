@@ -39,7 +39,7 @@ Hooks run with `bun` when it is installed and with `node` otherwise.
 node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches --architecture layered
 ```
 
-`install` writes the styles into the project declaration and a **reference** to this repository into each host's project settings. Nothing is copied, so upgrading the harness creates no commits in your project. With `layered`, it also copies a dependency-direction check (`scripts/layers/`) unless the project already has one; the project owns it afterwards. Commit what it wrote.
+`install` writes the styles into the project declaration and a **reference** to this repository into each host's project settings. Nothing is copied, so upgrading the harness creates no commits in your project. Commit what it wrote.
 
 | Host | What `install` writes | What each person does |
 |---|---|---|
@@ -68,7 +68,7 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 |---|---|---|
 | `git: trunk` | Integrate into the default branch only; release by tag | default branch |
 | `git: release-branches` | Same development as trunk; cut `release/…` per release line and cherry-pick fixes from the default branch | default branch, `release/*` |
-| `architecture: layered` | Six layers with inward dependencies; the copied check enforces the direction | — |
+| `architecture: layered` | Six layers with inward dependencies; the text states which layer may import which. The harness ships rules, not checking tools: enforce the direction with the project's own lint or check | — |
 
 `protected` adds to a flow's shared branches. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
 

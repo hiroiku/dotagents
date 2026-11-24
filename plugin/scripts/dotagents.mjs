@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 // ホストの仕組みが持たない仕事だけを行う、小さな道具。
 //
-//   install [dir] [--git <流>] [--architecture <流>] [--no-template]
+//   install [dir] [--git <流>] [--architecture <流>]
 //                       プロジェクトに入れる。宣言に流を書き、各ホストのプロジェクトの設定に、この plugin への参照を書く。
-//                       選んだ流に雛形があれば、プロジェクトに無いものだけを写す。
-//   uninstall [dir]     参照を外す。宣言と、写した雛形は残す。
+//   uninstall [dir]     参照を外す。宣言は残す。
 //   vendor [dir]        リポジトリーの中の marketplace に写して入れる。利用者が写しを選んだときだけ使う。
 //   unvendor [dir]      写しを外す。
 //   doctor [dir]        プロジェクトの宣言、流、入れ方、ブランチの保護を点検する。
@@ -180,16 +179,14 @@ function main(argv) {
   const valued = new Set(['--git', '--architecture', '--days']);
   const dir = rest.find((arg, index) => !arg.startsWith('-') && !valued.has(rest[index - 1])) ?? process.cwd();
   const tell = (result) => {
-    for (const file of result.placed ?? []) console.log(`雛形を写した: ${file}`);
-    for (const file of result.skipped ?? []) console.log(`すでにあるので写さなかった: ${file}`);
     console.log('書き換えたものをコミットする。各人がすることは次のとおり。');
     for (const line of result.each) console.log(`- ${line}`);
   };
   if (command === 'install') {
-    tell(install(dir, { style: { git: option(rest, '--git'), architecture: option(rest, '--architecture') }, template: !rest.includes('--no-template') }));
+    tell(install(dir, { style: { git: option(rest, '--git'), architecture: option(rest, '--architecture') } }));
   } else if (command === 'uninstall') {
     uninstall(dir);
-    console.log('参照を外した。宣言と、写した雛形は残した。');
+    console.log('参照を外した。宣言は残した。');
   } else if (command === 'vendor') {
     const result = vendor(dir);
     console.log(`${result.target} に ${result.version} を写した。`);

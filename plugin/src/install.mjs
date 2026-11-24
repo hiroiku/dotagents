@@ -30,7 +30,7 @@ import path from 'node:path';
 import { DECLARATION } from './declaration.mjs';
 import { editJsonText } from './jsontext.mjs';
 import { PLUGIN_ROOT } from './root.mjs';
-import { catalog, chosenStyles } from './style.mjs';
+import { catalog } from './style.mjs';
 
 export const NAME = 'dotagents';
 // この plugin を載せている marketplace の名前(リポジトリーの根の marketplace.json)。
@@ -294,7 +294,7 @@ function removeOldCopy(plan) {
   } catch {}
 }
 
-// ---------------------------------------------------------------- 宣言と雛形
+// ---------------------------------------------------------------- 宣言
 
 function declare(plan, style) {
   const chosen = Object.entries(style).filter(([, name]) => name !== undefined);
@@ -305,29 +305,6 @@ function declare(plan, style) {
       data.style = { ...(isObject(data.style) ? data.style : {}), ...Object.fromEntries(chosen) };
     });
   } else if (plan.read(DECLARATION) === null) plan.set(DECLARATION, '{}\n');
-}
-
-// 選んだ流の雛形を、プロジェクトに無いものだけ写す。写したあとはプロジェクトが持ち、版ごとに写し直さない。
-function scaffold(plan) {
-  const placed = [];
-  const skipped = [];
-  let declaration = {};
-  try {
-    declaration = JSON.parse(plan.read(DECLARATION) ?? '{}');
-  } catch {}
-  for (const style of chosenStyles(declaration).chosen) {
-    const template = style.values.template;
-    if (!isObject(template)) continue;
-    for (const [to, from] of Object.entries(template)) {
-      if (plan.exists(to)) {
-        skipped.push(to);
-        continue;
-      }
-      plan.copy(path.join(style.dir, from), to);
-      placed.push(to);
-    }
-  }
-  return { placed, skipped };
 }
 
 // ---------------------------------------------------------------- 入れる、外す
@@ -343,16 +320,15 @@ const EACH = {
   ],
 };
 
-export function install(dir, { style = {}, template = true } = {}) {
+export function install(dir, { style = {} } = {}) {
   const plan = planOf(path.resolve(dir));
   declare(plan, style);
   removeCopy(plan);
   removeOldCopy(plan);
   claude(plan, 'reference');
   codex(plan, 'reference');
-  const templates = template ? scaffold(plan) : { placed: [], skipped: [] };
   plan.apply();
-  return { mode: 'reference', each: EACH.reference, ...templates };
+  return { mode: 'reference', each: EACH.reference };
 }
 
 export function uninstall(dir) {

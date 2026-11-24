@@ -39,7 +39,7 @@ hook は、`bun` があれば `bun` で、無ければ `node` で動く。
 node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches --architecture layered
 ```
 
-`install` は、プロジェクトの宣言に流を書き、各ホストのプロジェクトの設定に、このリポジトリーへの**参照**を書く。写さないので、ハーネスの版を上げても、プロジェクトにコミットはできない。`layered` を選ぶと、依存の向きの検査(`scripts/layers/`)も、プロジェクトにまだ無ければ写す。写したあとはプロジェクトが持つ。書かれたものをコミットする。
+`install` は、プロジェクトの宣言に流を書き、各ホストのプロジェクトの設定に、このリポジトリーへの**参照**を書く。写さないので、ハーネスの版を上げても、プロジェクトにコミットはできない。書かれたものをコミットする。
 
 | ホスト | `install` が書くもの | 各人がすること |
 |---|---|---|
@@ -68,7 +68,7 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 |---|---|---|
 | `git: trunk` | 既定のブランチだけに統合し、版は tag で切る | 既定のブランチ |
 | `git: release-branches` | 開発は trunk と同じ。版の系列ごとに `release/…` を切り、直しは既定のブランチから cherry-pick で移す | 既定のブランチ、`release/*` |
-| `architecture: layered` | 依存を内へ向ける 6 つの層。向きは写した検査が落とす | なし |
+| `architecture: layered` | 依存を内へ向ける 6 つの層。どの層がどの層を import してよいかを文に書く。ハーネスは決まりを入れ、検査の道具は入れない。向きは、プロジェクトの lint か検査で落とす | なし |
 
 `protected` は、流の共有のブランチに足す。`delegated` には、確かめずに進めてよい外への操作の種類を書く(`種類` か `種類:対象`)。共有のブランチの書き換え、ブランチの保護を飛ばすマージ、この宣言の書き換えは、任せられない。項目の一覧は `setup` スキルにある。
 

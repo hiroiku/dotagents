@@ -1,11 +1,18 @@
 ---
 roles: all
-template: {"scripts/layers/check.mjs": "layered/check.mjs", "scripts/layers/layers.json": "layered/layers.json"}
 ---
 
 # 設計の形(layered)
 
-層は `app-kernel`、`domain`、`application`、`interface`、`infrastructure`、`frameworks` の 6 つで、依存は外から内へ向ける。どの層がどの層を import してよいかは、文ではなく、プロジェクトの層の検査が落とす。検査を通すために、対応表に例外を足さない。
+層は `app-kernel`、`domain`、`application`、`interface`、`infrastructure`、`frameworks` の 6 つで、依存は外から内へ向ける。import してよいのは次の層だけである。
+
+- `app-kernel` は、ほかの層を import しない。
+- `domain` は `app-kernel` だけ。外のパッケージと、ほかのコンテキストも import しない。
+- `application` は `domain` と `app-kernel`。外のパッケージは import しない。
+- `interface` と `infrastructure` は `application` と `app-kernel`。
+- `frameworks` は `interface` と `app-kernel`。例外は、下に書くコンポジションルートだけである。
+
+この向きは、文やレビューではなく、プロジェクトの lint か検査で落とす。検査を通すために例外を足さない。
 
 - 置き場は `src/<層>/<種類>/<コンテキスト>/<名前>.<種類>.ts` を既定にする。
 - `domain` は業務の概念と規則を持ち、bounded context ごとに分ける。コンテキストをまたぐ調整は `application` が持つ。
@@ -15,4 +22,3 @@ template: {"scripts/layers/check.mjs": "layered/check.mjs", "scripts/layers/laye
 - 層をまたいで組み立てるのは、配備の単位ごとに 1 つのコンポジションルートだけにする。内側は依存を引数で受け取る。コンテナーやリゾルバーを内側へ渡すと、import のつながりが依存の実態を表さなくなる。
 - 型とヘルパーは、所有するもののそばに置く。ユースケースの入出力はユースケース、外とのやりとりの型はポート、行や SDK の型は実装の中が持つ。`dtos/` や `types/` のような置き場を作らない。
 - 契約に含まれる失敗は `Result` で返し、`throw` は壊れた不変条件にだけ使う。層ごとのエラーは、境界で外側のエラーへ包み直し、元を `cause` に残す。
-- テストは `test/<層>/` に写して置き、写した層と `app-kernel` だけを import する。
