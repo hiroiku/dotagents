@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { EDIT_CHECK_SECONDS } from '../plugin/src/check.mjs';
+import { largestSize } from '../plugin/src/context.mjs';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
-import { NAME, doctor, stats, unvendor, vendor } from '../plugin/scripts/dotagents.mjs';
+import { NAME, doctor, install, stats, uninstall, unvendor, vendor } from '../plugin/scripts/dotagents.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PLUGIN = path.join(ROOT, 'plugin');
@@ -47,6 +49,17 @@ test('セッションの開始の知らせは、始まり方を選ばずに受�
   }
 });
 
+// Codex は、hook が返した文がこの値(バイト数を 4 で割って切り上げた数)を超えると、先頭と末尾の抜粋だけを渡す。
+// 日本語は 1 字 3 バイトなので、どの流を選んだときの文も、字数の 3/4 で収まることを確かめる。
+test('Codex の hook は、どの流を選んだときの文も切らずに渡す', () => {
+  for (const event of ['SessionStart', 'SubagentStart']) {
+    for (const hook of json(PLUGIN, 'hosts', 'codex', 'hooks.json').hooks[event].flatMap((group) => group.hooks)) {
+      const role = event === 'SessionStart' ? 'lead' : 'reviewer';
+      assert.ok(Math.ceil((largestSize(role) * 3) / 4) < hook.additionalContextLimit / 2, `${event}: ${largestSize(role)} 字`);
+    }
+  }
+});
+
 test('編集の段の検査は、ホストが hook を打ち切るより先に、自分で止まる', () => {
   for (const [host, dir] of [['claude', '.claude-plugin'], ['codex', '.codex-plugin']]) {
     const hooks = json(PLUGIN, json(PLUGIN, dir, 'plugin.json').hooks).hooks;
@@ -72,56 +85,151 @@ test('スキルと役の定義は、どのホストでも読める形をして�
   assert.match(agent.content, /^name = "dotagents-builder"\ndescription = ".+"\ndeveloper_instructions = ".+"\n$/);
 });
 
-test('プロジェクトに入れると、同じ名前の写しが置かれ、ほかの設定には触れない。外すと元に戻る', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
+const toml = (dir) => fs.readFileSync(path.join(dir, '.codex', 'config.toml'), 'utf8');
+
+function existing() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
   fs.mkdirSync(path.join(dir, '.claude'));
-  const settings = { permissions: { allow: ['Bash(ls:*)'] } };
-  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify(settings));
-  vendor(dir);
-  const copy = path.join(dir, '.claude', 'skills', NAME);
-  // 同じ名前にする。利用者が自分の環境にも入れていれば、Claude Code はそちらだけを読む。
-  assert.equal(json(copy, '.claude-plugin', 'plugin.json').name, NAME);
-  assert.equal(json(copy, 'VENDORED.json').version, json(PLUGIN, 'package.json').version);
-  assert.ok(fs.existsSync(path.join(copy, 'src', 'guard.mjs')) && fs.existsSync(path.join(copy, 'skills', 'setup', 'SKILL.md')));
-  // 利用者の環境に入れたものを、プロジェクトの設定で切らない。切ると、写しが読み込まれない場面で、どちらも働かない。
-  assert.deepEqual(json(dir, '.claude', 'settings.json'), settings);
-  // Pi には、同じリポジトリーの版の tag を宣言する。利用者も入れていれば、Pi はプロジェクトの側だけを読む。
-  const pinned = `git:github.com/hiroiku/dotagents@v${json(PLUGIN, 'package.json').version}`;
-  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, [pinned]);
-  assert.equal(fs.existsSync(path.join(dir, '.codex')), false);
-  assert.equal(fs.existsSync(path.join(dir, '.agents')), false);
-  const others = ['npm:@example/tools', { source: 'git:github.com/example/other@v1', skills: [] }];
-  fs.writeFileSync(path.join(dir, '.pi', 'settings.json'), JSON.stringify({ theme: 'dark', packages: [...others, 'git:github.com/hiroiku/dotagents@v8.0.0'] }));
-  vendor(dir);
-  assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: [...others, pinned] });
-  assert.ok(doctor(dir, { remote: false }).some((entry) => entry.level === 'ok' && entry.text.includes('プロジェクトに入れた版')));
-  unvendor(dir);
-  assert.equal(fs.existsSync(copy), false);
-  assert.deepEqual(json(dir, '.claude', 'settings.json'), settings);
-  assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: others });
+  fs.mkdirSync(path.join(dir, '.codex'));
+  fs.mkdirSync(path.join(dir, '.pi'));
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] }, enabledPlugins: { 'other@market': true } }));
+  fs.writeFileSync(path.join(dir, '.codex', 'config.toml'), 'model = "x"\n\n[plugins."other@market"]\nenabled = true\n');
+  fs.writeFileSync(path.join(dir, '.pi', 'settings.json'), JSON.stringify({ theme: 'dark', packages: ['npm:@example/tools', 'git:github.com/hiroiku/dotagents@v8.0.5'] }));
+  return dir;
+}
+
+test('参照で入れると、各ホストのプロジェクトの設定に版を固定しない参照を書き、ほかの設定には触れない。外すと元に戻る', () => {
+  const dir = existing();
+  const before = { claude: json(dir, '.claude', 'settings.json'), codex: toml(dir) };
+  const result = install(dir, { style: { git: 'trunk' } });
+  assert.equal(result.each.length, 3);
+  const settings = json(dir, '.claude', 'settings.json');
+  assert.deepEqual(settings.permissions, before.claude.permissions);
+  assert.equal(settings.enabledPlugins['other@market'], true);
+  assert.equal(settings.enabledPlugins['dotagents@dotagents'], true);
+  assert.deepEqual(settings.extraKnownMarketplaces.dotagents.source, { source: 'github', repo: 'hiroiku/dotagents' });
+  assert.match(toml(dir), /^model = "x"\n\n\[plugins\."other@market"\]\nenabled = true\n/);
+  assert.match(toml(dir), /\[marketplaces\.dotagents\]\nsource_type = "git"\nsource = "https:\/\/github\.com\/hiroiku\/dotagents\.git"\n/);
+  assert.doesNotMatch(toml(dir), /ref =/);
+  // 8.x の固定した版は、固定しない参照に置き換わる。
+  assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: ['npm:@example/tools', 'git:github.com/hiroiku/dotagents'] });
+  assert.deepEqual(json(dir, '.agents', 'dotagents.json'), { style: { git: 'trunk' } });
+  // 入れ直しても、同じものが 2 つにならない。
+  install(dir);
+  assert.equal(toml(dir).match(/\[marketplaces\.dotagents\]/g).length, 1);
+  assert.equal(fs.existsSync(path.join(dir, '.agents', 'plugins')), false, '写しは置かない');
+  uninstall(dir);
+  assert.deepEqual(json(dir, '.claude', 'settings.json'), before.claude);
+  assert.equal(toml(dir), before.codex);
+  assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: ['npm:@example/tools'] });
+  assert.deepEqual(json(dir, '.agents', 'dotagents.json'), { style: { git: 'trunk' } }, '宣言は残す');
 });
 
-test('この道具が置いたのではないものがある場所には、入れも外しもしない', () => {
+test('入れるときに選んだ流を宣言に書き、知らない流は書かずに止める。雛形は無いものだけを写す', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
+  fs.mkdirSync(path.join(dir, '.agents'));
+  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), JSON.stringify({ decisions: ['a'], style: { git: 'trunk' } }));
+  assert.throws(() => install(dir, { style: { git: 'gitflow' } }), /gitflow という流は無い/);
+  const result = install(dir, { style: { architecture: 'layered' } });
+  assert.deepEqual(json(dir, '.agents', 'dotagents.json'), { decisions: ['a'], style: { git: 'trunk', architecture: 'layered' } });
+  assert.deepEqual(result.placed.sort(), ['scripts/layers/check.mjs', 'scripts/layers/layers.json']);
+  fs.writeFileSync(path.join(dir, 'scripts', 'layers', 'layers.json'), '{"mine":true}');
+  assert.deepEqual(install(dir).skipped.sort(), ['scripts/layers/check.mjs', 'scripts/layers/layers.json']);
+  assert.equal(fs.readFileSync(path.join(dir, 'scripts', 'layers', 'layers.json'), 'utf8'), '{"mine":true}', '写したあとはプロジェクトのもの');
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
+  assert.deepEqual(install(other, { style: { architecture: 'layered' }, template: false }).placed, []);
+  assert.equal(fs.existsSync(path.join(other, 'scripts')), false);
+});
+
+test('写して入れると、リポジトリーの中の marketplace に置き、各ホストの設定がそこを指す。外すと元に戻る', () => {
+  const dir = existing();
+  const before = { claude: json(dir, '.claude', 'settings.json'), codex: toml(dir) };
+  // 8.x の写しは、置き換える。
+  fs.mkdirSync(path.join(dir, '.claude', 'skills', NAME), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.claude', 'skills', NAME, 'VENDORED.json'), '{"version":"8.0.5"}');
+  install(dir);
+  vendor(dir);
+  const copy = path.join(dir, '.agents', 'plugins', NAME);
+  assert.equal(json(copy, 'VENDORED.json').version, json(PLUGIN, 'package.json').version);
+  assert.ok(fs.existsSync(path.join(copy, 'src', 'guard.mjs')) && fs.existsSync(path.join(copy, 'hosts', 'pi', 'index.js')));
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', NAME)), false);
+  const claudeMarket = json(dir, '.agents', 'plugins', '.claude-plugin', 'marketplace.json');
+  assert.deepEqual(claudeMarket.plugins.map((plugin) => [plugin.name, plugin.source]), [[NAME, './dotagents']]);
+  const settings = json(dir, '.claude', 'settings.json');
+  assert.deepEqual(settings.extraKnownMarketplaces, { [claudeMarket.name]: { source: { source: 'directory', path: './.agents/plugins' } } });
+  assert.deepEqual(Object.keys(settings.enabledPlugins).sort(), [`dotagents@${claudeMarket.name}`, 'other@market']);
+  const codexMarket = json(dir, '.agents', 'plugins', 'marketplace.json');
+  assert.equal(codexMarket.plugins[0].source.path, './.agents/plugins/dotagents');
+  assert.match(toml(dir), new RegExp(`\\[plugins\\."dotagents@${codexMarket.name}"\\]\\nenabled = true`));
+  assert.doesNotMatch(toml(dir), /\[marketplaces\.dotagents\]/);
+  // Pi は、.pi/ から見た相対パスで読む。
+  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, ['npm:@example/tools', '../.agents/plugins/dotagents']);
+  unvendor(dir);
+  assert.equal(fs.existsSync(path.join(dir, '.agents', 'plugins')), false);
+  assert.deepEqual(json(dir, '.claude', 'settings.json'), before.claude);
+  assert.equal(toml(dir), before.codex);
+  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, ['npm:@example/tools']);
+});
+
+// ホストは marketplace の置き場を名前ごとに 1 つだけ覚える。名前が同じだと、別のプロジェクトの写しの hook が動く。
+test('写しの marketplace の名前は、プロジェクトごとに違い、利用者が登録した dotagents とも違い、写し直しても変わらない', () => {
+  const names = ['a', 'b'].map(() => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
+    vendor(dir);
+    const name = json(dir, '.agents', 'plugins', '.claude-plugin', 'marketplace.json').name;
+    vendor(dir);
+    assert.equal(json(dir, '.agents', 'plugins', 'marketplace.json').name, name);
+    assert.equal(json(dir, '.agents', 'plugins', '.claude-plugin', 'marketplace.json').name, name);
+    return name;
+  });
+  assert.notEqual(names[0], names[1]);
+  for (const name of names) assert.notEqual(name, 'dotagents');
+  const cloned = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
+  execFileSync('git', ['init', '-q'], { cwd: cloned });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:Kuden-World/kuden-drive.git'], { cwd: cloned });
+  vendor(cloned);
+  assert.equal(json(cloned, '.agents', 'plugins', 'marketplace.json').name, 'dotagents-kuden-world-kuden-drive');
+});
+
+test('この道具が置いたのではないものがある場所と、プロジェクトの marketplace には、写さない', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
-  const own = path.join(dir, '.claude', 'skills', NAME, 'skills', 'mine', 'SKILL.md');
+  const own = path.join(dir, '.agents', 'plugins', NAME, 'skills', 'mine', 'SKILL.md');
   fs.mkdirSync(path.dirname(own), { recursive: true });
   fs.writeFileSync(own, 'x');
   assert.throws(() => vendor(dir), /置いたのではないもの/);
   unvendor(dir);
   assert.equal(fs.readFileSync(own, 'utf8'), 'x');
+  const market = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
+  fs.mkdirSync(path.join(market, '.agents', 'plugins'), { recursive: true });
+  fs.writeFileSync(path.join(market, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({ name: 'team-tools', plugins: [{ name: 'lint' }] }));
+  assert.throws(() => vendor(market), /プロジェクトの marketplace\(team-tools\)/);
+  unvendor(market);
+  assert.deepEqual(json(market, '.agents', 'plugins', 'marketplace.json').plugins, [{ name: 'lint' }]);
 });
 
-test('点検は、宣言の誤りと 7.x の残りを知らせる', () => {
+test('点検は、宣言の誤り、流と検査の入口と参照が無いこと、8.x と 7.x の残りを知らせる', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-doctor-'));
-  assert.ok(doctor(dir, { remote: false }).some((entry) => entry.level === 'info' && entry.text.includes('宣言')));
+  const levels = (pattern) => doctor(dir, { remote: false }).filter((entry) => pattern.test(entry.text)).map((entry) => entry.level);
+  assert.deepEqual(levels(/宣言\(/), ['info']);
   fs.mkdirSync(path.join(dir, '.agents'));
   fs.mkdirSync(path.join(dir, '.claude', 'rules', 'dotagents'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), JSON.stringify({ outward: ['('], delegated: ['pusg'], extra: 1 }));
+  fs.mkdirSync(path.join(dir, '.claude', 'skills', NAME), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.claude', 'skills', NAME, 'VENDORED.json'), '{"version":"8.0.5"}');
+  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), JSON.stringify({ outward: ['('], delegated: ['pusg'], extra: 1, style: { git: 'nope' } }));
   const notes = doctor(dir, { remote: false }).map((entry) => `${entry.level}: ${entry.text}`).join('\n');
   assert.match(notes, /error: outward の正規表現が読めない/);
   assert.match(notes, /warn: delegated に知らない種類がある: pusg/);
   assert.match(notes, /warn: 宣言に知らない項目がある: extra/);
+  assert.match(notes, /warn: style に知らない流がある: git: "nope"/);
+  assert.match(notes, /warn: 宣言に checks が無い/);
+  assert.match(notes, /info: 流を選んでいない軸: architecture、git/);
+  assert.match(notes, /warn: どのホストの設定にも、この plugin への参照が無い/);
+  assert.match(notes, /warn: 8\.x の写しが残っている/);
   assert.match(notes, /warn: 7\.x が配ったものが残っている/);
+  install(dir, { style: { git: 'trunk', architecture: 'layered' } });
+  const after = doctor(dir, { remote: false }).map((entry) => `${entry.level}: ${entry.text}`).join('\n');
+  assert.doesNotMatch(after, /参照が無い|8\.x の写し|流を選んでいない|知らない流/);
+  assert.ok(doctor(dir, { remote: false }).filter((entry) => /毎回読む文/.test(entry.text)).every((entry) => entry.level === 'ok'));
 });
 
 test('集計は、記録からプロジェクトごとの回数を出す', () => {

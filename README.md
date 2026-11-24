@@ -1,46 +1,56 @@
 # dotagents
 
-A harness for delegating work to AI coding agents. One set of contents — an always-on core, role definitions, skills, and a guard for operations that reach outside your machine — delivered natively to **Claude Code**, **Codex** and **Pi**.
+A harness for delegating work to AI coding agents. One set of contents — one always-on page per role, project-selected styles, and mechanisms that stop operations reaching outside your machine — delivered natively to **Claude Code**, **Codex** and **Pi**.
 
 English | [日本語](docs/README.ja.md)
 
 ## What it does
 
-- **Judgment over rules.** The always-on text is about 1,700 characters for the lead session and 900 for a subagent. It states the goal, the line between deciding and asking, and five design qualities. Everything else loads on demand.
-- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, the heavy checks a project reserves for the lead, an edit-time check. The harness sets no time limits or agent counts: it states the trade-offs and leaves the numbers to the model, the host and the user.
+- **One page per role.** Each role reads everything it needs on every run: the lead session about 3,900 characters, a builder about 2,000, a reviewer about 2,400. Choosing styles adds their text only to the roles that need it. A test keeps the lead under 6,000 and a subagent under 4,000 characters whatever styles a project picks. The only skills left are the ones a user asks for: `setup`, `prompting`, `releases`, `triage`.
+- **Styles chosen by declaration.** A project picks a git flow (`trunk`, `release-branches`, `develop-master`) and a design shape (`layered`). Only the chosen text is injected, and the git flow also sets the shared branches and the pull-request base the hooks enforce.
+- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, the heavy checks a project reserves for the lead, an edit-time check, and three procedures (below). The harness sets no time limits or agent counts.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside (shared branches, tags, merges, releases, deploys, remote data, repository settings, messages to people) — and each project can delegate the kinds it trusts.
-- **The outcome is the unit.** Related issues are bundled, built by one builder in one worktree, verified once per bundle, and mapped to issues by commit (`Closes #n`).
-- **Measured.** Every confirmation and block is logged without command text; `stats` shows how often the harness actually intervenes, and how much time and how many tokens each role used.
+- **Measured.** Every confirmation and block is logged without command text; `stats` shows how often the harness intervenes, by kind, and how much time and how many tokens each role used.
+
+### Procedures it stops
+
+| Procedure | Stopped when | Passes when |
+|---|---|---|
+| Catching up by merge | On a non-shared branch, `git merge` of a shared branch, or `git pull` without rebase | On a shared branch (integrating work); `pull.rebase` is set; `--ff-only` |
+| Pull-request base | `gh pr create` whose base differs from the chosen git flow's integration branch | `develop` → `master` in `develop-master`; fixes to `release/*` in `release-branches`; no git flow chosen |
+| Pushing while CI runs | The pushed branch has an open pull request whose workflow run has not finished | `gh` is missing or its answer cannot be read |
+
+The first two can be re-run by the lead with `DOTAGENTS_CONFIRMED=1` when the user explicitly asks for it. The CI one tells the agent to wait or `gh run cancel` the run.
 
 ## Install
 
-Each host installs the same directory (`plugin/`) with its own package mechanism. There is no installer and nothing on npm.
+### For yourself
 
-| Host | Install for yourself | Update |
+| Host | Install | Update |
 |---|---|---|
 | Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | turn on auto-update for the marketplace in `/plugin`, or `claude plugin update dotagents@dotagents` |
 | Codex | `codex plugin marketplace add hiroiku/dotagents` then `codex plugin add dotagents@dotagents`, and trust its hooks in `/hooks` | `codex plugin marketplace upgrade dotagents` (hooks need trusting again after an update) |
 | Pi | `pi install git:github.com/hiroiku/dotagents` | `pi update --extensions` |
 
-Hooks run with `bun` when it is installed and with `node` otherwise (about 20 ms against 125 ms per tool call on the machine this was measured on).
+Hooks run with `bun` when it is installed and with `node` otherwise.
 
-### Install into a repository
-
-To cover collaborators who have not installed the harness themselves, vendor it:
+### Into a repository
 
 ```sh
-node plugin/scripts/dotagents.mjs vendor /path/to/repo   # then commit what it wrote
+node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches --architecture layered
 ```
 
-This copies the plugin to `.claude/skills/dotagents/` and declares the same version for Pi in `.pi/settings.json`. Each host keeps one copy, so nothing is injected or asked twice:
+`install` writes the styles into the project declaration and a **reference** to this repository into each host's project settings. Nothing is copied, so upgrading the harness creates no commits in your project. With `layered`, it also copies a dependency-direction check (`scripts/layers/`) unless the project already has one; the project owns it afterwards. Commit what it wrote.
 
-| Host | You also installed it yourself | You did not |
+| Host | What `install` writes | What each person does |
 |---|---|---|
-| Claude Code | Your install runs. The copy is skipped because its name is taken. | The copy loads once you trust the folder and start the session at the repository root. |
-| Pi | The version the repository declares replaces yours there. | Pi installs the declared version once you trust the project. |
-| Codex | Your install runs. | Nothing runs. Codex does not load plugins from a repository, so each person installs it. |
+| Claude Code | `.claude/settings.json`: `extraKnownMarketplaces` and `enabledPlugins` | Trust the folder. It loads from the next session (or `/reload-plugins`). No `claude plugin install` is needed. |
+| Codex | `.codex/config.toml`: a git marketplace and the plugin, unpinned | Trust the project, then approve the hooks in `/hooks`. Codex asks again whenever the plugin's contents change. |
+| Pi | `.pi/settings.json`: an unpinned `git:` package | Trust the project. Update with `pi update --extensions`. |
 
-The repository never switches your own install off. Re-run `vendor` to upgrade; `unvendor` removes it.
+If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. `uninstall` removes the references.
+
+`vendor` copies the plugin into the repository instead (`.agents/plugins/dotagents/`, a repository marketplace that all three hosts read) for people who cannot reach GitHub. Every upgrade then needs a commit, so use it only when you choose to. Codex needs `/plugins` opened once to install it. `unvendor` removes it.
 
 ## The project declaration
 
@@ -48,25 +58,34 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 
 ```json
 {
-  "protected": ["develop", "release/*"],
+  "style": { "git": "release-branches", "architecture": "layered" },
+  "protected": ["staging"],
   "delegated": ["push:develop", "merge:develop", "tag", "remote:staging"],
   "checks": { "edit": "biome check {file}", "commit": "npm run check:changed", "push": "npm run check", "release": "npm run e2e" },
   "decisions": ["Contrast is set by the designer. Do not flag it in review."]
 }
 ```
 
-`delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
+| Style | Shape | Shared branches |
+|---|---|---|
+| `git: trunk` | Integrate into the default branch only; release by tag | default branch |
+| `git: release-branches` | Same development as trunk; cut `release/…` per release line and cherry-pick fixes from the default branch | default branch, `release/*` |
+| `git: develop-master` | Integrate into `develop`; promote to `master` by a pull request from `develop` | `develop`, `master` |
+| `architecture: layered` | Six layers with inward dependencies; the copied check enforces the direction | — |
+
+`protected` adds to a flow's shared branches. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
 
 ## Contents
 
 | Path | What |
 |---|---|
-| `plugin/core/` | The always-on core, and the lead-only text. A test enforces their size. |
+| `plugin/core/` | The page every role reads (`core.md`) and the lead's page (`lead.md`). A test enforces their size. |
 | `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents, Codex agent TOML and Pi child roles. |
-| `plugin/skills/` | `flow` (bundle, verify, integrate, issues, releases), `design`, `review`, `prompting`, `setup`. |
-| `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `check.mjs`, and the host adapters' shared code. |
+| `plugin/styles/` | Git flows and design shapes. Front matter says which roles read the text and which values the hooks use. |
+| `plugin/skills/` | `setup`, `prompting`, `releases`, `triage`. |
+| `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `style.mjs`, `install.mjs`, `check.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code hooks, Codex hooks, a Pi extension. |
-| `plugin/scripts/dotagents.mjs` | `vendor`, `unvendor`, `doctor`, `stats`. |
+| `plugin/scripts/dotagents.mjs` | `install`, `uninstall`, `vendor`, `unvendor`, `doctor`, `stats`. |
 
 ## Limits
 
@@ -78,7 +97,7 @@ The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, n
 npm test    # node --test, no dependencies
 ```
 
-Coming from 7.x: remove what it delivered with `dotagents uninstall` in each project, then install as above. The npm package `@hiroiku/dotagents` is no longer published.
+Coming from 8.x: run `install` (or `vendor`) in each project. It replaces the copy under `.claude/skills/dotagents` and the pinned Pi package. `doctor` reports what is left.
 
 ## License
 

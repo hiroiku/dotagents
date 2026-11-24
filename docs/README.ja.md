@@ -1,46 +1,56 @@
 # dotagents
 
-AI のコーディングエージェントに仕事を任せるためのハーネス。常設の核、役の定義、スキル、手元の外へ届く操作を確かめる仕組みを、同じ中身のまま **Claude Code**、**Codex**、**Pi** へ届ける。
+AI のコーディングエージェントに仕事を任せるためのハーネス。役ごとに毎回入る 1 枚、プロジェクトが選ぶ流、手元の外へ届く操作を止める仕組みを、同じ中身のまま **Claude Code**、**Codex**、**Pi** へ届ける。
 
 [English](../README.md) | 日本語
 
 ## 何をするか
 
-- **決まりではなく、判断の基準を渡す。** 常に文脈へ入る文は、進める役で約 1,700 字、サブエージェントで約 900 字である。目的、決めることと確かめることの線、設計の 5 つの性質だけを書く。ほかは、要るときに読む。
-- **文ではなく、仕組みで守る。** 守らせられるものは、モデルに覚えさせる文にせず、hook にする。外へ届く操作、コミットに混じる AI の署名、プロジェクトが進める役のために取っておいた重い検査、編集の直後の検査である。時間の上限や役の数の上限は、ハーネスには無い。引き換えを書き、数を決めるのは、モデルとホストと利用者に任せる。
+- **役ごとに 1 枚。** 役は、要る文を毎回すべて読む。進める役で約 3,900 字、作る役で約 2,000 字、確かめる役で約 2,400 字である。流を選ぶと、その文が、要る役にだけ足される。どの流を選んでも、進める役は 6,000 字、サブエージェントは 4,000 字に収まることを、テストが守る。スキルとして残すのは、利用者が頼んだときに使う `setup`、`prompting`、`releases`、`triage` だけである。
+- **流を宣言で選ぶ。** プロジェクトは、git の流れ(`trunk`、`release-branches`、`develop-master`)と設計の形(`layered`)を選ぶ。選んだ文だけが入り、git の流れは、hook が守る共有のブランチと PR の base も決める。
+- **文ではなく、仕組みで守る。** 守らせられるものは、モデルに覚えさせる文にせず、hook にする。外へ届く操作、コミットに混じる AI の署名、プロジェクトが進める役のために取っておいた重い検査、編集の直後の検査、下の 3 つの手順である。時間の上限や役の数の上限は、ハーネスには無い。
 - **確かめる線は 1 本。** 取り消せることは、エージェントが自分で決める。止まるのは、手元の外へ届く操作(共有のブランチ、tag、マージ、公開、配備、手元の外のデータ、リポジトリーの設定、人への連絡)だけである。プロジェクトは、任せる種類を宣言できる。
-- **単位は成果。** 関係する issue を束ね、1 つの worktree で 1 体の作る役が作り、束ごとに 1 回確かめる。issue とはコミットで対応させる(`Closes #n`)。
-- **自分を測る。** 確かめた回数と止めた回数を、コマンドの文字列を残さずに記録する。`stats` で、ハーネスが実際にどれだけ割り込んでいるかと、役ごとに使った時間とトークンが分かる。
+- **自分を測る。** 確かめた回数と止めた回数を、コマンドの文字列を残さずに記録する。`stats` で、ハーネスがどれだけ割り込んでいるかを種類ごとに、役ごとに使った時間とトークンと一緒に見られる。
+
+### 止める手順
+
+| 手順 | 止めるとき | 通すとき |
+|---|---|---|
+| 追従の merge | 共有でないブランチの上で、共有のブランチを `git merge` する。rebase なしで `git pull` する | 共有のブランチの上での取り込み。`pull.rebase` の設定がある。`--ff-only` |
+| PR の base | `gh pr create` の base が、選んだ git の流れの統合先と違う | `develop-master` の `develop` から `master` へ。`release-branches` の `release/*` への直し。git の流れを選んでいない |
+| CI が走っている間の push | push するブランチに開いた PR があり、workflow の実行が終わっていない | `gh` が無い、または答えが読めない |
+
+前の 2 つは、利用者が明示して求めたときに、進める役が `DOTAGENTS_CONFIRMED=1` を付けて実行し直せる。CI の待ちは、待つか、`gh run cancel` で止めるよう案内する。
 
 ## 入れる
 
-どのホストも、同じディレクトリー(`plugin/`)を、そのホストのパッケージの仕組みで入れる。配布用のプログラムは無く、npm にも置かない。
+### 自分の環境に
 
-| ホスト | 自分の環境に入れる | 更新 |
+| ホスト | 入れる | 更新 |
 |---|---|---|
 | Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | `/plugin` で marketplace の自動更新をオンにする。または `claude plugin update dotagents@dotagents` |
-| Codex | `codex plugin marketplace add hiroiku/dotagents` のあと `codex plugin add dotagents@dotagents`。hook は `/hooks` で信頼する | `codex plugin marketplace upgrade dotagents`(更新のあと、hook をもう一度信頼する) |
+| Codex | `codex plugin marketplace add hiroiku/dotagents` のあと `codex plugin add dotagents@dotagents`。hook は `/hooks` で承認する | `codex plugin marketplace upgrade dotagents`(更新のあと、hook をもう一度承認する) |
 | Pi | `pi install git:github.com/hiroiku/dotagents` | `pi update --extensions` |
 
-hook は、`bun` があれば `bun` で、無ければ `node` で動く(計測した機械では、道具の呼び出し 1 回あたり約 20 ミリ秒と約 125 ミリ秒)。
+hook は、`bun` があれば `bun` で、無ければ `node` で動く。
 
-### リポジトリーに入れる
-
-自分では入れていない人のセッションにも届けたいときは、リポジトリーに写す。
+### リポジトリーに
 
 ```sh
-node plugin/scripts/dotagents.mjs vendor /path/to/repo   # 書かれたものをコミットする
+node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches --architecture layered
 ```
 
-plugin を `.claude/skills/dotagents/` に写し、Pi には同じ版を `.pi/settings.json` で宣言する。どのホストも 1 つだけを読むので、文が二重に入ることも、二重に確かめることもない。
+`install` は、プロジェクトの宣言に流を書き、各ホストのプロジェクトの設定に、このリポジトリーへの**参照**を書く。写さないので、ハーネスの版を上げても、プロジェクトにコミットはできない。`layered` を選ぶと、依存の向きの検査(`scripts/layers/`)も、プロジェクトにまだ無ければ写す。写したあとはプロジェクトが持つ。書かれたものをコミットする。
 
-| ホスト | 自分の環境にも入れている人 | 入れていない人 |
+| ホスト | `install` が書くもの | 各人がすること |
 |---|---|---|
-| Claude Code | 自分の環境のものが働く。写しは、名前が同じなので読まれない。 | フォルダーを信頼し、リポジトリーの根でセッションを始めると、写しが読まれる。 |
-| Pi | そのリポジトリーでは、リポジトリーが宣言した版が自分のものに代わる。 | プロジェクトを信頼すると、宣言された版が入る。 |
-| Codex | 自分の環境のものが働く。 | 何も働かない。Codex はリポジトリーから plugin を読まないので、使う人がそれぞれ入れる。 |
+| Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。次のセッション(または `/reload-plugins`)から読まれる。`claude plugin install` は要らない。 |
+| Codex | `.codex/config.toml` に、版を固定しない git の marketplace と plugin | プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。 |
+| Pi | `.pi/settings.json` に、版を固定しない `git:` の package | プロジェクトを信頼する。更新は `pi update --extensions` で取る。 |
 
-リポジトリーの側から、自分の環境に入れたものを切ることはしない。版を上げるときは `vendor` をもう一度実行し、外すときは `unvendor` を実行する。
+自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。`uninstall` で参照を外す。
+
+`vendor` は、参照の代わりに、plugin をリポジトリーの中に写す(`.agents/plugins/dotagents/`。3 つのホストが読む、リポジトリーの中の marketplace)。GitHub に届かない人のためのもので、版を上げるたびにコミットが要るので、利用者が選んだときだけ使う。Codex は、`/plugins` を一度開くと入る。`unvendor` で外す。
 
 ## プロジェクトの宣言
 
@@ -48,25 +58,34 @@ plugin を `.claude/skills/dotagents/` に写し、Pi には同じ版を `.pi/se
 
 ```json
 {
-  "protected": ["develop", "release/*"],
+  "style": { "git": "release-branches", "architecture": "layered" },
+  "protected": ["staging"],
   "delegated": ["push:develop", "merge:develop", "tag", "remote:staging"],
   "checks": { "edit": "biome check {file}", "commit": "npm run check:changed", "push": "npm run check", "release": "npm run e2e" },
   "decisions": ["コントラストはデザイナーの指示で決まっている。指摘にしない。"]
 }
 ```
 
-`delegated` には、確かめずに進めてよい外への操作の種類を書く(`種類` か `種類:対象`)。共有のブランチの書き換え、ブランチの保護を飛ばすマージ、この宣言の書き換えは、任せられない。項目の一覧は `setup` スキルにある。
+| 流 | 形 | 共有のブランチ |
+|---|---|---|
+| `git: trunk` | 既定のブランチだけに統合し、版は tag で切る | 既定のブランチ |
+| `git: release-branches` | 開発は trunk と同じ。版の系列ごとに `release/…` を切り、直しは既定のブランチから cherry-pick で移す | 既定のブランチ、`release/*` |
+| `git: develop-master` | `develop` に統合し、`master` へは `develop` からの PR で上げる | `develop`、`master` |
+| `architecture: layered` | 依存を内へ向ける 6 つの層。向きは写した検査が落とす | なし |
+
+`protected` は、流の共有のブランチに足す。`delegated` には、確かめずに進めてよい外への操作の種類を書く(`種類` か `種類:対象`)。共有のブランチの書き換え、ブランチの保護を飛ばすマージ、この宣言の書き換えは、任せられない。項目の一覧は `setup` スキルにある。
 
 ## 中身
 
 | 場所 | 中身 |
 |---|---|
-| `plugin/core/` | 常設の核と、進める役にだけ入る文。大きさはテストが守る。 |
+| `plugin/core/` | どの役も読む 1 枚(`core.md`)と、進める役の 1 枚(`lead.md`)。大きさはテストが守る。 |
 | `plugin/agents/` | `builder`(作る役)と `reviewer`(確かめる役)。Claude Code のエージェント、Codex の TOML、Pi の子の役は、ここから導く。 |
-| `plugin/skills/` | `flow`(束ねる、検査の段、統合、issue、版)、`design`、`review`、`prompting`、`setup`。 |
-| `plugin/src/` | `guard.mjs`(3 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`check.mjs` など。 |
+| `plugin/styles/` | git の流れと設計の形。frontmatter に、文を読む役と、hook が使う値を持つ。 |
+| `plugin/skills/` | `setup`、`prompting`、`releases`、`triage`。 |
+| `plugin/src/` | `guard.mjs`(3 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs`、`install.mjs`、`check.mjs` など。 |
 | `plugin/hosts/` | 薄い受け口。Claude Code の hook、Codex の hook、Pi の拡張。 |
-| `plugin/scripts/dotagents.mjs` | `vendor`、`unvendor`、`doctor`、`stats`。 |
+| `plugin/scripts/dotagents.mjs` | `install`、`uninstall`、`vendor`、`unvendor`、`doctor`、`stats`。 |
 
 ## 限界
 
@@ -78,7 +97,7 @@ plugin を `.claude/skills/dotagents/` に写し、Pi には同じ版を `.pi/se
 npm test    # node --test。依存は無い
 ```
 
-7.x から移るときは、各プロジェクトで `dotagents uninstall` を実行して配ったものを外し、上の手順で入れる。npm のパッケージ `@hiroiku/dotagents` は、もう公開しない。
+8.x から移るときは、各プロジェクトで `install`(または `vendor`)を実行する。`.claude/skills/dotagents` の写しと、版を固定した Pi の package は、置き換わる。残ったものは `doctor` が知らせる。
 
 ## ライセンス
 

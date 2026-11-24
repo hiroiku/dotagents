@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 // ホストの仕組みが持たない仕事だけを行う、小さな道具。
 //
-//   vendor [dir]        プロジェクトに入れる。自分では入れていない人のセッションにも届くよう、この plugin を写す。
-//   unvendor [dir]      プロジェクトに入れたものを外す。
-//   doctor [dir]        プロジェクトの宣言、ブランチの保護、置いたものの版を点検する。
+//   install [dir] [--git <流>] [--architecture <流>] [--no-template]
+//                       プロジェクトに入れる。宣言に流を書き、各ホストのプロジェクトの設定に、この plugin への参照を書く。
+//                       選んだ流に雛形があれば、プロジェクトに無いものだけを写す。
+//   uninstall [dir]     参照を外す。宣言と、写した雛形は残す。
+//   vendor [dir]        リポジトリーの中の marketplace に写して入れる。利用者が写しを選んだときだけ使う。
+//   unvendor [dir]      写しを外す。
+//   doctor [dir]        プロジェクトの宣言、流、入れ方、ブランチの保護を点検する。
 //   stats [--days n]    仕組みが何をしたかの記録を集計する。
 //
 // 取得、版、更新は、各ホストの仕組み(marketplace、package)が持つ。ここでは持たない。
@@ -14,77 +18,14 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PLUGIN_ROOT, budgetOf, standingSize } from '../src/context.mjs';
 import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declaration.mjs';
-import { catalog, chosenStyles } from '../src/style.mjs';
-import { KIND_LABELS, PROCEDURE_LABELS } from '../src/guard.mjs';
+import { KIND_LABELS, PROCEDURE_LABELS, styleValues } from '../src/guard.mjs';
+import { NAME, install, installed, uninstall, unvendor, vendor, version } from '../src/install.mjs';
 import { logDir } from '../src/log.mjs';
+import { catalog, chosenStyles } from '../src/style.mjs';
 
-export const NAME = 'dotagents';
-const VENDORED_DIR = path.join('.claude', 'skills', NAME);
-const RECORD = 'VENDORED.json';
-const PI_SETTINGS = path.join('.pi', 'settings.json');
+export { NAME, install, uninstall, unvendor, vendor };
+
 const KNOWN_KEYS = new Set([...POLICY_KEYS, 'decisions']);
-
-const readJson = (file, fallback) => {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
-};
-const writeJson = (file, value) => {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
-};
-const version = () => readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {}).version;
-
-// JSON の設定に 1 つの値を置く。ほかの値には触れない。値が undefined なら、その鍵を消す。
-function setIn(file, keys, value) {
-  const data = readJson(file, {});
-  let node = data;
-  for (const key of keys.slice(0, -1)) node = node[key] && typeof node[key] === 'object' ? node[key] : (node[key] = {});
-  if (value === undefined) delete node[keys.at(-1)];
-  else node[keys.at(-1)] = value;
-  writeJson(file, data);
-}
-
-// ---------------------------------------------------------------- vendor
-
-// 同じハーネスを 2 つ読み込ませない仕事は、ホストに任せる。ここで片方を切ると、もう片方が読み込まれなかった
-// ときに、どちらも働かない。
-//
-// - Claude Code: 写しを、利用者が自分の環境に入れたものと同じ名前にする。同じ名前の plugin が両方にあると、
-//   利用者の環境のものだけを読む。写しは、自分では入れていない人のための控えになる。
-// - Pi: 写しの場所ではなく、同じリポジトリーの版の tag を宣言する。同じリポジトリーの package が両方に
-//   宣言されていると、プロジェクトの側だけを読む。
-// - Codex: リポジトリーに置いた plugin を読まないので、何も置かない。
-const piPackage = () => `git:${String(readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {}).repository).replace(/^https?:\/\//, '').replace(/\.git$/, '')}`;
-const otherPiPackages = (settings) => {
-  const packages = readJson(settings, {}).packages;
-  const source = (entry) => String(typeof entry === 'string' ? entry : entry?.source);
-  return (Array.isArray(packages) ? packages : []).filter((entry) => source(entry) !== piPackage() && !source(entry).startsWith(`${piPackage()}@`));
-};
-
-export function vendor(dir) {
-  const root = path.resolve(dir);
-  const target = path.join(root, VENDORED_DIR);
-  if (target === PLUGIN_ROOT) throw new Error('写し自身から、同じ場所へは入れ直せない。入れてある plugin の道具から実行する。');
-  if (fs.existsSync(target) && !fs.existsSync(path.join(target, RECORD))) throw new Error(`${target} に、この道具が置いたのではないものがある。7.x の残りなら、先に消す。`);
-  fs.rmSync(target, { recursive: true, force: true });
-  fs.cpSync(PLUGIN_ROOT, target, { recursive: true, filter: (source) => !['node_modules', '.DS_Store'].includes(path.basename(source)) });
-  writeJson(path.join(target, RECORD), { version: version() });
-
-  const settings = path.join(root, PI_SETTINGS);
-  setIn(settings, ['packages'], [...otherPiPackages(settings), `${piPackage()}@v${version()}`]);
-  return { target, version: version() };
-}
-
-export function unvendor(dir) {
-  const root = path.resolve(dir);
-  const target = path.join(root, VENDORED_DIR);
-  if (fs.existsSync(path.join(target, RECORD))) fs.rmSync(target, { recursive: true, force: true });
-  const settings = path.join(root, PI_SETTINGS);
-  if (fs.existsSync(settings)) setIn(settings, ['packages'], otherPiPackages(settings));
-}
 
 // ---------------------------------------------------------------- doctor
 
@@ -122,11 +63,18 @@ export function doctor(dir, { remote = true } = {}) {
     for (const entry of list(value.delegated)) if (!KIND_LABELS[entry.split(':')[0]]) note('warn', `delegated に知らない種類がある: ${entry}`);
     for (const entry of unknown) note('warn', `style に知らない流がある: ${entry}(選べるもの: ${Object.entries(catalog()).map(([axis, names]) => `${axis} は ${names.join('、')}`).join('。')})`);
     const tiers = ['edit', 'commit', 'push', 'release'].filter((tier) => !value.checks?.[tier]);
-    if (tiers.length) note('info', `検査の段のうち、宣言に入口が無いもの: ${tiers.join('、')}`);
+    if (tiers.length === 4) note('warn', '宣言に checks が無い。編集の段の検査は動かず、作る役が push の段の検査を回しても止まらない。script と workflow から当てはめる。');
+    else if (tiers.length) note('info', `検査の段のうち、宣言に入口が無いもの: ${tiers.join('、')}`);
+    const axes = Object.keys(catalog()).filter((axis) => !chosen.some((style) => style.axis === axis));
+    if (axes.length) note('info', `流を選んでいない軸: ${axes.join('、')}。選ばなければ、その軸の文も決まりも入らない。`);
   }
 
-  const vendored = readJson(path.join(root, VENDORED_DIR, RECORD), null);
-  if (vendored) note(vendored.version === version() ? 'ok' : 'warn', `プロジェクトに入れた版: ${vendored.version}(この道具の版: ${version()})`);
+  const { hosts, copy, oldCopy } = installed(root);
+  const missing = Object.entries(hosts).filter(([, mode]) => !mode).map(([host]) => host);
+  if (missing.length === 3) note('warn', 'どのホストの設定にも、この plugin への参照が無い。各人が自分の環境に入れていなければ、このプロジェクトでは働かない。install で書く。');
+  else if (missing.length) note('info', `参照の設定が無いホスト: ${missing.join('、')}`);
+  if (copy) note(copy.version === version() ? 'ok' : 'warn', `リポジトリーに写した版: ${copy.version}(この道具の版: ${version()})`);
+  if (oldCopy) note('warn', `8.x の写しが残っている: .claude/skills/${NAME}(${oldCopy.version})。install か vendor で置き換える。`);
   for (const old of [path.join('.claude', 'dotagents.json'), path.join('.claude', 'rules', 'dotagents'), path.join('.codex', 'dotagents')]) {
     if (fs.existsSync(path.join(root, old))) note('warn', `7.x が配ったものが残っている: ${old}`);
   }
@@ -134,7 +82,7 @@ export function doctor(dir, { remote = true } = {}) {
   // 共有のブランチが GitHub の側で守られているか。守られていなければ、ハーネスを入れていない人と道具は止まらない。
   if (remote && tryRun(root, 'git', 'rev-parse', '--git-dir')) {
     const head = tryRun(root, 'git', 'symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD');
-    const branches = [...new Set([head?.replace(/^origin\//, ''), ...list(value.protected).filter((name) => !name.includes('*'))].filter(Boolean))];
+    const branches = [...new Set([head?.replace(/^origin\//, ''), ...styleValues(value).shared, ...list(value.protected)].filter((name) => name && !name.includes('*')))];
     for (const branch of branches) {
       const rules = tryRun(root, 'gh', 'api', `repos/{owner}/{repo}/rules/branches/${branch}`, '--jq', 'length');
       const legacy = tryRun(root, 'gh', 'api', `repos/{owner}/{repo}/branches/${branch}/protection`, '--jq', '.url');
@@ -215,15 +163,33 @@ function printStats(result) {
 
 // ---------------------------------------------------------------- main
 
+function option(rest, name) {
+  const at = rest.indexOf(name);
+  return at >= 0 ? rest[at + 1] : rest.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
+}
+
 function main(argv) {
   const [command, ...rest] = argv;
-  const dir = rest.find((arg) => !arg.startsWith('-')) ?? process.cwd();
-  if (command === 'vendor') {
+  const valued = new Set(['--git', '--architecture', '--days']);
+  const dir = rest.find((arg, index) => !arg.startsWith('-') && !valued.has(rest[index - 1])) ?? process.cwd();
+  const tell = (result) => {
+    for (const file of result.placed ?? []) console.log(`雛形を写した: ${file}`);
+    for (const file of result.skipped ?? []) console.log(`すでにあるので写さなかった: ${file}`);
+    console.log('書き換えたものをコミットする。各人がすることは次のとおり。');
+    for (const line of result.each) console.log(`- ${line}`);
+  };
+  if (command === 'install') {
+    tell(install(dir, { style: { git: option(rest, '--git'), architecture: option(rest, '--architecture') }, template: !rest.includes('--no-template') }));
+  } else if (command === 'uninstall') {
+    uninstall(dir);
+    console.log('参照を外した。宣言と、写した雛形は残した。');
+  } else if (command === 'vendor') {
     const result = vendor(dir);
-    console.log(`${result.target} に ${result.version} を置いた。置いたものと、書き換えた設定をコミットする。`);
+    console.log(`${result.target} に ${result.version} を写した。`);
+    tell(result);
   } else if (command === 'unvendor') {
     unvendor(dir);
-    console.log('外した。');
+    console.log('写しを外した。');
   } else if (command === 'doctor') {
     const notes = doctor(dir, { remote: !rest.includes('--offline') });
     const marks = { ok: '✓', info: '・', warn: '!', error: '✗' };
@@ -233,7 +199,7 @@ function main(argv) {
     const at = rest.indexOf('--days');
     printStats(stats({ days: at >= 0 ? Number(rest[at + 1]) || 7 : 7 }));
   } else {
-    console.log('使い方: dotagents.mjs <vendor|unvendor|doctor|stats> [dir]');
+    console.log('使い方: dotagents.mjs <install|uninstall|vendor|unvendor|doctor|stats> [dir]');
     process.exitCode = command ? 1 : 0;
   }
 }
