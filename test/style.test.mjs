@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { budgetOf, contextFor, largestSize } from '../plugin/src/context.mjs';
+import { findings } from '../plugin/src/guard.mjs';
 import { catalog, chosenStyles, readStyle } from '../plugin/src/style.mjs';
 
 function project(declaration) {
@@ -51,4 +52,25 @@ test('知らない流は、進める役にだけ知らせ、無いものとし�
   assert.match(contextFor({ role: 'lead', cwd }), /知らない流がある\(git: "no-such-flow"\)/);
   for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /知らない流/, role);
   assert.equal(contextFor({ role: 'builder', cwd }), contextFor({ role: 'builder', cwd: project({}) }));
+});
+
+test('git の流は、進める役にだけ入る', () => {
+  for (const name of ['trunk', 'release-branches', 'develop-master']) {
+    const cwd = project({ style: { git: name } });
+    assert.ok(contextFor({ role: 'lead', cwd }).includes(readStyle('git', name).body), name);
+    for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /# git の流れ/, `${name}: ${role}`);
+  }
+  assert.doesNotMatch(contextFor({ role: 'lead', cwd: project({}) }), /# git の流れ/);
+});
+
+test('git の流は、共有のブランチの既定を決め、宣言の protected はそれに足す', () => {
+  const tools = { git: (cwd, ...args) => (args[0] === 'symbolic-ref' && args.some((arg) => arg.startsWith('refs/remotes')) ? 'origin/main' : args[0] === 'symbolic-ref' ? 'work/x' : null), gh: () => null };
+  const pushed = (command, declaration) => findings({ tool: 'shell', command, cwd: '/repo' }, declaration, tools).map((finding) => `${finding.kind}:${finding.target}`);
+  // 入れ子の名前の release ブランチも、共有のブランチである。
+  assert.deepEqual(pushed('git push origin release/drive-web/v1.73', { style: { git: 'release-branches' } }), ['push:release/drive-web/v1.73']);
+  assert.deepEqual(pushed('git push origin release/drive-web/v1.73', { style: { git: 'trunk' } }), []);
+  assert.deepEqual(pushed('git push origin develop', { style: { git: 'develop-master' } }), ['push:develop']);
+  assert.deepEqual(pushed('git push origin develop', {}), []);
+  assert.deepEqual(pushed('git push origin staging', { style: { git: 'develop-master' }, protected: ['staging'] }), ['push:staging']);
+  assert.deepEqual(pushed('git push origin main', { style: { git: 'trunk' } }), ['push:main']);
 });
