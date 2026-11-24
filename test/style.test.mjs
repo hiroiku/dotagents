@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -73,4 +74,39 @@ test('git の流は、共有のブランチの既定を決め、宣言の protec
   assert.deepEqual(pushed('git push origin develop', {}), []);
   assert.deepEqual(pushed('git push origin staging', { style: { git: 'develop-master' }, protected: ['staging'] }), ['push:staging']);
   assert.deepEqual(pushed('git push origin main', { style: { git: 'trunk' } }), ['push:main']);
+});
+
+test('設計の形は、どの役にも入る', () => {
+  const cwd = project({ style: { architecture: 'layered' } });
+  for (const role of ['lead', 'builder', 'reviewer', 'worker']) assert.match(contextFor({ role, cwd }), /# 設計の形\(layered\)/, role);
+});
+
+// 雛形はプロジェクトへ写して使う。写したときと同じ置き方で、node だけで動かす。
+test('層の検査の雛形は、依存の向き、コンテキストのまたぎ、外のパッケージを落とし、ファイルを渡せばそれだけを見る', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-layers-'));
+  const template = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'plugin', 'styles', 'architecture', 'layered');
+  const write = (file, text) => {
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    fs.writeFileSync(path.join(root, file), text);
+  };
+  for (const name of ['check.mjs', 'layers.json']) write(`scripts/layers/${name}`, fs.readFileSync(path.join(template, name), 'utf8'));
+  write('src/app-kernel/result.ts', 'export type Result = unknown;\n');
+  write('src/domain/entities/user/user.entity.ts', "import type { Result } from '../../../app-kernel/result';\n// import { x } from '../../../interface/x';\n");
+  write('src/application/use-cases/user/sign-up.use-case.ts', "import { User } from '@/domain/entities/user/user.entity';\n");
+  write('src/frameworks/web/composition-root.ts', "import { Store } from '@/infrastructure/repositories/user/store';\n");
+  const check = (...files) => spawnSync(process.execPath, [path.join(root, 'scripts', 'layers', 'check.mjs'), ...files], { cwd: root, encoding: 'utf8' });
+  assert.equal(check().status, 0, check().stdout);
+  write('src/domain/entities/order/order.entity.ts', "import { User } from '../user/user.entity';\nimport { z } from 'zod';\nexport * from '../../../interface/presenters/x';\n");
+  write('src/frameworks/web/page.ts', "const u = await import('@/application/use-cases/user/sign-up.use-case');\n");
+  const failed = check();
+  assert.equal(failed.status, 1);
+  assert.match(failed.stdout, /src\/domain\/entities\/order\/order\.entity\.ts:1: domain のコンテキスト order は、user を import しない/);
+  assert.match(failed.stdout, /order\.entity\.ts:2: domain は外のパッケージ zod を import しない/);
+  assert.match(failed.stdout, /order\.entity\.ts:3: domain は interface を import しない/);
+  assert.match(failed.stdout, /src\/frameworks\/web\/page\.ts:1: frameworks は application を import しない/);
+  assert.equal(failed.stdout.match(/import しない/g).length, 4);
+  const one = check('src/frameworks/web/page.ts');
+  assert.equal(one.status, 1);
+  assert.doesNotMatch(one.stdout, /order\.entity/);
+  assert.equal(check('src/application/use-cases/user/sign-up.use-case.ts').status, 0);
 });

@@ -1,0 +1,19 @@
+{
+  "root": "../..",
+  "aliases": { "@/": "src/" },
+  "composition": ["src/frameworks/*/composition-root.ts"],
+  "layers": [
+    { "name": "app-kernel", "path": "src/app-kernel", "may": [] },
+    { "name": "domain", "path": "src/domain", "may": ["app-kernel"], "packages": [], "context": 1 },
+    { "name": "application", "path": "src/application", "may": ["domain", "app-kernel"], "packages": [] },
+    { "name": "interface", "path": "src/interface", "may": ["application", "app-kernel"] },
+    { "name": "infrastructure", "path": "src/infrastructure", "may": ["application", "app-kernel"] },
+    { "name": "frameworks", "path": "src/frameworks", "may": ["interface", "app-kernel"] },
+    { "name": "test/app-kernel", "path": "test/app-kernel", "may": ["app-kernel"] },
+    { "name": "test/domain", "path": "test/domain", "may": ["domain", "app-kernel"] },
+    { "name": "test/application", "path": "test/application", "may": ["application", "app-kernel"] },
+    { "name": "test/interface", "path": "test/interface", "may": ["interface", "app-kernel"] },
+    { "name": "test/infrastructure", "path": "test/infrastructure", "may": ["infrastructure", "app-kernel"] },
+    { "name": "test/frameworks", "path": "test/frameworks", "may": ["frameworks", "app-kernel"] }
+  ]
+}
