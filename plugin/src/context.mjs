@@ -1,18 +1,21 @@
 // 役ごとに、常に文脈へ入れる文を組み立てる。3 つのホストの受け口が、同じこの関数を呼ぶ。
 //
 // 入れるのは、核(どの役にも)、進める役の文(進める役にだけ)、プロジェクトの宣言から導いた事実である。
-// 役の仕事の中身は、役の定義(agents/)が持つ。場面ごとの手順は、スキルが持つ。
+// 役の仕事の中身は、役の定義(agents/)が持ち、ホストが役の文脈に入れる。利用者が頼んだ場面の手順は、スキルが持つ。
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { list, readDeclaration } from './declaration.mjs';
+import { roles } from './roles.mjs';
 
 export const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// 常設の文の上限(文字)。足すたびに、ほかの文が読まれる度合いが下がる。超えたらテストが落ちる。
+// 役が毎回読む文の上限(文字)。足すたびに、ほかの文が読まれる度合いが下がる。超えたらテストが落ちる。
+// 数えるのは、核、進める役の文、役の定義の本文である。宣言から導いた事実(決定、検査の入口)は、プロジェクトが
+// 持つものなので数えない。7.x では常設の文が 6,149 字になり、読まれない文が増えた。
 // これは、ハーネスが自分の大きさに掛ける上限である。エージェントの働き方に掛ける上限は、持たない。
-export const BUDGET = { core: 900, lead: 800 };
+export const BUDGET = { lead: 6000, subagent: 4000 };
 
 const TIERS = [
   ['edit', '編集'],
@@ -43,9 +46,23 @@ export function projectFacts({ role, cwd }) {
   return parts.join('\n\n');
 }
 
-export function contextFor({ role = 'lead', cwd = process.cwd() } = {}) {
+// hook が入れる、宣言から導かない文。
+function standing(role) {
   const parts = [coreText('core')];
   if (role === 'lead') parts.push(coreText('lead'));
+  return parts;
+}
+
+// 役が毎回読む文の字数。hook が入れる文に、ホストが入れる役の定義の本文を足す。上限と比べるのに使う。
+export function standingSize(role) {
+  const body = roles().find((definition) => definition.name === role)?.body ?? '';
+  return [...standing(role), body].filter(Boolean).join('\n\n').length;
+}
+
+export const budgetOf = (role) => (role === 'lead' ? BUDGET.lead : BUDGET.subagent);
+
+export function contextFor({ role = 'lead', cwd = process.cwd() } = {}) {
+  const parts = standing(role);
   const facts = projectFacts({ role, cwd });
   if (facts) parts.push(facts);
   return parts.join('\n\n');

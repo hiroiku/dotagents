@@ -82,7 +82,7 @@ test('プロジェクトに入れると、同じ名前の写しが置かれ、�
   // 同じ名前にする。利用者が自分の環境にも入れていれば、Claude Code はそちらだけを読む。
   assert.equal(json(copy, '.claude-plugin', 'plugin.json').name, NAME);
   assert.equal(json(copy, 'VENDORED.json').version, json(PLUGIN, 'package.json').version);
-  assert.ok(fs.existsSync(path.join(copy, 'src', 'guard.mjs')) && fs.existsSync(path.join(copy, 'skills', 'flow', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(copy, 'src', 'guard.mjs')) && fs.existsSync(path.join(copy, 'skills', 'setup', 'SKILL.md')));
   // 利用者の環境に入れたものを、プロジェクトの設定で切らない。切ると、写しが読み込まれない場面で、どちらも働かない。
   assert.deepEqual(json(dir, '.claude', 'settings.json'), settings);
   // Pi には、同じリポジトリーの版の tag を宣言する。利用者も入れていれば、Pi はプロジェクトの側だけを読む。

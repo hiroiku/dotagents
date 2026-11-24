@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { BUDGET, PLUGIN_ROOT, contextFor, coreText } from '../plugin/src/context.mjs';
+import { PLUGIN_ROOT, budgetOf, contextFor, coreText, standingSize } from '../plugin/src/context.mjs';
 
 function project(declaration) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
@@ -12,8 +12,8 @@ function project(declaration) {
   return dir;
 }
 
-test('常設の文は上限に収まる', () => {
-  for (const [name, limit] of Object.entries(BUDGET)) assert.ok(coreText(name).length <= limit, `${name}: ${coreText(name).length} 字 > ${limit} 字`);
+test('役が毎回読む文は、役ごとの上限に収まる', () => {
+  for (const role of ['lead', 'builder', 'reviewer', 'worker']) assert.ok(standingSize(role) <= budgetOf(role), `${role}: ${standingSize(role)} 字 > ${budgetOf(role)} 字`);
 });
 
 test('核はどの役にも入り、進める役の文は進める役にだけ入る', () => {
@@ -57,7 +57,7 @@ test('常設の文、役の定義、スキルに、時間や数の上限を書�
     }
   };
   for (const name of ['core', 'agents', 'skills']) walk(path.join(PLUGIN_ROOT, name));
-  assert.ok(files.length > 8, '読む場所が変わっていないこと');
+  assert.ok(files.length >= 8, '読む場所が変わっていないこと');
   for (const file of files) {
     fs.readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
       assert.doesNotMatch(line, LIMITS, `${path.relative(PLUGIN_ROOT, file)}:${index + 1}`);

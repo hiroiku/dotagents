@@ -154,9 +154,9 @@ test('確かめた回数と止めた回数が、記録に残る', () => {
 
 test('スキルの読み込みは、判定せずに数える', () => {
   const cwd = project();
-  assert.equal(run('claude', 'tool', { cwd, tool_name: 'Skill', tool_input: { skill: 'dotagents:flow' } }), null);
+  assert.equal(run('claude', 'tool', { cwd, tool_name: 'Skill', tool_input: { skill: 'dotagents:releases' } }), null);
   const lines = fs.readFileSync(path.join(home, 'log', fs.readdirSync(path.join(home, 'log'))[0]), 'utf8');
-  assert.match(lines, /"event":"skill","project":"[^"]+","role":"lead","name":"flow"/);
+  assert.match(lines, /"event":"skill","project":"[^"]+","role":"lead","name":"releases"/);
 });
 
 // 写しが読み込まれているかは、ファイルの有無からは分からない(信頼されていないフォルダー、下のディレクトリーで

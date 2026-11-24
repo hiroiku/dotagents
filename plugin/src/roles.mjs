@@ -2,7 +2,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { PLUGIN_ROOT } from './context.mjs';
+import { fileURLToPath } from 'node:url';
+
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export function readRole(file) {
   const match = fs.readFileSync(file, 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);

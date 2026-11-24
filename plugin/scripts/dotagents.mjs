@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BUDGET, PLUGIN_ROOT, coreText } from '../src/context.mjs';
+import { PLUGIN_ROOT, budgetOf, standingSize } from '../src/context.mjs';
 import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declaration.mjs';
 import { KIND_LABELS } from '../src/guard.mjs';
 import { logDir } from '../src/log.mjs';
@@ -100,9 +100,9 @@ export function doctor(dir, { remote = true } = {}) {
   const notes = [];
   const note = (level, text) => notes.push({ level, text });
 
-  for (const [name, limit] of Object.entries(BUDGET)) {
-    const size = coreText(name).length;
-    note(size > limit ? 'error' : 'ok', `常設の文 ${name}: ${size} 字(上限 ${limit} 字)`);
+  for (const role of ['lead', 'builder', 'reviewer']) {
+    const size = standingSize(role);
+    note(size > budgetOf(role) ? 'error' : 'ok', `${role} が毎回読む文: ${size} 字(上限 ${budgetOf(role)} 字)`);
   }
 
   const { file, value, error } = readDeclaration(root);
