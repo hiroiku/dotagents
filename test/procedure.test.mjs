@@ -37,7 +37,7 @@ function tools({ branch = 'work/x', remoteHead = 'origin/main', upstream = null,
       if (args[0] === 'remote') return args[1] === 'get-url' ? 'https://github.com/o/r.git' : 'origin\nupstream';
       if (args[0] === 'config') {
         const value = { ...config, ...given }[args.at(-1)];
-        if (value === undefined) return null;
+        if (value === undefined) return args.find((arg) => arg.startsWith('--default='))?.slice(10) ?? null;
         return args.includes('--type=bool') ? asBool(value) : value;
       }
       if (args[0] === 'rev-parse' && args.includes('--abbrev-ref')) return upstream;
@@ -289,6 +289,72 @@ test('GitHub への問い合わせが時間を使い切っても、手元の判�
   } finally {
     process.env.PATH = previous;
   }
+});
+
+// 決まった問い合わせだけを遅くする git。ほかは本物の git に渡す。
+function slowGit(pattern) {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-slow-git-'));
+  const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do case "$a" in ${pattern}) exec sleep 5;; esac; done\nexec "${real}" "$@"\n`, { mode: 0o755 });
+  return path.join(bin, 'git');
+}
+
+function repository(branch, setup = () => {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-repo-'));
+  const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
+  git('init', '-q', '-b', branch);
+  git('commit', '-q', '--allow-empty', '-m', 'a');
+  git('remote', 'add', 'origin', 'https://github.com/o/r.git');
+  setup(git);
+  return dir;
+}
+
+const remoteDefault = (name) => (git) => {
+  git('update-ref', `refs/remotes/origin/${name}`, 'HEAD');
+  git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${name}`);
+};
+
+test('GitHub が遅くて時間を使い切っても、手元の git は自分の時間で答え、既定のブランチの削除を見落とさない', () => {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-slow-'));
+  fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexec sleep 5\n', { mode: 0o755 });
+  const dir = repository('work/x', remoteDefault('develop'));
+  const previous = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${previous}`;
+  try {
+    // gh pr merge の base を尋ねて GitHub の時間を使い切ったあとに、リモートの既定(develop)を手元の git に尋ねる。
+    const found = (command) => decide({ tool: 'shell', command, cwd: dir, role: 'lead', canAsk: true }, runners({ github: 300 }))?.findings;
+    assert.deepEqual(found('gh pr merge 3 && gh api -X DELETE repos/o/r/git/refs/heads/develop'), [{ kind: 'merge', target: '*' }, { kind: 'rewrite', target: 'develop' }]);
+    // 時間を分けていれば、共有でないブランチの削除まで確かめる側に倒れることもない。
+    assert.deepEqual(found('gh pr merge 3 && gh api -X DELETE repos/o/r/git/refs/heads/work/y'), [{ kind: 'merge', target: '*' }]);
+  } finally {
+    process.env.PATH = previous;
+  }
+});
+
+test('リモートの既定のブランチが手元の時間の内に分からなければ、どの行き先も既定かもしれないものとして確かめる', () => {
+  const dir = repository('work/x', remoteDefault('develop'));
+  const slow = { git: command(slowGit('refs/remotes/*/HEAD'), 300), gh: () => null };
+  for (const command of ['git push origin develop', 'git push origin work/y']) {
+    const result = decide({ tool: 'shell', command, cwd: dir, role: 'lead', canAsk: true }, { ...slow, git: slow.git });
+    assert.equal(result?.decision, 'ask', command);
+  }
+  // 答えがあれば、既定のブランチだけを確かめる。既定が記録されていないリポジトリーでは、main と master を既定とみなす。
+  const fast = (command, cwd) => decide({ tool: 'shell', command, cwd, role: 'lead', canAsk: true }, { git: runners().git, gh: () => null })?.decision ?? null;
+  assert.equal(fast('git push origin develop', dir), 'ask');
+  assert.equal(fast('git push origin work/y', dir), null);
+  const bare = repository('work/x');
+  assert.equal(fast('git push origin work/y', bare), null);
+  assert.equal(fast('git push origin main', bare), 'ask');
+});
+
+test('pull の設定か、リモートの既定のブランチが答えないときは、追従として止めない', () => {
+  const dir = repository('work/x', (git) => git('config', 'pull.rebase', 'true'));
+  const pull = (pattern) => decide({ tool: 'shell', command: 'git pull', cwd: dir, role: 'lead', canAsk: true }, { git: command(slowGit(pattern), 300), gh: () => null })?.kind ?? null;
+  assert.equal(pull('config'), null);
+  assert.equal(pull('refs/remotes/*/HEAD'), null);
+  // 設定が無いと分かれば止める。
+  const plain = repository('work/x');
+  assert.equal(decide({ tool: 'shell', command: 'git pull', cwd: plain, role: 'lead', canAsk: true }, { git: runners().git, gh: () => null })?.kind, 'follow');
 });
 
 test('git と gh への問い合わせは、それぞれの時間を過ぎたら答えを待たずに返り、合わせても hook の上限より十分短い', () => {

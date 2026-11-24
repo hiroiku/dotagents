@@ -123,10 +123,13 @@ export function styleValues(declaration) {
 
 // 共有のブランチ。リモートの既定のブランチ、main と master、選んだ流の既定、宣言の protected を合わせる。
 // ask は、git にそのリポジトリーについて尋ねる関数である。
+// リモートの既定が記録されていなければ、main と master を既定とみなす。git が答えなければ、どのブランチも既定かも
+// しれないので、すべてを共有のブランチとして扱う(外へ届く側に倒す)。
 function guardedBranches(ask, remote, declaration) {
   const head = ask('symbolic-ref', '-q', '--short', `refs/remotes/${remote}/HEAD`);
+  const unknown = !head && ask('for-each-ref', '--format=%(refname)', `refs/remotes/${remote}/HEAD`) === null;
   const defaults = head ? [head.slice(remote.length + 1)] : CONVENTIONAL;
-  return { defaults, guarded: [...new Set([...defaults, ...CONVENTIONAL, ...styleValues(declaration).shared, ...list(declaration.protected)])] };
+  return { defaults, guarded: [...new Set([...(unknown ? ['*'] : []), ...defaults, ...CONVENTIONAL, ...styleValues(declaration).shared, ...list(declaration.protected)])] };
 }
 
 // git の前に付く大域の指定のうち、次の語を値に取るもの。
@@ -415,12 +418,17 @@ function branchOf(ref, remotes) {
 // リモートの名前だけと、<リモート>/HEAD は、そのリモートの既定のブランチを指す。
 const remoteDefault = (ref, remotes) => remotes.some((remote) => [remote, `${remote}/HEAD`, `refs/remotes/${remote}/HEAD`].includes(ref));
 
+// 設定が無いことを、git が答えなかったことと分けて受け取るための値。
+const UNSET = '--default=dotagents-unset';
+const unset = (value) => value === 'dotagents-unset';
+
 // rebase で取り込むかを、git が pull.rebase と branch.<名前>.rebase を読むのと同じ意味で読む。範囲(利用者全体、
-// リポジトリー、-c)ごとに値が違ってもよいよう、効いている値(最後の 1 つ)を読む。設定が無ければ null を返す。
-// git config --type=bool は、どこか 1 つの範囲に merges があるだけで失敗するので使わない。
+// リポジトリー、-c)ごとに値が違ってもよいよう、効いている値(最後の 1 つ)を読む。設定が無ければ null、git が
+// 答えなければ undefined を返す。git config --type=bool は、どこか 1 つの範囲に merges があるだけで失敗するので使わない。
 function rebaseSetting(setting, key) {
-  const raw = setting('--get', key);
-  if (raw === null) return null;
+  const raw = setting(UNSET, '--get', key);
+  if (raw === null) return undefined;
+  if (unset(raw)) return null;
   // 値の無い鍵は真、空の値は偽で、--get の答えでは区別できない。
   if (raw === '') return setting('--type=bool', '--get', key) === 'true';
   if (/^(?:true|yes|on)$/i.test(raw)) return true;
@@ -453,10 +461,18 @@ function follow(command, declaration, git) {
       else if (word === '--no-rebase') rebase = false;
     }
     const explicit = rebase !== null;
-    rebase ??= rebaseSetting(setting, `branch.${current}.rebase`) ?? rebaseSetting(setting, 'pull.rebase');
+    if (!explicit) {
+      const branch = rebaseSetting(setting, `branch.${current}.rebase`);
+      rebase = branch === null ? rebaseSetting(setting, 'pull.rebase') : branch;
+      // 設定を読めなければ、rebase するかが分からない。追従の merge は確かなときだけ止める。
+      if (rebase === undefined) return null;
+    }
     if (rebase) return null;
     // 早送りだけに限っていれば、merge の跡は残らない。
-    if (!explicit && !flag('--ff', '--no-ff') && setting('--get', 'pull.ff') === 'only') return null;
+    if (!explicit && !flag('--ff', '--no-ff')) {
+      const ff = setting(UNSET, '--get', 'pull.ff');
+      if (ff === null || ff === 'only') return null;
+    }
     return { kind: 'follow', reason: `rebase なしの git pull は、作業ブランチ(${current})に merge の跡を残します。\`git pull --rebase\` で追従してください。いつもそうするなら \`git config pull.rebase true\` を設定します。` };
   }
   let refs = args.map((ref) => (/^@\{u(?:pstream)?\}$/.test(ref) ? ask('rev-parse', '--abbrev-ref', '--symbolic-full-name', ref) ?? '' : ref));
