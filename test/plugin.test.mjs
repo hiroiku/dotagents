@@ -191,6 +191,24 @@ test('写しの marketplace の名前は、プロジェクトごとに違い、�
   assert.equal(json(cloned, '.agents', 'plugins', 'marketplace.json').name, 'dotagents-kuden-world-kuden-drive');
 });
 
+test('読めない設定は書き換えずに止め、関係の無い設定は外すときにも書き直さない', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
+  fs.mkdirSync(path.join(dir, '.claude'));
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), '{ "permissions": { // 手で書いた\n} }');
+  assert.throws(() => install(dir), /JSON として読めない/);
+  assert.equal(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'), '{ "permissions": { // 手で書いた\n} }');
+  const tidy = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
+  fs.mkdirSync(path.join(tidy, '.codex'));
+  fs.mkdirSync(path.join(tidy, '.pi'));
+  fs.writeFileSync(path.join(tidy, '.codex', 'config.toml'), 'model = "x"\n\n\n\n[a]\nb = 1');
+  fs.writeFileSync(path.join(tidy, '.pi', 'settings.json'), '{"theme":"dark"}');
+  uninstall(tidy);
+  unvendor(tidy);
+  assert.equal(fs.readFileSync(path.join(tidy, '.codex', 'config.toml'), 'utf8'), 'model = "x"\n\n\n\n[a]\nb = 1');
+  assert.equal(fs.readFileSync(path.join(tidy, '.pi', 'settings.json'), 'utf8'), '{"theme":"dark"}');
+  assert.equal(fs.existsSync(path.join(tidy, '.claude')), false);
+});
+
 test('この道具が置いたのではないものがある場所と、プロジェクトの marketplace には、写さない', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
   const own = path.join(dir, '.agents', 'plugins', NAME, 'skills', 'mine', 'SKILL.md');

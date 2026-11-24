@@ -61,12 +61,23 @@ const repository = () => String(manifest().repository).replace(/^https?:\/\/gith
 const piPackage = () => `git:github.com/${repository()}`;
 
 // JSON の設定を読み、変えて、書き戻す。変えたあとに空になった入れ物は消し、ファイルごと空になれば消す。
+// 中身が変わらなければ書かない。読めないファイルは、書き戻すと利用者の設定が消えるので、触らずに止める。
 function editJson(file, change) {
-  const data = readJson(file, {});
+  const exists = fs.existsSync(file);
+  let data = {};
+  if (exists) {
+    try {
+      data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (error) {
+      throw new Error(`${file} が JSON として読めないので、書き換えない: ${error.message}`);
+    }
+  }
+  const before = JSON.stringify(data);
   change(data);
   for (const [key, value] of Object.entries(data)) if (value && typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length) delete data[key];
+  if (JSON.stringify(data) === before) return;
   if (Object.keys(data).length) writeJson(file, data);
-  else fs.rmSync(file, { force: true });
+  else if (exists) fs.rmSync(file);
 }
 
 // 写しの marketplace の名前。置いてあればその名前を保ち、無ければ origin のリポジトリーの名前か、ディレクトリーの名前から作る。
@@ -129,6 +140,7 @@ function codex(root, mode, market) {
     if (fs.existsSync(file)) fs.rmSync(file);
     return;
   }
+  if (kept.length === lines.length && !add) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${text}\n`);
 }
