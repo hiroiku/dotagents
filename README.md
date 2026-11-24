@@ -46,7 +46,7 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 | Claude Code | `.claude/settings.json`: `extraKnownMarketplaces` and `enabledPlugins` | Trust the folder. If you have not installed the harness yourself, run `claude plugin install dotagents@dotagents --scope project` once (`--scope user` for every project). Enabling it in the settings alone does not load it at the start of an interactive session. `doctor` tells you whether it is installed on your machine. |
 | Codex | `.codex/config.toml`: a git marketplace and the plugin, unpinned | Trust the project, then approve the hooks in `/hooks`. Codex asks again whenever the plugin's contents change. |
 
-If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. `uninstall` removes the references.
+If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. `uninstall` removes the references. `install`, `vendor` and their reverses add and remove only the entries they own and leave every other character of your settings as it was; if any settings file they need cannot be read as JSON, they change nothing.
 
 `vendor` copies the plugin into the repository instead (`.agents/plugins/dotagents/`, a repository marketplace that both hosts read) for people who cannot reach GitHub. Every upgrade then needs a commit, so use it only when you choose to. Claude Code needs no install: after you trust the folder, the first session registers the repository marketplace and the copy loads from the next session. Codex needs `/plugins` opened once to install it. `unvendor` removes it.
 

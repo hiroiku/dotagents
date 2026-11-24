@@ -46,7 +46,7 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 | Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。入っているかは `doctor` が知らせる。 |
 | Codex | `.codex/config.toml` に、版を固定しない git の marketplace と plugin | プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。 |
 
-自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。`uninstall` で参照を外す。
+自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。`uninstall` で参照を外す。入れる、写す、外すのどれも、この道具が書いた項目だけを足し引きし、設定のほかの文字は変えない。読めない設定が 1 つでもあれば、何も変えずに止める。
 
 `vendor` は、参照の代わりに、plugin をリポジトリーの中に写す(`.agents/plugins/dotagents/`。2 つのホストが読む、リポジトリーの中の marketplace)。GitHub に届かない人のためのもので、版を上げるたびにコミットが要るので、利用者が選んだときだけ使う。Claude Code は、入れる操作が要らない。フォルダーを信頼すると、最初のセッションでリポジトリーの中の marketplace が登録され、次のセッションから写しが読まれる。Codex は、`/plugins` を一度開くと入る。`unvendor` で外す。
 

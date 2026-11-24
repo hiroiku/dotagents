@@ -220,6 +220,127 @@ test('読めない設定は書き換えずに止め、関係の無い設定は�
   assert.equal(fs.existsSync(path.join(tidy, '.claude')), false);
 });
 
+// ディレクトリーの中のファイルと中身。写しの中身は数えない。
+function snapshot(dir) {
+  const files = {};
+  const walk = (at) => {
+    for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
+      const file = path.join(at, entry.name);
+      if (entry.isDirectory()) {
+        if (fs.existsSync(path.join(file, 'VENDORED.json'))) files[`${path.relative(dir, file)}/`] = fs.readFileSync(path.join(file, 'VENDORED.json'), 'utf8');
+        else walk(file);
+      } else files[path.relative(dir, file)] = fs.readFileSync(file, 'utf8');
+    }
+  };
+  walk(dir);
+  return files;
+}
+
+function project(files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
+  for (const [file, text] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    fs.writeFileSync(path.join(dir, file), text);
+  }
+  return dir;
+}
+
+test('読めない設定が 1 つでもあれば、ほかの設定も写しも、何も変えずに止める', () => {
+  const unreadable = '{ "permissions": {}, // 手で書いた\n}';
+  // 宣言は入れるときにだけ書くので、写すときには読まない。
+  for (const [file, runs] of [['.claude/settings.json', ['install', 'vendor']], ['.agents/dotagents.json', ['install']], ['.agents/plugins/marketplace.json', ['install', 'vendor', 'unvendor']]]) {
+    const dir = project({ '.codex/config.toml': 'model = "x"\n', '.claude/skills/dotagents/VENDORED.json': '{}', [file]: unreadable });
+    const before = snapshot(dir);
+    for (const name of runs) {
+      assert.throws(() => ({ install, vendor, unvendor })[name](dir, { style: { git: 'trunk' } }), /JSON として読めない/, `${file}: ${name}`);
+      assert.deepEqual(snapshot(dir), before, `${file}: ${name}`);
+    }
+  }
+  // 写して入れたあとに設定が読めなくなっても、写しと目録を先に消さない。
+  const vendored = project({ '.claude/settings.json': '{"a":1}' });
+  vendor(vendored);
+  fs.writeFileSync(path.join(vendored, '.claude', 'settings.json'), unreadable);
+  const before = snapshot(vendored);
+  for (const run of [install, uninstall, unvendor]) {
+    assert.throws(() => run(vendored), /JSON として読めない/);
+    assert.deepEqual(snapshot(vendored), before, run.name);
+  }
+});
+
+test('入れて外すと、ほかの設定は 1 文字も変わらない', () => {
+  const claude = '{\n    "env": {},\n    "hooks": {},\n    "permissions": { "allow": ["Bash(ls:*)"] }\n}\n';
+  const codex = 'model = "x"\n\n[profiles.a]\ndeveloper_instructions = """\nfirst\n\n\n\n[not a table]\nsecond\n"""\n';
+  const pi = '{\n\t"theme": "dark",\n\t"packages": ["npm:@example/tools", "git:github.com/hiroiku/dotagents@v8.0.5"]\n}\n';
+  const dir = project({ '.claude/settings.json': claude, '.codex/config.toml': codex, '.pi/settings.json': pi });
+  install(dir);
+  const settings = fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8');
+  assert.match(settings, /^\{\n {4}"env": \{\},\n {4}"hooks": \{\},\n {4}"permissions": \{ "allow": \["Bash\(ls:\*\)"\] \},\n {4}"/);
+  assert.equal(json(dir, '.claude', 'settings.json').enabledPlugins['dotagents@dotagents'], true);
+  assert.ok(toml(dir).startsWith(codex), toml(dir));
+  assert.equal(fs.readFileSync(path.join(dir, '.pi', 'settings.json'), 'utf8'), '{\n\t"theme": "dark",\n\t"packages": ["npm:@example/tools"]\n}\n');
+  const installed = snapshot(dir);
+  install(dir);
+  assert.deepEqual(snapshot(dir), installed, '入れ直しても変わらない');
+  uninstall(dir);
+  assert.equal(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'), claude);
+  assert.equal(toml(dir), codex);
+  // 書いた表の後ろに利用者が足したものは、外すときに残す。
+  install(dir);
+  fs.appendFileSync(path.join(dir, '.codex', 'config.toml'), '# 手で足した\nnotify = ["x"]\n');
+  uninstall(dir);
+  assert.match(toml(dir), /# 手で足した\nnotify = \["x"\]\n$/);
+  vendor(dir);
+  const vendored = snapshot(dir);
+  vendor(dir);
+  assert.deepEqual(snapshot(dir), vendored, '写し直しても変わらない');
+  unvendor(dir);
+  assert.equal(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'), claude);
+});
+
+test('この道具の印が無い marketplace の目録は、入れても外しても消さない', () => {
+  // dotagents のリポジトリー自身の目録。名前が写しの形ではない。
+  const own = JSON.stringify({ name: 'dotagents', plugins: [{ name: 'dotagents', source: { source: 'local', path: './plugin' } }] }, null, 2);
+  const dir = project({ '.agents/plugins/marketplace.json': own });
+  for (const run of [install, uninstall, unvendor]) {
+    run(dir);
+    assert.equal(fs.readFileSync(path.join(dir, '.agents', 'plugins', 'marketplace.json'), 'utf8'), own, run.name);
+  }
+});
+
+test('origin の無いプロジェクトでも、同じ名前のディレクトリーどうしで写しの marketplace の名前が重ならない', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
+  const names = ['x', 'y'].map((parent) => {
+    const dir = path.join(base, parent, 'app');
+    fs.mkdirSync(dir, { recursive: true });
+    vendor(dir);
+    return json(dir, '.agents', 'plugins', 'marketplace.json').name;
+  });
+  assert.notEqual(names[0], names[1]);
+  for (const name of names) assert.match(name, /^dotagents-app-[0-9a-f]+$/);
+});
+
+test('8.x の写しは、入れても外しても消え、ほかのスキルと .claude/skills は残る', () => {
+  for (const run of [install, vendor, uninstall, unvendor]) {
+    const dir = project({ '.claude/skills/dotagents/VENDORED.json': '{"version":"8.0.5"}', '.claude/skills/dotagents/core.md': 'x', '.claude/skills/mine/SKILL.md': 'mine' });
+    run(dir);
+    assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'dotagents')), false, run.name);
+    assert.equal(fs.readFileSync(path.join(dir, '.claude', 'skills', 'mine', 'SKILL.md'), 'utf8'), 'mine', run.name);
+  }
+  const alone = project({ '.claude/skills/dotagents/VENDORED.json': '{"version":"8.0.5"}' });
+  unvendor(alone);
+  assert.equal(fs.existsSync(path.join(alone, '.claude', 'skills', 'dotagents')), false);
+  assert.ok(fs.existsSync(path.join(alone, '.claude', 'skills')));
+});
+
+test('写して入れたあとに参照で入れ直すと、写しと目録が消える', () => {
+  const dir = project({});
+  vendor(dir);
+  install(dir);
+  assert.equal(fs.existsSync(path.join(dir, '.agents', 'plugins')), false);
+  assert.deepEqual(Object.keys(json(dir, '.claude', 'settings.json').enabledPlugins), ['dotagents@dotagents']);
+  assert.doesNotMatch(toml(dir), /dotagents-/);
+});
+
 // 参照を設定に書いただけでは、対話のセッションの始めに読まれない。各人が 1 回入れる。
 test('参照で入れたプロジェクトの点検は、この環境の Claude Code に入っているかを知らせる', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-doctor-'));

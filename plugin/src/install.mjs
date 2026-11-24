@@ -7,7 +7,8 @@
 // - 写し(vendor): リポジトリーの中の marketplace(.agents/plugins/)に写し、設定はそこを指す。版を上げるたびに
 //   コミットが要るので、利用者が選んだときだけ使う。
 //
-// どちらも、ほかの設定には触れず、この道具が書いた項目だけを書き換える。2 つは同時には置かない。
+// どちらも、この道具が書いた項目だけを足し引きし、ほかの文字は変えない。2 つは同時には置かない。
+// 変える内容はすべて組み立ててから書く。読めない設定が 1 つでもあれば、何も変えずに止める。
 //
 // ホストごとの違い(0.172.0 の Codex、2.1.331 の Claude Code で確かめた):
 //
@@ -22,10 +23,12 @@
 // 9.0.0 から Pi には入れない。8.x が .pi/settings.json に書いた、版を固定した package の行は、入れるときと外すときに消す。
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DECLARATION, readDeclaration } from './declaration.mjs';
+import { DECLARATION } from './declaration.mjs';
+import { editJsonText } from './jsontext.mjs';
 import { PLUGIN_ROOT } from './root.mjs';
 import { catalog, chosenStyles } from './style.mjs';
 
@@ -38,6 +41,7 @@ const MARKETPLACE = NAME;
 const VENDORED = new RegExp(`^${NAME}-[a-z0-9-]+$`);
 const isOurMarket = (name) => name === MARKETPLACE || VENDORED.test(name ?? '');
 const MARKET_DIR = path.join('.agents', 'plugins');
+const MARKET_FILES = [path.join(MARKET_DIR, 'marketplace.json'), path.join(MARKET_DIR, '.claude-plugin', 'marketplace.json')];
 const COPY_DIR = path.join(MARKET_DIR, NAME);
 const RECORD = 'VENDORED.json';
 // 8.x の写しの置き場と、Pi の設定。
@@ -54,172 +58,272 @@ const readJson = (file, fallback) => {
     return fallback;
   }
 };
-const writeJson = (file, value) => {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
-};
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const manifest = () => readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {});
 export const version = () => manifest().version;
 const repository = () => String(manifest().repository).replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
 // 8.x が Pi の設定に書いた package。いつも版の tag を付けて固定していた。
-const isOldPi = (entry) => String(typeof entry === 'string' ? entry : entry?.source).startsWith(`git:github.com/${repository()}@`);
+const oldPiPackage = () => `git:github.com/${repository()}@`;
+const isOldPi = (entry) => String(typeof entry === 'string' ? entry : entry?.source).startsWith(oldPiPackage());
 
-// JSON の設定を読み、変えて、書き戻す。変えたあとに空になった入れ物は消し、ファイルごと空になれば消す。
-// 中身が変わらなければ書かない。読めないファイルは、書き戻すと利用者の設定が消えるので、触らずに止める。
-function editJson(file, change) {
-  const exists = fs.existsSync(file);
-  let data = {};
-  if (exists) {
-    try {
-      data = JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch (error) {
-      throw new Error(`${file} が JSON として読めないので、書き換えない: ${error.message}`);
-    }
-  }
-  const before = JSON.stringify(data);
-  change(data);
-  for (const [key, value] of Object.entries(data)) if (value && typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length) delete data[key];
-  if (JSON.stringify(data) === before) return;
-  if (Object.keys(data).length) writeJson(file, data);
-  else if (exists) fs.rmSync(file);
+// ---------------------------------------------------------------- 変える内容の組み立て
+//
+// 途中まで書いたところで止まると、プロジェクトの設定が食い違ったまま残る。読むことと組み立ては先にすべて済ませ、
+// 書くのは apply だけにする。
+
+function planOf(root) {
+  const texts = new Map();
+  const removed = new Set();
+  const copies = [];
+  const read = (relative) => {
+    if (texts.has(relative)) return texts.get(relative);
+    const file = path.join(root, relative);
+    return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  };
+  const set = (relative, text) => texts.set(relative, text);
+  return {
+    root,
+    read,
+    set,
+    exists: (relative) => fs.existsSync(path.join(root, relative)),
+    json: (relative, change) => set(relative, editJsonText(read(relative), change, relative)),
+    remove: (relative) => removed.add(relative),
+    copy: (from, relative) => copies.push([from, relative]),
+    apply() {
+      for (const relative of removed) fs.rmSync(path.join(root, relative), { recursive: true, force: true });
+      for (const [from, relative] of copies) {
+        fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+        fs.cpSync(from, path.join(root, relative), { recursive: true, filter: (source) => !['node_modules', '.DS_Store'].includes(path.basename(source)) });
+      }
+      for (const [relative, text] of texts) {
+        const file = path.join(root, relative);
+        const now = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+        if (text === now) continue;
+        if (text === null) {
+          fs.rmSync(file);
+          // 書いたファイルを消して空になった置き場(.codex/ など)も消す。
+          try {
+            fs.rmdirSync(path.dirname(file));
+          } catch {}
+        } else {
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, text);
+        }
+      }
+      // 目録を消して空になった置き場だけを消す。
+      for (const dir of [path.join(MARKET_DIR, '.claude-plugin'), MARKET_DIR]) {
+        try {
+          fs.rmdirSync(path.join(root, dir));
+        } catch {}
+      }
+    },
+  };
 }
 
-// 写しの marketplace の名前。置いてあればその名前を保ち、無ければ origin のリポジトリーの名前か、ディレクトリーの名前から作る。
-function vendoredName(root) {
-  for (const file of [path.join(MARKET_DIR, '.claude-plugin', 'marketplace.json'), path.join(MARKET_DIR, 'marketplace.json')]) {
-    const name = readJson(path.join(root, file), {}).name;
+// JSON の設定の名前。読めなければ止める。
+function nameIn(plan, file) {
+  const text = plan.read(file);
+  if (text === null) return undefined;
+  let name;
+  editJsonText(text, (data) => {
+    name = data.name;
+  }, file);
+  return name;
+}
+
+// 写しの marketplace の名前。置いてあればその名前を保ち、無ければ origin のリポジトリーの名前から作る。origin が
+// 無ければ、ディレクトリーの名前に、置き場の全体から導いた短い値を足す。名前だけでは、別の場所の同じ名前と重なる。
+function vendoredName(plan) {
+  for (const file of MARKET_FILES) {
+    const name = nameIn(plan, file);
     if (VENDORED.test(name ?? '')) return name;
   }
   let origin = '';
   try {
-    origin = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    origin = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: plan.root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {}
-  const words = origin ? origin.replace(/\.git$/, '').split(/[/:]/).slice(-2) : [path.basename(root)];
-  const slug = words.join('-').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'project';
-  return `${NAME}-${slug}`;
+  const slug = (words) => words.join('-').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'project';
+  if (origin) return `${NAME}-${slug(origin.replace(/\.git$/, '').split(/[/:]/).slice(-2))}`;
+  const place = createHash('sha256').update(fs.realpathSync(plan.root)).digest('hex').slice(0, 8);
+  return `${NAME}-${slug([path.basename(plan.root)])}-${place}`;
+}
+
+// 入れ物から、この道具の項目を外す。外して空になったときだけ、入れ物ごと外す。
+function prune(data, key, isOurs) {
+  if (!isObject(data[key])) return;
+  const ours = Object.keys(data[key]).filter(isOurs);
+  for (const name of ours) delete data[key][name];
+  if (ours.length && !Object.keys(data[key]).length) delete data[key];
+}
+
+function box(data, key, file) {
+  data[key] ??= {};
+  if (!isObject(data[key])) throw new Error(`${file} の ${key} がオブジェクトではないので、書き換えない。`);
+  return data[key];
 }
 
 // ---------------------------------------------------------------- Claude Code
 
-function claude(root, mode, market) {
-  editJson(path.join(root, CLAUDE_SETTINGS), (data) => {
+function claude(plan, mode, market) {
+  plan.json(CLAUDE_SETTINGS, (data) => {
+    prune(data, 'enabledPlugins', (id) => id.startsWith(`${NAME}@`) && isOurMarket(id.slice(NAME.length + 1)));
+    prune(data, 'extraKnownMarketplaces', isOurMarket);
+    if (mode === 'none') return;
     // enabledPlugins を先に置く。各人の claude plugin install --scope project は、この順に書き直すので、先にそろえておくと
     // 差分ができない。
-    data.enabledPlugins ??= {};
-    data.extraKnownMarketplaces ??= {};
-    for (const name of Object.keys(data.extraKnownMarketplaces)) if (isOurMarket(name)) delete data.extraKnownMarketplaces[name];
-    for (const id of Object.keys(data.enabledPlugins)) if (id.startsWith(`${NAME}@`) && isOurMarket(id.slice(NAME.length + 1))) delete data.enabledPlugins[id];
+    const plugins = box(data, 'enabledPlugins', CLAUDE_SETTINGS);
+    const markets = box(data, 'extraKnownMarketplaces', CLAUDE_SETTINGS);
     if (mode === 'reference') {
-      data.extraKnownMarketplaces[MARKETPLACE] = { source: { source: 'github', repo: repository() }, autoUpdate: true };
-      data.enabledPlugins[`${NAME}@${MARKETPLACE}`] = true;
-    } else if (mode === 'copy') {
-      data.extraKnownMarketplaces[market] = { source: { source: 'directory', path: `./${MARKET_DIR.split(path.sep).join('/')}` } };
-      data.enabledPlugins[`${NAME}@${market}`] = true;
+      markets[MARKETPLACE] = { source: { source: 'github', repo: repository() }, autoUpdate: true };
+      plugins[`${NAME}@${MARKETPLACE}`] = true;
+    } else {
+      markets[market] = { source: { source: 'directory', path: `./${MARKET_DIR.split(path.sep).join('/')}` } };
+      plugins[`${NAME}@${market}`] = true;
     }
   });
 }
 
-// ---------------------------------------------------------------- Codex(TOML は、この道具が書く表だけを読み書きする)
+// ---------------------------------------------------------------- Codex
+//
+// TOML は、この道具が書いた行だけを足し引きする。書くときは、ファイルの終わりに、空の行を 1 つ挟んで足す。
+// 外すときは、この道具の表の見出しと、その直後に続く、この道具が書いた鍵の行と、見出しの直前の空の行 1 つを外す。
+// 表の後ろに利用者が書いた行は残す。複数行の文字列の中の行は、見出しとして読まない。
 
-const isCodexTable = (header) => {
-  const market = header.match(/^\[marketplaces\.([\w-]+)\]$/)?.[1] ?? header.match(new RegExp(`^\\[plugins\\."${NAME}@([\\w-]+)"\\]$`))?.[1];
-  return header.startsWith('[marketplaces.') ? market === MARKETPLACE : isOurMarket(market);
-};
+const codexBlock = (mode, market) => ({
+  reference: [`[marketplaces.${MARKETPLACE}]`, 'source_type = "git"', `source = "https://github.com/${repository()}.git"`, '', `[plugins."${NAME}@${MARKETPLACE}"]`, 'enabled = true'],
+  copy: [`[plugins."${NAME}@${market}"]`, 'enabled = true'],
+})[mode];
 
-function codex(root, mode, market) {
-  const file = path.join(root, CODEX_CONFIG);
-  const lines = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n') : [];
-  const kept = [];
-  let skipping = false;
-  for (const line of lines) {
-    const header = line.trim();
-    if (/^\[/.test(header)) skipping = isCodexTable(header);
-    if (!skipping) kept.push(line);
+// この道具の表なら、その表に書く鍵を返す。
+function codexKeys(line) {
+  const header = line.trim();
+  if (header === `[marketplaces.${MARKETPLACE}]`) return ['source_type', 'source'];
+  const market = header.match(new RegExp(`^\\[plugins\\."${NAME}@([\\w-]+)"\\]$`))?.[1];
+  return isOurMarket(market) ? ['enabled'] : null;
+}
+
+const MULTILINE = ['"""', "'''"];
+
+// 行ごとに、複数行の文字列の外で始まるかを返す。
+function outsideStrings(lines) {
+  let open = null;
+  return lines.map((line) => {
+    const outside = open === null;
+    for (let at = 0; at < line.length; at += 1) {
+      if (open !== null) {
+        if (open === MULTILINE[0] && line[at] === '\\') at += 1;
+        else if (line.startsWith(open, at)) {
+          at += 2;
+          open = null;
+        }
+      } else if (line[at] === '#') break;
+      else if (MULTILINE.some((mark) => line.startsWith(mark, at))) {
+        open = line.slice(at, at + 3);
+        at += 2;
+      } else if (line[at] === '"' || line[at] === "'") {
+        const quote = line[at];
+        for (at += 1; at < line.length && line[at] !== quote; at += 1) if (quote === '"' && line[at] === '\\') at += 1;
+      }
+    }
+    return outside;
+  });
+}
+
+function codexText(text, mode, market) {
+  const lines = text === null ? [] : text.split('\n');
+  const outside = outsideStrings(lines);
+  const drop = new Set();
+  for (let at = 0; at < lines.length; at += 1) {
+    const keys = outside[at] && /^\s*\[/.test(lines[at]) ? codexKeys(lines[at]) : null;
+    if (!keys) continue;
+    drop.add(at);
+    if (at > 0 && !lines[at - 1].trim()) drop.add(at - 1);
+    for (let next = at + 1; next < lines.length && keys.some((key) => new RegExp(`^\\s*${key}\\s*=`).test(lines[next])); next += 1) drop.add(next);
   }
-  const body = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  const add = {
-    reference: [`[marketplaces.${MARKETPLACE}]`, 'source_type = "git"', `source = "https://github.com/${repository()}.git"`, '', `[plugins."${NAME}@${MARKETPLACE}"]`, 'enabled = true'],
-    copy: [`[plugins."${NAME}@${market}"]`, 'enabled = true'],
-  }[mode];
-  const text = [body, add?.join('\n')].filter(Boolean).join('\n\n');
-  if (!text) {
-    if (fs.existsSync(file)) fs.rmSync(file);
-    return;
-  }
-  if (kept.length === lines.length && !add) return;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${text}\n`);
+  const kept = drop.size ? lines.filter((_, at) => !drop.has(at)).join('\n') : text;
+  const add = codexBlock(mode, market);
+  if (!add) return kept !== null && !kept.trim() ? null : kept;
+  const body = kept === null || !kept.trim() ? '' : `${kept.endsWith('\n') ? kept : `${kept}\n`}\n`;
+  return `${body}${add.join('\n')}\n`;
+}
+
+function codex(plan, mode, market) {
+  plan.set(CODEX_CONFIG, codexText(plan.read(CODEX_CONFIG), mode, market));
 }
 
 // ---------------------------------------------------------------- 写し
 
-// リポジトリーの中の marketplace の目録に、この plugin の項目を置くか外す。プロジェクトが自分の plugin を載せていれば、
-// その項目と名前は残す。
-function catalogue(file, entry, market) {
-  editJson(file, (data) => {
+const copyEntries = () => ({
+  [MARKET_FILES[0]]: { name: NAME, source: { source: 'local', path: `./${COPY_DIR.split(path.sep).join('/')}` }, policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' }, category: 'Developer Tools' },
+  [MARKET_FILES[1]]: { name: NAME, source: `./${NAME}`, description: manifest().description },
+});
+
+// リポジトリーの中の marketplace の目録に、この plugin の項目を置くか外す。触れるのは、写しの形の名前を持つ目録だけで、
+// プロジェクト自身の marketplace には触れない。プロジェクトが写しの目録に自分の plugin を載せていれば、それは残す。
+function catalogue(plan, file, entry, market) {
+  if (!entry && plan.read(file) === null) return;
+  plan.json(file, (data) => {
+    if (data.name !== undefined && !VENDORED.test(data.name)) return;
     const others = (Array.isArray(data.plugins) ? data.plugins : []).filter((plugin) => plugin?.name !== NAME);
     if (!entry && !others.length) {
       for (const key of Object.keys(data)) delete data[key];
       return;
     }
     data.name ??= market;
+    if (entry && file === MARKET_FILES[1]) data.owner ??= { name: repository().split('/')[0] };
     data.plugins = entry ? [...others, entry] : others;
   });
 }
 
-function removeCopy(root) {
-  const copy = path.join(root, COPY_DIR);
-  if (fs.existsSync(path.join(copy, RECORD))) fs.rmSync(copy, { recursive: true, force: true });
-  catalogue(path.join(root, MARKET_DIR, 'marketplace.json'), null);
-  catalogue(path.join(root, MARKET_DIR, '.claude-plugin', 'marketplace.json'), null);
-  for (const dir of [path.join(MARKET_DIR, '.claude-plugin'), MARKET_DIR]) {
-    try {
-      fs.rmdirSync(path.join(root, dir));
-    } catch {}
-  }
+function removeCopy(plan) {
+  if (plan.exists(path.join(COPY_DIR, RECORD))) plan.remove(COPY_DIR);
+  for (const file of MARKET_FILES) catalogue(plan, file, null);
 }
 
-// 8.x の残り。写し(.claude/skills/dotagents)は、この道具が置いた印があるときだけ消す。Pi の設定は、8.x が書いた
-// package の行だけを消し、ほかの行は残す。
-function removeOldCopy(root) {
-  const old = path.join(root, OLD_COPY_DIR);
-  if (fs.existsSync(path.join(old, RECORD))) fs.rmSync(old, { recursive: true, force: true });
-  if (!fs.existsSync(path.join(root, PI_SETTINGS))) return;
-  editJson(path.join(root, PI_SETTINGS), (data) => {
-    if (!Array.isArray(data.packages) || !data.packages.some(isOldPi)) return;
-    data.packages = data.packages.filter((entry) => !isOldPi(entry));
-    if (!data.packages.length) delete data.packages;
-  });
+// 8.x の残り。写し(.claude/skills/dotagents)は、この道具が置いた印があるときだけ消し、親の置き場は残す。
+// Pi の設定は、8.x が書いた package の行だけを消す。9.0.0 は Pi に入れないので、Pi の設定が読めなくても止めない。
+function removeOldCopy(plan) {
+  if (plan.exists(path.join(OLD_COPY_DIR, RECORD))) plan.remove(OLD_COPY_DIR);
+  if (!plan.exists(PI_SETTINGS)) return;
+  try {
+    plan.json(PI_SETTINGS, (data) => {
+      if (!Array.isArray(data.packages) || !data.packages.some(isOldPi)) return;
+      data.packages = data.packages.filter((entry) => !isOldPi(entry));
+      if (!data.packages.length) delete data.packages;
+    });
+  } catch {}
 }
 
 // ---------------------------------------------------------------- 宣言と雛形
 
-function declare(root, style) {
+function declare(plan, style) {
   const chosen = Object.entries(style).filter(([, name]) => name !== undefined);
-  if (!chosen.length && fs.existsSync(path.join(root, DECLARATION))) return;
   const known = catalog();
   for (const [axis, name] of chosen) if (!known[axis]?.includes(name)) throw new Error(`${axis} に ${name} という流は無い。選べるもの: ${(known[axis] ?? []).join('、') || 'なし'}`);
-  editJson(path.join(root, DECLARATION), (data) => {
-    if (chosen.length) data.style = { ...(data.style && typeof data.style === 'object' ? data.style : {}), ...Object.fromEntries(chosen) };
-  });
-  if (!fs.existsSync(path.join(root, DECLARATION))) writeJson(path.join(root, DECLARATION), {});
+  if (chosen.length) {
+    plan.json(DECLARATION, (data) => {
+      data.style = { ...(isObject(data.style) ? data.style : {}), ...Object.fromEntries(chosen) };
+    });
+  } else if (plan.read(DECLARATION) === null) plan.set(DECLARATION, '{}\n');
 }
 
 // 選んだ流の雛形を、プロジェクトに無いものだけ写す。写したあとはプロジェクトが持ち、版ごとに写し直さない。
-function scaffold(root) {
+function scaffold(plan) {
   const placed = [];
   const skipped = [];
-  for (const style of chosenStyles(readDeclaration(root).value).chosen) {
+  let declaration = {};
+  try {
+    declaration = JSON.parse(plan.read(DECLARATION) ?? '{}');
+  } catch {}
+  for (const style of chosenStyles(declaration).chosen) {
     const template = style.values.template;
-    if (!template || typeof template !== 'object') continue;
+    if (!isObject(template)) continue;
     for (const [to, from] of Object.entries(template)) {
-      const target = path.join(root, to);
-      if (fs.existsSync(target)) {
+      if (plan.exists(to)) {
         skipped.push(to);
         continue;
       }
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.copyFileSync(path.join(style.dir, from), target);
+      plan.copy(path.join(style.dir, from), to);
       placed.push(to);
     }
   }
@@ -240,50 +344,53 @@ const EACH = {
 };
 
 export function install(dir, { style = {}, template = true } = {}) {
-  const root = path.resolve(dir);
-  declare(root, style);
-  removeCopy(root);
-  removeOldCopy(root);
-  for (const host of [claude, codex]) host(root, 'reference');
-  const templates = template ? scaffold(root) : { placed: [], skipped: [] };
+  const plan = planOf(path.resolve(dir));
+  declare(plan, style);
+  removeCopy(plan);
+  removeOldCopy(plan);
+  claude(plan, 'reference');
+  codex(plan, 'reference');
+  const templates = template ? scaffold(plan) : { placed: [], skipped: [] };
+  plan.apply();
   return { mode: 'reference', each: EACH.reference, ...templates };
 }
 
 export function uninstall(dir) {
-  const root = path.resolve(dir);
-  removeOldCopy(root);
-  for (const host of [claude, codex]) host(root, 'none');
+  const plan = planOf(path.resolve(dir));
+  removeOldCopy(plan);
+  claude(plan, 'none');
+  codex(plan, 'none');
+  plan.apply();
 }
 
 export function vendor(dir) {
-  const root = path.resolve(dir);
-  const target = path.join(root, COPY_DIR);
-  for (const file of [path.join(MARKET_DIR, 'marketplace.json'), path.join(MARKET_DIR, '.claude-plugin', 'marketplace.json')]) {
-    const name = readJson(path.join(root, file), {}).name;
+  const plan = planOf(path.resolve(dir));
+  for (const file of MARKET_FILES) {
+    const name = nameIn(plan, file);
     if (name && !VENDORED.test(name)) throw new Error(`${file} は、プロジェクトの marketplace(${name})である。写しは置かずに、install で参照を書く。`);
   }
-  const market = vendoredName(root);
+  const market = vendoredName(plan);
+  const target = path.join(plan.root, COPY_DIR);
   if (target === PLUGIN_ROOT) throw new Error('写し自身から、同じ場所へは入れ直せない。入れてある plugin の道具から実行する。');
   if (fs.existsSync(target) && !fs.existsSync(path.join(target, RECORD))) throw new Error(`${target} に、この道具が置いたのではないものがある。`);
-  removeOldCopy(root);
-  fs.rmSync(target, { recursive: true, force: true });
-  fs.cpSync(PLUGIN_ROOT, target, { recursive: true, filter: (source) => !['node_modules', '.DS_Store'].includes(path.basename(source)) });
-  writeJson(path.join(target, RECORD), { version: version() });
-  const description = manifest().description;
-  catalogue(path.join(root, MARKET_DIR, 'marketplace.json'), { name: NAME, source: { source: 'local', path: `./${COPY_DIR.split(path.sep).join('/')}` }, policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' }, category: 'Developer Tools' }, market);
-  catalogue(path.join(root, MARKET_DIR, '.claude-plugin', 'marketplace.json'), { name: NAME, source: `./${NAME}`, description }, market);
-  editJson(path.join(root, MARKET_DIR, '.claude-plugin', 'marketplace.json'), (data) => {
-    data.owner ??= { name: repository().split('/')[0] };
-  });
-  for (const host of [claude, codex]) host(root, 'copy', market);
+  removeOldCopy(plan);
+  plan.remove(COPY_DIR);
+  plan.copy(PLUGIN_ROOT, COPY_DIR);
+  plan.set(path.join(COPY_DIR, RECORD), `${JSON.stringify({ version: version() }, null, 2)}\n`);
+  for (const [file, entry] of Object.entries(copyEntries())) catalogue(plan, file, entry, market);
+  claude(plan, 'copy', market);
+  codex(plan, 'copy', market);
+  plan.apply();
   return { mode: 'copy', target, version: version(), each: EACH.copy };
 }
 
 export function unvendor(dir) {
-  const root = path.resolve(dir);
-  removeCopy(root);
-  removeOldCopy(root);
-  for (const host of [claude, codex]) host(root, 'none');
+  const plan = planOf(path.resolve(dir));
+  removeCopy(plan);
+  removeOldCopy(plan);
+  claude(plan, 'none');
+  codex(plan, 'none');
+  plan.apply();
 }
 
 // この環境の Claude Code に、この plugin が入っているか。参照を設定に書いただけでは、対話のセッションの始めに読まれない。
@@ -309,7 +416,7 @@ export function installed(dir) {
   const root = path.resolve(dir);
   const settings = readJson(path.join(root, CLAUDE_SETTINGS), {});
   const toml = fs.existsSync(path.join(root, CODEX_CONFIG)) ? fs.readFileSync(path.join(root, CODEX_CONFIG), 'utf8') : '';
-  const packages = readJson(path.join(root, PI_SETTINGS), {}).packages;
+  const pi = fs.existsSync(path.join(root, PI_SETTINGS)) ? fs.readFileSync(path.join(root, PI_SETTINGS), 'utf8') : '';
   const mode = (reference, copy) => (reference ? 'reference' : copy ? 'copy' : null);
   const enabled = Object.entries(settings.enabledPlugins ?? {}).filter(([id, on]) => on === true && id.startsWith(`${NAME}@`)).map(([id]) => id.slice(NAME.length + 1));
   const tables = [...toml.matchAll(new RegExp(`^\\[plugins\\."${NAME}@([\\w-]+)"\\]`, 'gm'))].map((match) => match[1]);
@@ -320,6 +427,7 @@ export function installed(dir) {
     },
     copy: readJson(path.join(root, COPY_DIR, RECORD), null),
     oldCopy: readJson(path.join(root, OLD_COPY_DIR, RECORD), null),
-    oldPi: (Array.isArray(packages) ? packages : []).some(isOldPi),
+    // 読めない設定にも残っていることがあるので、文字で探す。
+    oldPi: pi.includes(oldPiPackage()),
   };
 }

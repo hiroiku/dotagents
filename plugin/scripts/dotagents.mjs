@@ -81,7 +81,7 @@ export function doctor(dir, { remote = true, claudeHome } = {}) {
   }
   if (copy) note(copy.version === version() ? 'ok' : 'warn', `リポジトリーに写した版: ${copy.version}(この道具の版: ${version()})`);
   if (oldCopy) note('warn', `8.x の写しが残っている: .claude/skills/${NAME}(${oldCopy.version})。install か vendor で置き換える。`);
-  if (oldPi) note('warn', `8.x が Pi の設定(.pi/settings.json)に書いた package が残っている。9.0.0 は Pi に対応しない。install、vendor、uninstall のどれかで消える。`);
+  if (oldPi) note('warn', `8.x が Pi の設定(.pi/settings.json)に書いた package が残っている。9.0.0 は Pi に対応しない。install、vendor、uninstall、unvendor のどれかで消える。設定が JSON として読めなければ、手で消す。`);
   for (const old of [path.join('.claude', 'dotagents.json'), path.join('.claude', 'rules', 'dotagents'), path.join('.codex', 'dotagents')]) {
     if (fs.existsSync(path.join(root, old))) note('warn', `7.x が配ったものが残っている: ${old}`);
   }
