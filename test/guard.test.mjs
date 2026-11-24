@@ -221,11 +221,15 @@ test('時間や数の上限では止めない', () => {
   }
 });
 
-test('作る役と確かめる役は、完了を受け取れない検査をバックグラウンドで始めない', () => {
-  const cwd = project();
-  assert.equal(decide({ tool: 'shell', command: 'npm test', cwd, role: 'reviewer', background: true }, tools).kind, 'pace');
-  assert.equal(decide({ tool: 'shell', command: 'npm run dev', cwd, role: 'builder', background: true }, tools), null);
-  for (const role of ['lead', 'worker']) assert.equal(decide({ tool: 'shell', command: 'npm test', cwd, role, background: true }, tools), null, role);
+test('作る役と確かめる役は、宣言の検査をバックグラウンドで始めない。検査かどうかは宣言のコマンドで見分ける', () => {
+  const cwd = project({ checks: { edit: 'biome check {file}', commit: 'pnpm verify:changed', push: 'make ci' } });
+  const background = (command, role = 'builder', at = cwd) => decide({ tool: 'shell', command, cwd: at, role, background: true }, tools)?.kind ?? null;
+  for (const command of ['pnpm verify:changed', 'pnpm verify:changed -- src/a.ts', 'biome check src/a.ts', 'cd app && make ci']) assert.equal(background(command), 'pace', command);
+  assert.equal(background('pnpm verify:changed', 'reviewer'), 'pace');
+  // 宣言に無いコマンドは、検査らしい名前でも見ない。宣言が無ければ見ない。
+  for (const command of ['npm run dev', 'npm test', 'npx vitest run', 'pytest -q']) assert.equal(background(command), null, command);
+  assert.equal(background('npm test', 'builder', project()), null);
+  for (const role of ['lead', 'worker']) assert.equal(background('pnpm verify:changed', role), null, role);
 });
 
 test('AI の関与を示す記述は、任せていても止める', () => {

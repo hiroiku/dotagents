@@ -62,7 +62,7 @@ export function doctor(dir, { remote = true, claudeHome } = {}) {
     for (const entry of list(value.delegated)) if (!KIND_LABELS[entry.split(':')[0]]) note('warn', `delegated に知らない種類がある: ${entry}`);
     for (const entry of unknown) note('warn', `style に知らない流がある: ${entry}(選べるもの: ${Object.entries(catalog()).map(([axis, names]) => `${axis} は ${names.join('、')}`).join('。')})`);
     const tiers = ['edit', 'commit', 'push', 'release'].filter((tier) => !value.checks?.[tier]);
-    if (tiers.length === 4) note('warn', '宣言に checks が無い。編集の段の検査は動かず、作る役が push の段の検査を回しても止まらない。script と workflow から当てはめる。');
+    if (tiers.length === 4) note('warn', '宣言に checks が無い。役の文脈に検査の入口が入らず、作る役が push の段の検査を回しても止まらない。script と workflow から当てはめる。');
     else if (tiers.length) note('info', `検査の段のうち、宣言に入口が無いもの: ${tiers.join('、')}`);
     const axes = Object.keys(catalog()).filter((axis) => !chosen.some((style) => style.axis === axis));
     if (axes.length) note('info', `流を選んでいない軸: ${axes.join('、')}。選ばなければ、その軸の文も決まりも入らない。`);
@@ -117,12 +117,11 @@ export function stats({ days = 7, now = new Date() } = {}) {
   }
   const projects = {};
   for (const entry of entries) {
-    const project = (projects[entry.project ?? '(不明)'] ??= { asks: {}, denies: {}, checks: 0, roles: {}, skills: {}, contexts: {}, errors: 0 });
+    const project = (projects[entry.project ?? '(不明)'] ??= { asks: {}, denies: {}, roles: {}, skills: {}, contexts: {}, errors: 0 });
     if (entry.event === 'guard') {
       const bucket = entry.decision === 'ask' ? project.asks : project.denies;
       bucket[entry.kind] = (bucket[entry.kind] ?? 0) + 1;
-    } else if (entry.event === 'check') project.checks += 1;
-    else if (entry.event === 'role') {
+    } else if (entry.event === 'role') {
       // 役の名前とモデルごとに足す。同じ役でも、モデルが違えば費用が違う。
       const name = `${entry.agentType ?? entry.role ?? '(不明)'}${entry.model ? `(${entry.model})` : ''}`;
       const role = (project.roles[name] ??= { count: 0, seconds: 0, out: 0, in: 0, cached: 0 });
@@ -156,7 +155,6 @@ function printStats(result) {
     console.log(`\n${name}`);
     console.log(`  確かめた: ${sum(project.asks)} 回(1 日 ${(sum(project.asks) / result.days).toFixed(1)} 回) ${each(project.asks)}`);
     console.log(`  止めた: ${sum(project.denies)} 回 ${each(project.denies)}`);
-    console.log(`  編集の段の検査が落ちた: ${project.checks} 回`);
     for (const [role, used] of Object.entries(project.roles).sort((a, b) => b[1].out - a[1].out)) {
       console.log(`  役が使った分: ${role} ${used.count} 回、${Math.round(used.seconds / 60)} 分、出力 ${amount(used.out)}、入力 ${amount(used.in)}、キャッシュから ${amount(used.cached)}`);
     }

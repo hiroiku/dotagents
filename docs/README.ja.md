@@ -8,7 +8,7 @@ AI のコーディングエージェントに仕事を任せるためのハー�
 
 - **役ごとに 1 枚。** 役は、要る文を毎回すべて読む。進める役で約 3,900 字、作る役で約 2,000 字、確かめる役で約 2,400 字である。流を選ぶと、その文が、要る役にだけ足される。どの流を選んでも、進める役は 6,000 字、サブエージェントは 4,000 字に収まることを、テストが守る。スキルとして残すのは、利用者が頼んだときに使う `setup`、`prompting`、`releases`、`triage` だけである。
 - **流を宣言で選ぶ。** プロジェクトは、git の流れ(`trunk` か `release-branches`)と設計の形(`layered`)を選ぶ。選んだ文だけが入り、git の流れは、hook が守る共有のブランチと PR の base も決める。
-- **文ではなく、仕組みで守る。** 守らせられるものは、モデルに覚えさせる文にせず、hook にする。外へ届く操作、コミットに混じる AI の署名、プロジェクトが進める役のために取っておいた重い検査、編集の直後の検査、下の 3 つの手順である。時間の上限や役の数の上限は、ハーネスには無い。
+- **文ではなく、仕組みで守る。** 守らせられるものは、モデルに覚えさせる文にせず、hook にする。外へ届く操作、コミットに混じる AI の署名、プロジェクトが進める役のために取っておいた重い検査、下の 3 つの手順である。検査そのものはプロジェクトのコマンドで、宣言の `checks` が検査の入口として役に届く。ハーネスは検査を実行しない。時間の上限や役の数の上限は、ハーネスには無い。
 - **確かめる線は 1 本。** 取り消せることは、エージェントが自分で決める。止まるのは、手元の外へ届く操作だけである。共有のブランチと tag への push、`gh` での PR のマージ、リリース、workflow の起動、リポジトリーの設定、指示ファイルと宣言の書き換え、人への連絡、それに下位のコマンドが公開か配備の動詞(`publish`、`release`、`deploy`、`promote`、`rollback`、`destroy`。`deploy:prod` のような script の名前の中も読む)のコマンドである。ハーネスは道具の名前を持たない。プロジェクトの技術によって外へ届くコマンド(`terraform apply`、`wrangler d1 execute --remote`、`docker push` など)は、プロジェクトが宣言の `outward` に書く。書かなければ、確かめずに通る。プロジェクトは、任せる種類を宣言できる。
 - **自分を測る。** 確かめた回数と止めた回数を、コマンドの文字列を残さずに記録する。`stats` で、ハーネスがどれだけ割り込んでいるかを種類ごとに、役ごとに使った時間とトークンと一緒に見られる。
 
@@ -81,7 +81,7 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 | `plugin/agents/` | `builder`(作る役)と `reviewer`(確かめる役)。Claude Code のエージェントと Codex の TOML は、ここから導く。 |
 | `plugin/styles/` | git の流れと設計の形。frontmatter に、文を読む役と、hook が使う値を持つ。 |
 | `plugin/skills/` | `setup`、`prompting`、`releases`、`triage`。 |
-| `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs`、`install.mjs`、`check.mjs` など。 |
+| `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs`、`install.mjs` など。 |
 | `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
 | `plugin/scripts/dotagents.mjs` | `install`、`uninstall`、`vendor`、`unvendor`、`doctor`、`stats`。 |
 

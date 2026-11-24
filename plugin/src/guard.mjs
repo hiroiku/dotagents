@@ -29,8 +29,6 @@ const DRY = new Set(['--dry-run', '--dry', '--help', '-h', '--check', '--list', 
 const ENVIRONMENTS = { production: 'production', prod: 'production', staging: 'staging', stg: 'staging', preview: 'preview', development: 'development', dev: 'development', local: 'local' };
 // 守るファイルを書き換える道具。これ以外は、読むだけとして通す。
 const WRITERS = new Set(['sed', 'tee', 'cp', 'mv', 'rm', 'ln', 'truncate', 'dd', 'perl', 'install', 'rsync', 'patch', 'ed']);
-// 作る役がバックグラウンドで始めると、完了を受け取れずに待つことになる処理。
-const CHECKS = /\b(?:test|tests|spec|check|lint|verify|typecheck|tsc|build|e2e|vitest|jest|playwright|pytest)\b/;
 // 人へ届くコネクターの操作。
 const MESSAGE = /(?:^|[_-])(?:send|reply|forward|share|post|publish|invite|respond)(?:[_-]|$)/;
 
@@ -596,8 +594,10 @@ const HEAVY_TIERS = [
 ];
 const commandLines = (text, cwd) => simpleCommands(text, cwd).map(({ words }) => words.join(' ')).filter(Boolean);
 
+const tierLines = (declaration, key, cwd) => (typeof declaration.checks?.[key] === 'string' ? commandLines(declaration.checks[key], cwd) : []);
+
 function heavyChecks(declaration, cwd) {
-  const tier = (key) => (typeof declaration.checks?.[key] === 'string' ? commandLines(declaration.checks[key], cwd) : []);
+  const tier = (key) => tierLines(declaration, key, cwd);
   const own = new Set([...tier('edit'), ...tier('commit')]);
   const heavy = new Map();
   for (const [key, label] of HEAVY_TIERS) for (const line of tier(key)) if (!own.has(line)) heavy.set(line, label);
@@ -612,8 +612,14 @@ function pace(request, declaration) {
   if (hit) {
     return `\`${hit}\` は、このプロジェクトが ${heavy.get(hit)}に置いた検査です。進める役が束ごとに 1 回回すので、この役は回しません。変更したファイルと、それに依存するテストに絞って実行してください。この検査を回していないことは、報告に書いてください。`;
   }
-  if (request.background && CHECKS.test(request.command)) {
-    return 'この役は、バックグラウンドで始めた処理の完了を受け取れません。検査は、フォアグラウンドで実行してください。';
+  // バックグラウンドで始めると、完了を受け取れずに待つことになる。検査かどうかは、宣言の検査のコマンドで見分ける。
+  // 絞った実行も同じである。編集の段の {file} から後ろは、ファイルごとに変わるので比べない。
+  if (request.background) {
+    const declared = ['edit', 'commit', 'push', 'release'].flatMap((key) => tierLines(declaration, key, request.cwd)).map((line) => line.split('{file}')[0].trim()).filter(Boolean);
+    const started = commandLines(request.command, request.cwd);
+    if (started.some((line) => declared.some((check) => line === check || line.startsWith(`${check} `)))) {
+      return 'この役は、バックグラウンドで始めた処理の完了を受け取れません。検査は、フォアグラウンドで実行してください。';
+    }
   }
   return null;
 }

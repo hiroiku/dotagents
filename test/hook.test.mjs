@@ -126,17 +126,6 @@ test('編集の道具は、宣言と指示ファイルのときだけ確かめ�
   assert.equal(run('claude', 'tool', { cwd, tool_name: 'mcp__claude_ai_Gmail__send_message', tool_input: {} }).permissionDecision, 'ask');
 });
 
-test('編集のあとの検査は、落ちたときだけ出力を返す', () => {
-  const cwd = project({ checks: { edit: 'grep -q ok {file} || { echo "ok が無い: {file}"; exit 1; }' } });
-  fs.writeFileSync(path.join(cwd, 'good file.txt'), 'ok\n');
-  fs.writeFileSync(path.join(cwd, 'bad.txt'), 'ng\n');
-  assert.equal(run('claude', 'edited', { cwd, tool_name: 'Write', tool_input: { file_path: path.join(cwd, 'good file.txt') } }), null);
-  const failed = run('claude', 'edited', { cwd, tool_name: 'Edit', tool_input: { file_path: path.join(cwd, 'bad.txt') } });
-  assert.equal(failed.hookEventName, 'PostToolUse');
-  assert.match(failed.additionalContext, /ok が無い: 'bad.txt'|ok が無い: bad.txt/);
-  assert.equal(run('claude', 'edited', { cwd: project(), tool_name: 'Write', tool_input: { file_path: 'x.txt' } }), null);
-});
-
 test('読めない入力と、判定に関係しない道具は通す', () => {
   assert.equal(run('claude', 'tool', 'not json'), null);
   assert.equal(run('claude', 'tool', {}), null);

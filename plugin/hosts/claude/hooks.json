@@ -44,18 +44,6 @@
           }
         ]
       }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude edited",
-            "timeout": 30
-          }
-        ]
-      }
     ]
   }
 }

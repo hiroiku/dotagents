@@ -1,15 +1,14 @@
 // Claude Code と Codex の hook の受け口。2 つのホストは同じ入出力(stdin の JSON と hookSpecificOutput)を使う。
 //
-//   node hook.mjs <claude|codex> <session|subagent|tool|edited|stopped>
+//   node hook.mjs <claude|codex> <session|subagent|tool|stopped>
 //
-// ここは、ホストの言葉を判定の言葉に直すだけにする。判定は guard.mjs、文は context.mjs、検査は check.mjs が持つ。
+// ここは、ホストの言葉を判定の言葉に直すだけにする。判定は guard.mjs、文は context.mjs が持つ。
 // 受け口の誤りで作業そのものを止めない。読めない入力と例外は通し、例外は記録に残す。
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { editCheck } from './check.mjs';
 import { contextFor } from './context.mjs';
 import { decide, roleOf } from './guard.mjs';
 import { record } from './log.mjs';
@@ -70,12 +69,6 @@ export function requests(host, input) {
   return [];
 }
 
-function editedFiles(host, input) {
-  const toolInput = input.tool_input ?? {};
-  if (host === 'codex') return [...String(toolInput.command ?? '').matchAll(PATCH_FILE)].map(([, file]) => file.trim());
-  return typeof toolInput.file_path === 'string' ? [toolInput.file_path] : [];
-}
-
 export function handle(host, event, input) {
   const cwd = input.cwd ?? process.cwd();
   const project = path.basename(cwd);
@@ -109,12 +102,6 @@ export function handle(host, event, input) {
     const run = claudeRun(input.agent_transcript_path);
     if (run) record({ host, event: 'role', project, role: roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type }), agentType: input.agent_type, ...run });
     return null;
-  }
-  if (event === 'edited') {
-    const failures = editedFiles(host, input).map((file) => editCheck({ file, cwd })).filter(Boolean);
-    if (!failures.length) return null;
-    record({ host, event: 'check', project, role: roleFrom(input), files: failures.length });
-    return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: failures.join('\n\n') } };
   }
   return null;
 }

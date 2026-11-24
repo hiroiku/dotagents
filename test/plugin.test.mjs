@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { EDIT_CHECK_SECONDS } from '../plugin/src/check.mjs';
 import { largestSize } from '../plugin/src/context.mjs';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
 import { NAME, doctor, install, stats, uninstall, unvendor, vendor } from '../plugin/scripts/dotagents.mjs';
@@ -33,7 +32,7 @@ test('hook の定義が指すファイルは在り、2 つのホストが同じ�
         const file = hook.command.match(/"([^"]+\.mjs)"/)[1];
         assert.ok(file.startsWith(variable), hook.command);
         assert.ok(fs.existsSync(path.join(PLUGIN, file.slice(variable.length))), file);
-        assert.match(hook.command, new RegExp(` ${host} (session|subagent|tool|edited|stopped)$`));
+        assert.match(hook.command, new RegExp(` ${host} (session|subagent|tool|stopped)$`));
       }
     }
   }
@@ -60,13 +59,12 @@ test('Codex の hook は、どの流を選んだときの文も切らずに渡�
   }
 });
 
-test('編集の段の検査は、ホストが hook を打ち切るより先に、自分で止まる', () => {
+test('編集のたびに検査を回す hook は無い', () => {
   for (const [host, dir] of [['claude', '.claude-plugin'], ['codex', '.codex-plugin']]) {
     const hooks = json(PLUGIN, json(PLUGIN, dir, 'plugin.json').hooks).hooks;
-    const edited = Object.values(hooks).flat().flatMap((group) => group.hooks).filter((hook) => hook.command.endsWith(' edited'));
-    assert.ok(edited.length > 0, host);
-    for (const hook of edited) assert.ok(hook.timeout > EDIT_CHECK_SECONDS, `${host}: ${hook.timeout} 秒`);
+    assert.equal(hooks.PostToolUse, undefined, host);
   }
+  assert.equal(fs.existsSync(path.join(PLUGIN, 'src', 'check.mjs')), false);
 });
 
 test('スキルと役の定義は、どのホストでも読める形をしている', () => {

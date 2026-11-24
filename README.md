@@ -8,7 +8,7 @@ English | [日本語](docs/README.ja.md)
 
 - **One page per role.** Each role reads everything it needs on every run: the lead session about 3,900 characters, a builder about 2,000, a reviewer about 2,400. Choosing styles adds their text only to the roles that need it. A test keeps the lead under 6,000 and a subagent under 4,000 characters whatever styles a project picks. The only skills left are the ones a user asks for: `setup`, `prompting`, `releases`, `triage`.
 - **Styles chosen by declaration.** A project picks a git flow (`trunk` or `release-branches`) and a design shape (`layered`). Only the chosen text is injected, and the git flow also sets the shared branches and the pull-request base the hooks enforce.
-- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, the heavy checks a project reserves for the lead, an edit-time check, and three procedures (below). The harness sets no time limits or agent counts.
+- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, the heavy checks a project reserves for the lead, and three procedures (below). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside: pushes to shared branches and tags, pull-request merges, releases, workflow runs and repository settings through `gh`, edits of instruction files and the declaration, messages to people, and commands whose subcommand is a release or deploy verb (`publish`, `release`, `deploy`, `promote`, `rollback`, `destroy`, also inside script names such as `deploy:prod`). The harness knows no tool names. Commands that reach outside only because of the project's stack (`terraform apply`, `wrangler d1 execute --remote`, `docker push`) are listed by the project in `outward`; without that they pass unchecked. Each project can delegate the kinds it trusts.
 - **Measured.** Every confirmation and block is logged without command text; `stats` shows how often the harness intervenes, by kind, and how much time and how many tokens each role used.
 
@@ -81,7 +81,7 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 | `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents and Codex agent TOML. |
 | `plugin/styles/` | Git flows and design shapes. Front matter says which roles read the text and which values the hooks use. |
 | `plugin/skills/` | `setup`, `prompting`, `releases`, `triage`. |
-| `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `style.mjs`, `install.mjs`, `check.mjs`, and the host adapters' shared code. |
+| `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `style.mjs`, `install.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code hooks and Codex hooks. |
 | `plugin/scripts/dotagents.mjs` | `install`, `uninstall`, `vendor`, `unvendor`, `doctor`, `stats`. |
 
