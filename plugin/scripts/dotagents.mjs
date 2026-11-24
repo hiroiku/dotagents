@@ -44,9 +44,9 @@ export function doctor(dir, { remote = true } = {}) {
 
   const { file, value, error } = readDeclaration(root);
   const { chosen, unknown } = chosenStyles(value);
-  for (const role of ['lead', 'builder', 'reviewer']) {
+  for (const [role, label] of [['lead', '進める役'], ['builder', '作る役'], ['reviewer', '確かめる役']]) {
     const size = standingSize(role, chosen);
-    note(size > budgetOf(role) ? 'error' : 'ok', `${role} が毎回読む文: ${size} 字(上限 ${budgetOf(role)} 字)`);
+    note(size > budgetOf(role) ? 'error' : 'ok', `${label}が毎回読む文: ${size} 字(上限 ${budgetOf(role)} 字)`);
   }
 
   if (!file) note('info', `プロジェクトの宣言(${DECLARATION})が無い。外へ届く操作は、すべて確かめる。`);
