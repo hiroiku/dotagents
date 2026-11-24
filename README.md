@@ -17,8 +17,8 @@ English | [日本語](docs/README.ja.md)
 | Procedure | Stopped when | Passes when |
 |---|---|---|
 | Catching up by merge | On a non-shared branch, `git merge` of a shared branch, or `git pull` without rebase | On a shared branch (integrating work); `pull.rebase` is set; `--ff-only` |
-| Pull-request base | `gh pr create` whose base is not the default branch while a git flow is chosen | a base the flow shares (`release/*` in `release-branches`); no git flow chosen |
-| Pushing while CI runs | The pushed branch has an open pull request whose workflow run has not finished | `gh` is missing or its answer cannot be read |
+| Pull-request base | `gh pr create` whose base is not the default branch on GitHub while a git flow is chosen | a base the flow shares (`release/*` in `release-branches`); no git flow chosen; another repository; GitHub does not answer |
+| Pushing while CI runs | The pushed branch has an open pull request whose workflow run has not finished | `gh` is missing, does not answer within a few seconds, or its answer cannot be read; the push already needs confirmation |
 
 The first two can be re-run by the lead with `DOTAGENTS_CONFIRMED=1` when the user explicitly asks for it. The CI one tells the agent to wait or `gh run cancel` the run.
 

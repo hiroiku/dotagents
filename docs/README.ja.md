@@ -17,8 +17,8 @@ AI のコーディングエージェントに仕事を任せるためのハー�
 | 手順 | 止めるとき | 通すとき |
 |---|---|---|
 | 追従の merge | 共有でないブランチの上で、共有のブランチを `git merge` する。rebase なしで `git pull` する | 共有のブランチの上での取り込み。`pull.rebase` の設定がある。`--ff-only` |
-| PR の base | git の流れを選んだプロジェクトで、`gh pr create` の base が既定のブランチではない | 流が共有する base(`release-branches` の `release/*`)。git の流れを選んでいない |
-| CI が走っている間の push | push するブランチに開いた PR があり、workflow の実行が終わっていない | `gh` が無い、または答えが読めない |
+| PR の base | git の流れを選んだプロジェクトで、`gh pr create` の base が GitHub の既定のブランチではない | 流が共有する base(`release-branches` の `release/*`)。git の流れを選んでいない。ほかのリポジトリーへの PR。GitHub が答えない |
+| CI が走っている間の push | push するブランチに開いた PR があり、workflow の実行が終わっていない | `gh` が無い、数秒で答えない、または答えが読めない。その push がもともと確かめる操作である |
 
 前の 2 つは、利用者が明示して求めたときに、進める役が `DOTAGENTS_CONFIRMED=1` を付けて実行し直せる。CI の待ちは、待つか、`gh run cancel` で止めるよう案内する。
 

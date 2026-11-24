@@ -28,6 +28,9 @@ const OUTWARD = [
   ['git push --force-with-lease origin main', ['rewrite:main']],
   ['git push origin :main', ['rewrite:main']],
   ['git -C /x push origin +main', ['rewrite:main']],
+  ['git --git-dir .git push origin main', ['push:main']],
+  ['git --work-tree . --namespace x push origin main', ['push:main']],
+  ['git -c core.x=1 --git-dir=.git push --force origin main', ['rewrite:main']],
   ['git push origin v1.2.3', ['tag:v1.2.3']],
   ['git push --atomic origin main v8.0.0', ['push:main', 'tag:v8.0.0']],
   ['git push origin :refs/tags/v1.0.0', ['tag:v1.0.0']],
@@ -158,6 +161,18 @@ test('確かめる手段の無いホストでは止め、了承の印を付け�
   // 確かめる手段のあるホストと、進める役でない役には、印は効かない。
   assert.equal(decide({ tool: 'shell', command: `${CONFIRMED}=1 git push origin main`, cwd, role: 'lead', canAsk: true }, tools).decision, 'ask');
   assert.equal(decide({ tool: 'shell', command: `${CONFIRMED}=1 git push origin main`, cwd, role: 'worker', canAsk: false }, tools).decision, 'deny');
+});
+
+test('了承の印は、外へ届く操作そのものに付いているときだけ効く', () => {
+  const cwd = project({ outward: ['^make ship'] });
+  const decideNoAsk = (command) => decide({ tool: 'shell', command, cwd, role: 'lead', canAsk: false }, tools);
+  for (const command of [`${CONFIRMED}=1 true && git push --force origin main`, `${CONFIRMED}=1 git push origin main && git push origin master`, `${CONFIRMED}=1 git status; make ship`, `${CONFIRMED}=1 true && git merge origin/main`]) {
+    assert.equal(decideNoAsk(command)?.decision, 'deny', command);
+  }
+  assert.deepEqual(decideNoAsk(`${CONFIRMED}=1 git push origin main && git push origin master`).findings, [{ kind: 'push', target: 'master' }]);
+  for (const command of [`git status && ${CONFIRMED}=1 git push origin main`, `${CONFIRMED}=1 git push --force origin main`, `${CONFIRMED}=1 make ship`, `git fetch && ${CONFIRMED}=1 make ship`]) {
+    assert.equal(decideNoAsk(command), null, command);
+  }
 });
 
 test('作る役と確かめる役は、プロジェクトが push と版の段に置いた検査を回さない', () => {
