@@ -57,14 +57,13 @@ const OUTWARD = [
   ['bun run deploy production', ['deploy:production']],
   ['npm publish', ['release:*']],
   ['cargo publish', ['release:*']],
-  ['docker push ghcr.io/x/y', ['release:*']],
-  ['terraform apply -auto-approve', ['deploy:*']],
+  // 道具の名前は持たず、2 語目と 3 語目の動詞を読む。script の名前は :、_、- で分けた語も読む。
   ['npx wrangler deploy --env staging', ['deploy:staging']],
-  ['wrangler rollback abc -y', ['deploy:production']],
-  ['wrangler d1 migrations apply db --remote --env staging', ['remote:staging']],
-  ['wrangler d1 execute db --remote --command "DELETE FROM t WHERE id = 1"', ['remote:production']],
-  ['wrangler d1 execute db --remote --file=./seed.sql', ['remote:production']],
-  ['q(){ wrangler d1 execute db --remote --env production --command "$1"; }; q "UPDATE users SET a = 1"', ['remote:production']],
+  ['fly deploy', ['deploy:*']],
+  ['wrangler rollback abc -y', ['deploy:*']],
+  ['npm run deploy:prod', ['deploy:production']],
+  ['make release_notes', ['release:*']],
+  ['npm run build:release', ['release:*']],
   ["sh -c 'cd app && npm publish'", ['release:*']],
   ['echo x > .agents/dotagents.json', ['policy:dotagents.json']],
   ['sed -i "" s/a/b/ AGENTS.md', ['instructions:AGENTS.md']],
@@ -89,17 +88,14 @@ const HARMLESS = [
   'gh api repos/o/r/pulls/3/comments -f body=hi',
   'gh api repos/$R/milestones -f title=v1',
   "gh api -X DELETE 'repos/o/r/git/refs/heads/work/issue#418'",
-  'npm run deploy:dry-run',
-  'npm run build:release',
+  'npm run deploy -- --dry-run',
   'cargo build --release',
   'terraform plan',
   'node scripts/report.mjs publish',
   'grep -rn deploy .',
   'echo "git push origin main"',
   "cat > notes.md <<'EOF'\nnpm publish\nEOF",
-  'wrangler d1 execute db --local --command "DELETE FROM t"',
-  'wrangler d1 execute db --remote --env production --command "SELECT id, updated_at, replace(name, \'a\', \'b\') FROM t; SELECT 1"',
-  'q(){ wrangler d1 execute db --remote --command "$1"; }; q "SELECT count(*) FROM users"; s=x.replace("a","b")',
+  'npm run deploy --env local',
   'cat .agents/dotagents.json',
   'git add AGENTS.md && git commit -m x',
   'cat AGENTS.md | head',
@@ -119,10 +115,18 @@ test('プロジェクトが宣言したブランチとコマンドも読む', ()
   assert.deepEqual(kinds('./scripts/ship.sh', { outward: ['('] }), []);
 });
 
+// 道具ごとの外へ届くコマンドは、ハーネスが持たず、プロジェクトが宣言の outward に書く。
+test('道具の名前で決まる操作は、宣言の outward に書いたものだけを確かめる', () => {
+  const tools = ['terraform apply -auto-approve', 'kubectl apply -f x.yaml', 'docker push ghcr.io/x/y', 'wrangler d1 execute db --remote --command "DELETE FROM t"', 'wrangler secret put TOKEN', 'npx wrangler d1 migrations apply db --remote'];
+  for (const command of tools) assert.deepEqual(kinds(command), [], command);
+  const outward = ['^terraform apply', '^kubectl (apply|delete)', '^docker push', '^wrangler (d1 .*--remote|secret put)'];
+  for (const command of tools) assert.deepEqual(kinds(command, { outward }), ['project:*'], command);
+});
+
 test('任せた種類は、種類だけでも対象つきでも通る。線を動かす種類は任せられない', () => {
   assert.equal(delegated(['push'], { kind: 'push', target: 'main' }), true);
   assert.equal(delegated(['push:develop'], { kind: 'push', target: 'main' }), false);
-  assert.equal(delegated(['remote:stag*'], { kind: 'remote', target: 'staging' }), true);
+  assert.equal(delegated(['deploy:stag*'], { kind: 'deploy', target: 'staging' }), true);
   for (const kind of ['rewrite', 'bypass', 'policy']) assert.equal(delegated([kind], { kind, target: 'x' }), false);
 });
 
@@ -146,9 +150,10 @@ test('進める役には確かめ、ほかの役は止める', () => {
 });
 
 test('任せた操作は、どの役でも通る', () => {
-  const cwd = project({ delegated: ['push:main', 'remote:staging'] });
+  const cwd = project({ delegated: ['push:main', 'deploy:staging'] });
   for (const role of ['lead', 'builder', 'worker']) assert.equal(decide({ tool: 'shell', command: 'git push origin main', cwd, role, canAsk: true }, tools), null);
-  assert.equal(decide({ tool: 'shell', command: 'wrangler d1 migrations apply db --remote --env staging', cwd, role: 'worker' }, tools), null);
+  assert.equal(decide({ tool: 'shell', command: 'npm run deploy -- --env staging', cwd, role: 'worker' }, tools), null);
+  assert.equal(decide({ tool: 'shell', command: 'npm run deploy -- --env production', cwd, role: 'worker' }, tools).decision, 'deny');
   assert.equal(decide({ tool: 'shell', command: 'git push --force origin main', cwd, role: 'lead', canAsk: true }, tools).decision, 'ask');
 });
 

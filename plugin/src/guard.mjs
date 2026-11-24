@@ -19,29 +19,14 @@ import { chosenStyles } from './style.mjs';
 
 export const CONFIRMED = 'DOTAGENTS_CONFIRMED';
 
-// 外へ届ける動詞。道具の名前ではなく動詞で読むので、道具ごとの決まりをほとんど持たない。
+// 外へ届ける動詞。道具の名前は持たない。どの道具のどのコマンドが外へ届くかは、プロジェクトの技術で決まるので、
+// プロジェクトが宣言の outward に書く。ここでは、git と gh のほかは、どの道具でも同じに読める動詞だけを読む。
 const RELEASE_VERBS = new Set(['publish', 'release']);
 const DEPLOY_VERBS = new Set(['deploy', 'promote', 'rollback', 'destroy']);
-// 動詞が一般的な語(apply、up、push)になる道具だけは、名前で持つ。
-const NAMED = {
-  terraform: { deploy: ['apply'] },
-  tofu: { deploy: ['apply'] },
-  pulumi: { deploy: ['up'] },
-  kubectl: { deploy: ['apply', 'delete', 'replace', 'patch'] },
-  helm: { deploy: ['install', 'upgrade', 'uninstall'] },
-  docker: { release: ['push'] },
-  podman: { release: ['push'] },
-};
-// script を名前で呼ぶ道具。`run` は省けるものがある。
-const RUNNERS = new Set(['npm', 'pnpm', 'yarn', 'bun', 'make', 'just', 'task', 'mise', 'turbo', 'nx', 'deno']);
-// script の名前にこの語があれば、外へは出さない確かめか、手元のビルドである。
-const HARMLESS_SCRIPT = new Set(['dry', 'check', 'test', 'lint', 'verify', 'plan', 'diff', 'status', 'validate', 'build']);
 // 動詞と同じ語を、引数(ファイル名や検索する語)として取る道具。ここに無い道具は、確かめる側に倒れる。
 const TAKES_WORDS = new Set(['cat', 'ls', 'cd', 'grep', 'rg', 'find', 'fd', 'echo', 'printf', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'test', '[', 'head', 'tail', 'wc', 'sed', 'awk', 'open', 'code', 'tree', 'du', 'stat', 'diff', 'which', 'type', 'man', 'export', 'git', 'gh']);
 const DRY = new Set(['--dry-run', '--dry', '--help', '-h', '--check', '--list', 'plan', 'diff', 'status', 'list', 'logs', 'view']);
 const ENVIRONMENTS = { production: 'production', prod: 'production', staging: 'staging', stg: 'staging', preview: 'preview', development: 'development', dev: 'development', local: 'local' };
-// 書き込む文の形。語だけでは、列の名前や別の道具の引数と区別できない。
-const SQL_WRITES = /\b(?:insert\s+(?:or\s+\w+\s+)?into|update\s+[\w."`[\]]+\s+set|delete\s+from|drop\s+(?:table|index|view|trigger)|alter\s+table|create\s+(?:unique\s+|virtual\s+)?(?:table|index|view|trigger)|replace\s+into|truncate\s+table)\b/i;
 // 守るファイルを書き換える道具。これ以外は、読むだけとして通す。
 const WRITERS = new Set(['sed', 'tee', 'cp', 'mv', 'rm', 'ln', 'truncate', 'dd', 'perl', 'install', 'rsync', 'patch', 'ed']);
 // 作る役がバックグラウンドで始めると、完了を受け取れずに待つことになる処理。
@@ -57,7 +42,6 @@ export const KIND_LABELS = {
   bypass: 'ブランチの保護を飛ばすマージ',
   release: '公開(リリースやパッケージ)',
   deploy: '配備',
-  remote: '手元の外にあるデータや秘密への書き込み',
   settings: 'リポジトリーの設定の変更',
   workflow: 'workflow の起動',
   message: '人への連絡や共有',
@@ -314,37 +298,16 @@ function environment(words, assignments) {
 const kindOf = (verb) => (RELEASE_VERBS.has(verb) ? 'release' : DEPLOY_VERBS.has(verb) ? 'deploy' : null);
 const isFile = (word) => /[./]/.test(word ?? '');
 
-function outwardVerb(words, assignments, text) {
-  const head = words[0];
-  if (TAKES_WORDS.has(head) || words.some((word) => DRY.has(word))) return [];
+// 下位のコマンドの語(2 語目と 3 語目)に動詞があれば、外へ届く。script の名前(`npm run deploy:prod`)は、
+// `:`、`_`、`-` で分けた語も読む。動詞は下位のコマンドとして読み、スクリプトのファイルに渡す引数としては読まない。
+function outwardVerb(words, assignments) {
+  if (TAKES_WORDS.has(words[0]) || words.some((word) => DRY.has(word))) return [];
   const bare = words.filter((word) => !word.startsWith('-'));
-  const found = (kind, fallback) => {
-    const target = environment(words, assignments) ?? fallback;
-    return target === 'local' ? [] : [{ kind, target }];
-  };
-  for (const [kind, verbs] of Object.entries(NAMED[head] ?? {})) if (verbs.includes(bare[1])) return found(kind, '*');
-  if (head === 'wrangler') {
-    if (bare.includes('secret') && bare.some((word) => ['put', 'delete', 'bulk'].includes(word))) return found('remote', 'production');
-    if (words.includes('--remote')) {
-      // 問い合わせの文がその場に書かれていればその文を、変数で渡されていればコマンドの全体を読む。
-      // ファイルで渡された文は読めないので、書き込みとして扱う。
-      const at = words.indexOf('--command');
-      const sql = at >= 0 ? words[at + 1] : words.find((word) => word.startsWith('--command='))?.slice(10);
-      const scope = sql === undefined ? null : sql.includes('$') ? text : sql;
-      const writes = bare.some((word) => ['apply', 'put', 'delete', 'bulk', 'import', 'restore'].includes(word)) || (bare.includes('execute') && (scope === null || SQL_WRITES.test(scope)));
-      if (writes) return found('remote', 'production');
-    }
-  }
-  if (RUNNERS.has(head)) {
-    const script = bare[1] === 'run' || bare[1] === 'x' ? bare[2] : bare[1];
-    const tokens = (script ?? '').split(/[:_-]/);
-    if (tokens.some((token) => HARMLESS_SCRIPT.has(token))) return [];
-    const kind = tokens.map(kindOf).find(Boolean);
-    return kind ? found(kind, '*') : [];
-  }
-  // 動詞は下位のコマンドとして読む。スクリプトのファイルに渡す引数としては読まない。
-  const kind = kindOf(bare[1]) ?? (isFile(bare[1]) ? null : kindOf(bare[2]));
-  return kind ? found(kind, head === 'wrangler' || head === 'vercel' ? 'production' : '*') : [];
+  const read = isFile(bare[1]) ? [bare[1]] : [bare[1], bare[2]];
+  const kind = read.flatMap((word) => (word ?? '').split(/[:_-]/)).map(kindOf).find(Boolean);
+  if (!kind) return [];
+  const target = environment(words, assignments) ?? '*';
+  return target === 'local' ? [] : [{ kind, target }];
 }
 
 // ---------------------------------------------------------------- 守るファイル
@@ -616,7 +579,7 @@ export function findings(request, declaration, tools) {
     const head = command.words[0];
     if (head === 'git') add(...gitPush(command.words, command.cwd, declaration, tools.git));
     else if (head === 'gh') add(...gh(command.words, command.cwd, declaration, tools));
-    else add(...outwardVerb(command.words, command.assignments, request.command));
+    else add(...outwardVerb(command.words, command.assignments));
   }
   return found;
 }

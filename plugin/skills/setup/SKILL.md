@@ -24,7 +24,8 @@ Claude Code は、参照を設定に書いただけでは、対話のセッシ�
 1. 流を利用者に尋ねる。先に、ブランチ、tag、workflow、文書から推した案を示す。git の流れは `trunk`(既定のブランチだけに統合し、tag で版を切る)と `release-branches`(開発は trunk と同じで、版の系列ごとに `release/` のブランチを切る)から選ぶ。設計の形は `layered` を選ぶか、選ばない。どちらの軸も省ける。
 2. 選んだ値で `install` を実行する。`layered` を選んだら、層の依存の向きを落とす lint か検査がプロジェクトにあるかを確かめる。ハーネスは決まりを入れるだけで、検査の道具は入れない。無ければ、作ることを利用者に提案し、作ったら検査の段に置く。
 3. `checks` を、プロジェクトの script と workflow から当てはめて宣言に書く。CI が呼んでいる入口を、push の段に置く。無い段は、作ることを提案する。
-4. `doctor` で点検し、知らせが残れば利用者に伝える。
+4. `outward` の案を作る。プロジェクトの script、設定(package.json、Makefile、CI の workflow、配備の道具の設定)、使っている道具を読み、配備、パッケージの公開、手元の外のデータや秘密への書き込みをするコマンドを、正規表現で挙げる。ハーネスは道具の名前を持たないので、ここに書かなかったものは確かめずに通る。たとえば Terraform なら `^terraform apply`、Cloudflare の D1 なら `^wrangler d1 .*--remote`、コンテナーの公開なら `^docker push`、手元から本番へ届く script なら `^npm run db:migrate:prod` である。下位のコマンドが公開か配備の動詞(publish、release、deploy、promote、rollback、destroy)のものは、書かなくても確かめる。案を利用者に見せ、確かめてから宣言に書く。
+5. `doctor` で点検し、知らせが残れば利用者に伝える。
 
 ## プロジェクトの宣言
 
@@ -34,8 +35,8 @@ Claude Code は、参照を設定に書いただけでは、対話のセッシ�
 {
   "style": { "git": "release-branches", "architecture": "layered" },
   "protected": ["staging"],
-  "outward": ["scripts/ship\\.sh"],
-  "delegated": ["push:develop", "merge:develop", "tag", "remote:staging"],
+  "outward": ["^terraform apply", "^wrangler d1 .*--remote", "^docker push", "scripts/ship\\.sh"],
+  "delegated": ["merge:main", "tag", "deploy:staging"],
   "checks": {
     "edit": "biome check {file}",
     "commit": "npm run check:changed",
@@ -48,8 +49,8 @@ Claude Code は、参照を設定に書いただけでは、対話のセッシ�
 
 - `style`: 選んだ流。git の流れは、進める役の文脈に入り、共有のブランチの既定と PR の base を決める。設計の形は、どの役の文脈にも入る。知らない名前は、無いものとして扱う。
 - `protected`: 流の既定に足す、共有のブランチの名前。リモートのデフォルトブランチと、`main`、`master` は、書かなくても含まれる。
-- `outward`: このプロジェクトで外へ届くコマンドの正規表現。
-- `delegated`: 確かめずに進めてよい種類。`種類` か `種類:対象` で書く。種類は push、tag、merge、release、deploy、remote、settings、workflow、message、instructions、project である。共有のブランチの書き換え、保護を飛ばすマージ、この宣言の書き換えは、任せられない。
+- `outward`: このプロジェクトで外へ届くコマンドの正規表現。ハーネスは道具の名前を持たず、git と gh のほかは、下位のコマンドが公開か配備の動詞(publish、release、deploy、promote、rollback、destroy)のものだけを確かめる。道具によって外へ届くコマンドは、ここに書かなければ確かめずに通る。単純なコマンドごとに当てるので、`^` から書ける。
+- `delegated`: 確かめずに進めてよい種類。`種類` か `種類:対象` で書く。種類は push、tag、merge、release、deploy、settings、workflow、message、instructions、project である。共有のブランチの書き換え、保護を飛ばすマージ、この宣言の書き換えは、任せられない。
 - `checks`: 検査の段ごとの入口。`edit` は編集のたびに hook が実行するので、数秒で終わるものだけを置く。`push` と `release` に置いたコマンドは、作る役と確かめる役が実行すると止まる(引数を足して絞った実行は止まらない)。CI も同じ入口を呼ぶ形にする。
 - `decisions`: どの役も読む、続いている決定。レビューで見ないもの、採っている設計の配置、環境の名前のように、会話から消えると困るものを 1 行ずつ書く。
 
