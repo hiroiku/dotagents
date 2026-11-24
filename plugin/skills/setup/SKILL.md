@@ -11,11 +11,10 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 |---|---|
 | プロジェクトに入れる(各ホストの設定に参照を書く) | `dotagents.mjs install <dir> [--git <流>] [--architecture <流>]` |
 | 参照を外す | `dotagents.mjs uninstall <dir>` |
-| 写して入れる(利用者が写しを選んだときだけ) | `dotagents.mjs vendor <dir>`、外すのは `unvendor` |
 | 宣言、参照、流、ブランチの保護を点検する | `dotagents.mjs doctor <dir>` |
 | 確かめた回数、止めた回数、役が使った時間とトークンを見る | `dotagents.mjs stats --days 7` |
 
-参照で入れると、プロジェクトに版ごとのコミットができない。写しは版を上げるたびにコミットが要るので、利用者が選んだときだけにする。どちらも、書き換えた設定をコミットする。`install` の出力に、ホストごとに各人がすることが出るので、利用者に伝える。
+入れ方は参照だけで、プロジェクトに版ごとのコミットはできない。書き換えた設定をコミットする。8.x の写し(`.claude/skills/dotagents`)と、8.x が Pi の設定に書いた行は、`install` が消す。`install` の出力に、ホストごとに各人がすることが出るので、利用者に伝える。
 
 Claude Code は、参照を設定に書いただけでは、対話のセッションの始めに読まれない。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project`(すべてのプロジェクトで使うなら `--scope user`)を実行する。この環境に入っているかは `doctor` が知らせる。
 

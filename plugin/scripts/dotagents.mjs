@@ -4,8 +4,6 @@
 //   install [dir] [--git <流>] [--architecture <流>]
 //                       プロジェクトに入れる。宣言に流を書き、各ホストのプロジェクトの設定に、この plugin への参照を書く。
 //   uninstall [dir]     参照を外す。宣言は残す。
-//   vendor [dir]        リポジトリーの中の marketplace に写して入れる。利用者が写しを選んだときだけ使う。
-//   unvendor [dir]      写しを外す。
 //   doctor [dir]        プロジェクトの宣言、流、入れ方、ブランチの保護を点検する。
 //   stats [--days n]    仕組みが何をしたかの記録を集計する。
 //
@@ -18,11 +16,11 @@ import { pathToFileURL } from 'node:url';
 import { PLUGIN_ROOT, budgetOf, standingSize } from '../src/context.mjs';
 import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declaration.mjs';
 import { KIND_LABELS, PROCEDURE_LABELS, styleValues } from '../src/guard.mjs';
-import { NAME, claudeInstalled, install, installed, uninstall, unvendor, vendor, version } from '../src/install.mjs';
+import { NAME, claudeInstalled, install, installed, uninstall } from '../src/install.mjs';
 import { logDir } from '../src/log.mjs';
 import { catalog, chosenStyles } from '../src/style.mjs';
 
-export { NAME, install, uninstall, unvendor, vendor };
+export { NAME, install, uninstall };
 
 const KNOWN_KEYS = new Set([...POLICY_KEYS, 'decisions']);
 
@@ -68,19 +66,18 @@ export function doctor(dir, { remote = true, claudeHome } = {}) {
     if (axes.length) note('info', `流を選んでいない軸: ${axes.join('、')}。選ばなければ、その軸の文も決まりも入らない。`);
   }
 
-  const { hosts, copy, oldCopy, oldPi } = installed(root);
-  const missing = Object.entries(hosts).filter(([, mode]) => !mode).map(([host]) => host);
+  const { hosts, oldCopy, oldPi } = installed(root);
+  const missing = Object.entries(hosts).filter(([, written]) => !written).map(([host]) => host);
   if (missing.length === Object.keys(hosts).length) note('warn', 'どのホストの設定にも、この plugin への参照が無い。各人が自分の環境に入れていなければ、このプロジェクトでは働かない。install で書く。');
   else if (missing.length) note('info', `参照の設定が無いホスト: ${missing.join('、')}`);
-  if (hosts['Claude Code'] === 'reference') {
+  if (hosts['Claude Code']) {
     const here = claudeInstalled(root, claudeHome);
     if (here === true) note('ok', 'この環境の Claude Code に入っている。');
     else if (here === false) note('warn', `この環境の Claude Code には入っていない。設定で有効にしただけでは、対話のセッションの始めに読まれない。1 回 claude plugin install ${NAME}@${NAME} --scope project を実行する(すべてのプロジェクトで使うなら --scope user)。`);
     else note('info', 'この環境の Claude Code に入っているかを、確かめられなかった。');
   }
-  if (copy) note(copy.version === version() ? 'ok' : 'warn', `リポジトリーに写した版: ${copy.version}(この道具の版: ${version()})`);
-  if (oldCopy) note('warn', `8.x の写しが残っている: .claude/skills/${NAME}(${oldCopy.version})。install か vendor で置き換える。`);
-  if (oldPi) note('warn', `8.x が Pi の設定(.pi/settings.json)に書いた package が残っている。9.0.0 は Pi に対応しない。install、vendor、uninstall、unvendor のどれかで消える。設定が JSON として読めなければ、手で消す。`);
+  if (oldCopy) note('warn', `8.x の写しが残っている: .claude/skills/${NAME}(${oldCopy.version})。install で参照に置き換える。`);
+  if (oldPi) note('warn', `8.x が Pi の設定(.pi/settings.json)に書いた package が残っている。9.0.0 は Pi に対応しない。install か uninstall で消える。設定が JSON として読めなければ、手で消す。`);
   for (const old of [path.join('.claude', 'dotagents.json'), path.join('.claude', 'rules', 'dotagents'), path.join('.codex', 'dotagents')]) {
     if (fs.existsSync(path.join(root, old))) note('warn', `7.x が配ったものが残っている: ${old}`);
   }
@@ -185,13 +182,6 @@ function main(argv) {
   } else if (command === 'uninstall') {
     uninstall(dir);
     console.log('参照を外した。宣言は残した。');
-  } else if (command === 'vendor') {
-    const result = vendor(dir);
-    console.log(`${result.target} に ${result.version} を写した。`);
-    tell(result);
-  } else if (command === 'unvendor') {
-    unvendor(dir);
-    console.log('写しを外した。');
   } else if (command === 'doctor') {
     const notes = doctor(dir, { remote: !rest.includes('--offline') });
     const marks = { ok: '✓', info: '・', warn: '!', error: '✗' };
@@ -201,7 +191,7 @@ function main(argv) {
     const at = rest.indexOf('--days');
     printStats(stats({ days: at >= 0 ? Number(rest[at + 1]) || 7 : 7 }));
   } else {
-    console.log('使い方: dotagents.mjs <install|uninstall|vendor|unvendor|doctor|stats> [dir]');
+    console.log('使い方: dotagents.mjs <install|uninstall|doctor|stats> [dir]');
     process.exitCode = command ? 1 : 0;
   }
 }

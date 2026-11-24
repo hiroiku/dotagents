@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { largestSize } from '../plugin/src/context.mjs';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
-import { NAME, doctor, install, stats, uninstall, unvendor, vendor } from '../plugin/scripts/dotagents.mjs';
+import { NAME, doctor, install, stats, uninstall } from '../plugin/scripts/dotagents.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PLUGIN = path.join(ROOT, 'plugin');
@@ -135,64 +135,24 @@ test('入れるときに選んだ流を宣言に書き、知らない流は書�
   assert.equal(fs.existsSync(path.join(dir, 'scripts')), false);
 });
 
-test('写して入れると、リポジトリーの中の marketplace に置き、各ホストの設定がそこを指す。外すと元に戻る', () => {
-  const dir = existing();
-  const before = { claude: json(dir, '.claude', 'settings.json'), codex: toml(dir) };
-  // 8.x の写しは、置き換える。
-  fs.mkdirSync(path.join(dir, '.claude', 'skills', NAME), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.claude', 'skills', NAME, 'VENDORED.json'), '{"version":"8.0.5"}');
-  install(dir);
-  vendor(dir);
-  const copy = path.join(dir, '.agents', 'plugins', NAME);
-  assert.equal(json(copy, 'VENDORED.json').version, json(PLUGIN, 'package.json').version);
-  assert.ok(fs.existsSync(path.join(copy, 'src', 'guard.mjs')) && fs.existsSync(path.join(copy, 'hosts', 'codex', 'hooks.json')));
-  assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', NAME)), false);
-  const claudeMarket = json(dir, '.agents', 'plugins', '.claude-plugin', 'marketplace.json');
-  assert.deepEqual(claudeMarket.plugins.map((plugin) => [plugin.name, plugin.source]), [[NAME, './dotagents']]);
-  const settings = json(dir, '.claude', 'settings.json');
-  assert.deepEqual(settings.extraKnownMarketplaces, { [claudeMarket.name]: { source: { source: 'directory', path: './.agents/plugins' } } });
-  assert.deepEqual(Object.keys(settings.enabledPlugins).sort(), [`dotagents@${claudeMarket.name}`, 'other@market']);
-  const codexMarket = json(dir, '.agents', 'plugins', 'marketplace.json');
-  assert.equal(codexMarket.plugins[0].source.path, './.agents/plugins/dotagents');
-  assert.match(toml(dir), new RegExp(`\\[plugins\\."dotagents@${codexMarket.name}"\\]\\nenabled = true`));
-  assert.doesNotMatch(toml(dir), /\[marketplaces\.dotagents\]/);
-  unvendor(dir);
-  assert.equal(fs.existsSync(path.join(dir, '.agents', 'plugins')), false);
-  assert.deepEqual(json(dir, '.claude', 'settings.json'), before.claude);
-  assert.equal(toml(dir), before.codex);
-  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, ['npm:@example/tools', 'git:github.com/hiroiku/dotagents']);
+test('入れ方は参照だけで、写して入れる道具は無い', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-install-'));
+  for (const command of ['vendor', 'unvendor']) {
+    const result = spawnSync(process.execPath, [path.join(PLUGIN, 'scripts', 'dotagents.mjs'), command, dir], { encoding: 'utf8' });
+    assert.notEqual(result.status, 0, command);
+    assert.match(`${result.stdout}${result.stderr}`, /使い方/);
+  }
+  assert.deepEqual(fs.readdirSync(dir), []);
 });
 
 test('8.x が Pi の設定に書いた package の行は、外すときにも消し、点検で知らせる', () => {
-  for (const remove of [uninstall, unvendor]) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-pi-'));
-    fs.mkdirSync(path.join(dir, '.pi'));
-    fs.writeFileSync(path.join(dir, '.pi', 'settings.json'), JSON.stringify({ packages: ['git:github.com/hiroiku/dotagents@v8.0.5', 'npm:@example/tools'] }));
-    assert.match(doctor(dir, { remote: false }).map((entry) => `${entry.level}: ${entry.text}`).join('\n'), /warn: 8\.x が Pi の設定/);
-    remove(dir);
-    assert.deepEqual(json(dir, '.pi', 'settings.json'), { packages: ['npm:@example/tools'] });
-    assert.doesNotMatch(doctor(dir, { remote: false }).map((entry) => entry.text).join('\n'), /Pi/);
-  }
-});
-
-// ホストは marketplace の置き場を名前ごとに 1 つだけ覚える。名前が同じだと、別のプロジェクトの写しの hook が動く。
-test('写しの marketplace の名前は、プロジェクトごとに違い、利用者が登録した dotagents とも違い、写し直しても変わらない', () => {
-  const names = ['a', 'b'].map(() => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
-    vendor(dir);
-    const name = json(dir, '.agents', 'plugins', '.claude-plugin', 'marketplace.json').name;
-    vendor(dir);
-    assert.equal(json(dir, '.agents', 'plugins', 'marketplace.json').name, name);
-    assert.equal(json(dir, '.agents', 'plugins', '.claude-plugin', 'marketplace.json').name, name);
-    return name;
-  });
-  assert.notEqual(names[0], names[1]);
-  for (const name of names) assert.notEqual(name, 'dotagents');
-  const cloned = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
-  execFileSync('git', ['init', '-q'], { cwd: cloned });
-  execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:Kuden-World/kuden-drive.git'], { cwd: cloned });
-  vendor(cloned);
-  assert.equal(json(cloned, '.agents', 'plugins', 'marketplace.json').name, 'dotagents-kuden-world-kuden-drive');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-pi-'));
+  fs.mkdirSync(path.join(dir, '.pi'));
+  fs.writeFileSync(path.join(dir, '.pi', 'settings.json'), JSON.stringify({ packages: ['git:github.com/hiroiku/dotagents@v8.0.5', 'npm:@example/tools'] }));
+  assert.match(doctor(dir, { remote: false }).map((entry) => `${entry.level}: ${entry.text}`).join('\n'), /warn: 8\.x が Pi の設定/);
+  uninstall(dir);
+  assert.deepEqual(json(dir, '.pi', 'settings.json'), { packages: ['npm:@example/tools'] });
+  assert.doesNotMatch(doctor(dir, { remote: false }).map((entry) => entry.text).join('\n'), /Pi/);
 });
 
 test('読めない設定は書き換えずに止め、関係の無い設定は外すときにも書き直さない', () => {
@@ -207,13 +167,12 @@ test('読めない設定は書き換えずに止め、関係の無い設定は�
   fs.writeFileSync(path.join(tidy, '.codex', 'config.toml'), 'model = "x"\n\n\n\n[a]\nb = 1');
   fs.writeFileSync(path.join(tidy, '.pi', 'settings.json'), '{"theme":"dark"}');
   uninstall(tidy);
-  unvendor(tidy);
   assert.equal(fs.readFileSync(path.join(tidy, '.codex', 'config.toml'), 'utf8'), 'model = "x"\n\n\n\n[a]\nb = 1');
   assert.equal(fs.readFileSync(path.join(tidy, '.pi', 'settings.json'), 'utf8'), '{"theme":"dark"}');
   assert.equal(fs.existsSync(path.join(tidy, '.claude')), false);
 });
 
-// ディレクトリーの中のファイルと中身。写しの中身は数えない。
+// ディレクトリーの中のファイルと中身。8.x の写しの中身は数えない。
 function snapshot(dir) {
   const files = {};
   const walk = (at) => {
@@ -238,25 +197,16 @@ function project(files) {
   return dir;
 }
 
-test('読めない設定が 1 つでもあれば、ほかの設定も写しも、何も変えずに止める', () => {
+test('読めない設定が 1 つでもあれば、ほかの設定も 8.x の写しも、何も変えずに止める', () => {
   const unreadable = '{ "permissions": {}, // 手で書いた\n}';
-  // 宣言は入れるときにだけ書くので、写すときには読まない。
-  for (const [file, runs] of [['.claude/settings.json', ['install', 'vendor']], ['.agents/dotagents.json', ['install']], ['.agents/plugins/marketplace.json', ['install', 'vendor', 'unvendor']]]) {
+  // 宣言は入れるときにだけ書くので、外すときには読まない。
+  for (const [file, runs] of [['.claude/settings.json', [install, uninstall]], ['.agents/dotagents.json', [install]]]) {
     const dir = project({ '.codex/config.toml': 'model = "x"\n', '.claude/skills/dotagents/VENDORED.json': '{}', [file]: unreadable });
     const before = snapshot(dir);
-    for (const name of runs) {
-      assert.throws(() => ({ install, vendor, unvendor })[name](dir, { style: { git: 'trunk' } }), /JSON として読めない/, `${file}: ${name}`);
-      assert.deepEqual(snapshot(dir), before, `${file}: ${name}`);
+    for (const run of runs) {
+      assert.throws(() => run(dir, { style: { git: 'trunk' } }), /JSON として読めない/, `${file}: ${run.name}`);
+      assert.deepEqual(snapshot(dir), before, `${file}: ${run.name}`);
     }
-  }
-  // 写して入れたあとに設定が読めなくなっても、写しと目録を先に消さない。
-  const vendored = project({ '.claude/settings.json': '{"a":1}' });
-  vendor(vendored);
-  fs.writeFileSync(path.join(vendored, '.claude', 'settings.json'), unreadable);
-  const before = snapshot(vendored);
-  for (const run of [install, uninstall, unvendor]) {
-    assert.throws(() => run(vendored), /JSON として読めない/);
-    assert.deepEqual(snapshot(vendored), before, run.name);
   }
 });
 
@@ -282,13 +232,6 @@ test('入れて外すと、ほかの設定は 1 文字も変わらない', () =>
   fs.appendFileSync(path.join(dir, '.codex', 'config.toml'), '\n# 手で足した\n');
   uninstall(dir);
   assert.equal(toml(dir), `${codex}\n# 手で足した\n`);
-  fs.writeFileSync(path.join(dir, '.codex', 'config.toml'), codex);
-  vendor(dir);
-  const vendored = snapshot(dir);
-  vendor(dir);
-  assert.deepEqual(snapshot(dir), vendored, '写し直しても変わらない');
-  unvendor(dir);
-  assert.equal(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'), claude);
 });
 
 test('Codex の設定で、この道具の表に利用者が足した行は、入れ直すときは表の中に残し、外すときは表ごと外す', () => {
@@ -299,58 +242,35 @@ test('Codex の設定で、この道具の表に利用者が足した行は、�
   fs.writeFileSync(path.join(dir, '.codex', 'config.toml'), pinned);
   install(dir);
   assert.equal(toml(dir), pinned, '入れ直しても、表の中の利用者の行は動かない');
-  vendor(dir);
-  assert.ok(toml(dir).startsWith(codex), toml(dir));
-  assert.doesNotMatch(toml(dir), /ref = /);
-  unvendor(dir);
-  assert.equal(toml(dir), codex);
-  fs.writeFileSync(path.join(dir, '.codex', 'config.toml'), pinned);
   uninstall(dir);
   assert.equal(toml(dir), codex, 'ほかの表の字は変わらない');
 });
 
-test('この道具の印が無い marketplace の目録は、入れても外しても消さない', () => {
-  // dotagents のリポジトリー自身の目録。名前が写しの形ではない。
+test('プロジェクトの marketplace の目録は、入れても外しても触れない', () => {
+  // dotagents のリポジトリー自身の目録。
   const own = JSON.stringify({ name: 'dotagents', plugins: [{ name: 'dotagents', source: { source: 'local', path: './plugin' } }] }, null, 2);
   const dir = project({ '.agents/plugins/marketplace.json': own });
-  for (const run of [install, uninstall, unvendor]) {
+  for (const run of [install, uninstall]) {
     run(dir);
     assert.equal(fs.readFileSync(path.join(dir, '.agents', 'plugins', 'marketplace.json'), 'utf8'), own, run.name);
   }
 });
 
-test('origin の無いプロジェクトでも、同じ名前のディレクトリーどうしで写しの marketplace の名前が重ならない', () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
-  const names = ['x', 'y'].map((parent) => {
-    const dir = path.join(base, parent, 'app');
-    fs.mkdirSync(dir, { recursive: true });
-    vendor(dir);
-    return json(dir, '.agents', 'plugins', 'marketplace.json').name;
-  });
-  assert.notEqual(names[0], names[1]);
-  for (const name of names) assert.match(name, /^dotagents-app-[0-9a-f]+$/);
-});
-
 test('8.x の写しは、入れても外しても消え、ほかのスキルと .claude/skills は残る', () => {
-  for (const run of [install, vendor, uninstall, unvendor]) {
+  for (const run of [install, uninstall]) {
     const dir = project({ '.claude/skills/dotagents/VENDORED.json': '{"version":"8.0.5"}', '.claude/skills/dotagents/core.md': 'x', '.claude/skills/mine/SKILL.md': 'mine' });
     run(dir);
     assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'dotagents')), false, run.name);
     assert.equal(fs.readFileSync(path.join(dir, '.claude', 'skills', 'mine', 'SKILL.md'), 'utf8'), 'mine', run.name);
   }
   const alone = project({ '.claude/skills/dotagents/VENDORED.json': '{"version":"8.0.5"}' });
-  unvendor(alone);
+  uninstall(alone);
   assert.equal(fs.existsSync(path.join(alone, '.claude', 'skills', 'dotagents')), false);
   assert.ok(fs.existsSync(path.join(alone, '.claude', 'skills')));
-});
-
-test('写して入れたあとに参照で入れ直すと、写しと目録が消える', () => {
-  const dir = project({});
-  vendor(dir);
-  install(dir);
-  assert.equal(fs.existsSync(path.join(dir, '.agents', 'plugins')), false);
-  assert.deepEqual(Object.keys(json(dir, '.claude', 'settings.json').enabledPlugins), ['dotagents@dotagents']);
-  assert.doesNotMatch(toml(dir), /dotagents-/);
+  // 印の無いものは、8.x の写しの置き場にあっても消さない。
+  const mine = project({ '.claude/skills/dotagents/SKILL.md': 'mine' });
+  install(mine);
+  assert.equal(fs.readFileSync(path.join(mine, '.claude', 'skills', 'dotagents', 'SKILL.md'), 'utf8'), 'mine');
 });
 
 // 参照を設定に書いただけでは、対話のセッションの始めに読まれない。各人が 1 回入れる。
@@ -374,22 +294,6 @@ test('参照で入れたプロジェクトの点検は、この環境の Claude 
   assert.equal(level(), 'ok');
   record([{ scope: 'user' }]);
   assert.equal(level(), 'ok');
-});
-
-test('この道具が置いたのではないものがある場所と、プロジェクトの marketplace には、写さない', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
-  const own = path.join(dir, '.agents', 'plugins', NAME, 'skills', 'mine', 'SKILL.md');
-  fs.mkdirSync(path.dirname(own), { recursive: true });
-  fs.writeFileSync(own, 'x');
-  assert.throws(() => vendor(dir), /置いたのではないもの/);
-  unvendor(dir);
-  assert.equal(fs.readFileSync(own, 'utf8'), 'x');
-  const market = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
-  fs.mkdirSync(path.join(market, '.agents', 'plugins'), { recursive: true });
-  fs.writeFileSync(path.join(market, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({ name: 'team-tools', plugins: [{ name: 'lint' }] }));
-  assert.throws(() => vendor(market), /プロジェクトの marketplace\(team-tools\)/);
-  unvendor(market);
-  assert.deepEqual(json(market, '.agents', 'plugins', 'marketplace.json').plugins, [{ name: 'lint' }]);
 });
 
 test('点検は、宣言の誤り、流と検査の入口と参照が無いこと、8.x と 7.x の残りを知らせる', () => {

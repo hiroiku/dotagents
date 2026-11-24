@@ -148,9 +148,9 @@ test('スキルの読み込みは、判定せずに数える', () => {
   assert.match(lines, /"event":"skill","project":"[^"]+","role":"lead","name":"releases"/);
 });
 
-// 写しが読み込まれているかは、ファイルの有無からは分からない(信頼されていないフォルダー、下のディレクトリーで
-// 始めたセッション、写しを読まないホスト)。譲ると、どちらも働かない場合ができる。重なりは、ホストが名前で防ぐ。
-test('プロジェクトにハーネスの写しがあっても、受け口は譲らない', () => {
+// 8.x の写しが読み込まれているかは、ファイルの有無からは分からない(信頼されていないフォルダー、下のディレクトリーで
+// 始めたセッション、写しを読まないホスト)。譲ると、どちらも働かない場合ができる。
+test('プロジェクトに 8.x の写しが残っていても、受け口は譲らない', () => {
   const cwd = project();
   fs.mkdirSync(path.join(cwd, '.claude', 'skills', 'dotagents'), { recursive: true });
   fs.writeFileSync(path.join(cwd, '.claude', 'skills', 'dotagents', 'VENDORED.json'), '{}');

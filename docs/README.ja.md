@@ -46,9 +46,7 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 | Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。入っているかは `doctor` が知らせる。 |
 | Codex | `.codex/config.toml` に、版を固定しない git の marketplace と plugin | プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。 |
 
-自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。`uninstall` で参照を外す。入れる、写す、外すのどれも、この道具が書いた項目だけを足し引きし、設定のほかの文字は変えない。読めない設定が 1 つでもあれば、何も変えずに止める。
-
-`vendor` は、参照の代わりに、plugin をリポジトリーの中に写す(`.agents/plugins/dotagents/`。2 つのホストが読む、リポジトリーの中の marketplace)。GitHub に届かない人のためのもので、版を上げるたびにコミットが要るので、利用者が選んだときだけ使う。Claude Code は、入れる操作が要らない。フォルダーを信頼すると、最初のセッションでリポジトリーの中の marketplace が登録され、次のセッションから写しが読まれる。Codex は、`/plugins` を一度開くと入る。`unvendor` で外す。
+自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。`uninstall` で参照を外す。入れるときも外すときも、この道具が書いた項目だけを足し引きし、設定のほかの文字は変えない。読めない設定が 1 つでもあれば、何も変えずに止める。入れ方は参照だけで、ハーネスをリポジトリーの中に写すことはしない。
 
 ## プロジェクトの宣言
 
@@ -83,7 +81,7 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 | `plugin/skills/` | `setup`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs`、`install.mjs` など。 |
 | `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
-| `plugin/scripts/dotagents.mjs` | `install`、`uninstall`、`vendor`、`unvendor`、`doctor`、`stats`。 |
+| `plugin/scripts/dotagents.mjs` | `install`、`uninstall`、`doctor`、`stats`。 |
 
 ## 限界
 
@@ -95,7 +93,7 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 npm test    # node --test。依存は無い
 ```
 
-8.x から移るときは、各プロジェクトで `install`(または `vendor`)を実行する。`.claude/skills/dotagents` の写しは置き換わり、8.x が `.pi/settings.json` に書いた版を固定した package の行は消える。9.0.0 は Pi に対応しない。残ったものは `doctor` が知らせる。
+8.x から移るときは、各プロジェクトで `install` を実行する。`.claude/skills/dotagents` の写しは置き換わり、8.x が `.pi/settings.json` に書いた版を固定した package の行は消える。9.0.0 は Pi に対応しない。残ったものは `doctor` が知らせる。
 
 ## ライセンス
 
