@@ -9,7 +9,7 @@
 //
 // どちらも、ほかの設定には触れず、この道具が書いた項目だけを書き換える。2 つは同時には置かない。
 //
-// ホストごとの違い(0.172.0 の Codex、1.6.0 の Pi、2.1.331 の Claude Code で確かめた):
+// ホストごとの違い(0.172.0 の Codex、2.1.331 の Claude Code で確かめた):
 //
 // - Claude Code: .claude/settings.json の extraKnownMarketplaces と enabledPlugins。設定で有効にしただけでは、対話の
 //   セッションの始めに読まれない(-p は裏で入れるので読まれる)。自分で入れていない人は、1 回
@@ -18,8 +18,8 @@
 // - Codex: .codex/config.toml の marketplaces と plugins。git の marketplace は、プロジェクトの信頼と hook の承認
 //   (/hooks)のあと、各人の操作なしで入る。hook の承認は、plugin の中身が変わるたびに要る。リポジトリーの中の
 //   marketplace は、/plugins を一度開くまで入らない。
-// - Pi: .pi/settings.json の packages。git の参照は、版を書かなければ固定しない(更新は pi update --extensions)。
-//   相対パスは .pi/ から解決する。プロジェクトの信頼が要る。
+//
+// 9.0.0 から Pi には入れない。8.x が .pi/settings.json に書いた、版を固定した package の行は、入れるときと外すときに消す。
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -40,12 +40,12 @@ const isOurMarket = (name) => name === MARKETPLACE || VENDORED.test(name ?? '');
 const MARKET_DIR = path.join('.agents', 'plugins');
 const COPY_DIR = path.join(MARKET_DIR, NAME);
 const RECORD = 'VENDORED.json';
-// 8.x の写しの置き場。
+// 8.x の写しの置き場と、Pi の設定。
 const OLD_COPY_DIR = path.join('.claude', 'skills', NAME);
+const PI_SETTINGS = path.join('.pi', 'settings.json');
 
 const CLAUDE_SETTINGS = path.join('.claude', 'settings.json');
 const CODEX_CONFIG = path.join('.codex', 'config.toml');
-const PI_SETTINGS = path.join('.pi', 'settings.json');
 
 const readJson = (file, fallback) => {
   try {
@@ -61,7 +61,8 @@ const writeJson = (file, value) => {
 const manifest = () => readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {});
 export const version = () => manifest().version;
 const repository = () => String(manifest().repository).replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
-const piPackage = () => `git:github.com/${repository()}`;
+// 8.x が Pi の設定に書いた package。いつも版の tag を付けて固定していた。
+const isOldPi = (entry) => String(typeof entry === 'string' ? entry : entry?.source).startsWith(`git:github.com/${repository()}@`);
 
 // JSON の設定を読み、変えて、書き戻す。変えたあとに空になった入れ物は消し、ファイルごと空になれば消す。
 // 中身が変わらなければ書かない。読めないファイルは、書き戻すと利用者の設定が消えるので、触らずに止める。
@@ -150,23 +151,6 @@ function codex(root, mode, market) {
   fs.writeFileSync(file, `${text}\n`);
 }
 
-// ---------------------------------------------------------------- Pi
-
-const piCopy = () => `../${COPY_DIR.split(path.sep).join('/')}`;
-const isOurPi = (entry) => {
-  const source = String(typeof entry === 'string' ? entry : entry?.source);
-  return source === piPackage() || source.startsWith(`${piPackage()}@`) || source === piCopy();
-};
-
-function pi(root, mode) {
-  editJson(path.join(root, PI_SETTINGS), (data) => {
-    const others = (Array.isArray(data.packages) ? data.packages : []).filter((entry) => !isOurPi(entry));
-    const ours = { reference: [piPackage()], copy: [piCopy()] }[mode] ?? [];
-    data.packages = [...others, ...ours];
-    if (!data.packages.length) delete data.packages;
-  });
-}
-
 // ---------------------------------------------------------------- 写し
 
 // リポジトリーの中の marketplace の目録に、この plugin の項目を置くか外す。プロジェクトが自分の plugin を載せていれば、
@@ -195,10 +179,17 @@ function removeCopy(root) {
   }
 }
 
-// 8.x の写し(.claude/skills/dotagents)は、この道具が置いた印があるときだけ消す。
+// 8.x の残り。写し(.claude/skills/dotagents)は、この道具が置いた印があるときだけ消す。Pi の設定は、8.x が書いた
+// package の行だけを消し、ほかの行は残す。
 function removeOldCopy(root) {
   const old = path.join(root, OLD_COPY_DIR);
   if (fs.existsSync(path.join(old, RECORD))) fs.rmSync(old, { recursive: true, force: true });
+  if (!fs.existsSync(path.join(root, PI_SETTINGS))) return;
+  editJson(path.join(root, PI_SETTINGS), (data) => {
+    if (!Array.isArray(data.packages) || !data.packages.some(isOldPi)) return;
+    data.packages = data.packages.filter((entry) => !isOldPi(entry));
+    if (!data.packages.length) delete data.packages;
+  });
 }
 
 // ---------------------------------------------------------------- 宣言と雛形
@@ -241,12 +232,10 @@ const EACH = {
   reference: [
     `Claude Code: 自分で入れていない人は、1 回 claude plugin install ${NAME}@${MARKETPLACE} --scope project を実行する(すべてのプロジェクトで使うなら --scope user)。設定で有効にしただけでは、対話のセッションの始めに読まれない。フォルダーの信頼も要る。`,
     'Codex: プロジェクトを信頼し(trust_level = "trusted")、/hooks で dotagents の hook を承認する。版が上がるたびに承認し直す。',
-    'Pi: プロジェクトを信頼すると入る。更新は pi update --extensions で取る。',
   ],
   copy: [
     'Claude Code: 入れる操作は要らない。フォルダーを信頼すると、最初のセッションで写しの marketplace が登録され、次のセッションから読まれる。',
     'Codex: プロジェクトを信頼し、/plugins を一度開いて入れ、/hooks で hook を承認する。写しを更新するたびに、入れ直しと承認が要る。',
-    'Pi: プロジェクトを信頼すると読まれる。',
   ],
 };
 
@@ -255,14 +244,15 @@ export function install(dir, { style = {}, template = true } = {}) {
   declare(root, style);
   removeCopy(root);
   removeOldCopy(root);
-  for (const host of [claude, codex, pi]) host(root, 'reference');
+  for (const host of [claude, codex]) host(root, 'reference');
   const templates = template ? scaffold(root) : { placed: [], skipped: [] };
   return { mode: 'reference', each: EACH.reference, ...templates };
 }
 
 export function uninstall(dir) {
   const root = path.resolve(dir);
-  for (const host of [claude, codex, pi]) host(root, 'none');
+  removeOldCopy(root);
+  for (const host of [claude, codex]) host(root, 'none');
 }
 
 export function vendor(dir) {
@@ -285,14 +275,15 @@ export function vendor(dir) {
   editJson(path.join(root, MARKET_DIR, '.claude-plugin', 'marketplace.json'), (data) => {
     data.owner ??= { name: repository().split('/')[0] };
   });
-  for (const host of [claude, codex, pi]) host(root, 'copy', market);
+  for (const host of [claude, codex]) host(root, 'copy', market);
   return { mode: 'copy', target, version: version(), each: EACH.copy };
 }
 
 export function unvendor(dir) {
   const root = path.resolve(dir);
   removeCopy(root);
-  for (const host of [claude, codex, pi]) host(root, 'none');
+  removeOldCopy(root);
+  for (const host of [claude, codex]) host(root, 'none');
 }
 
 // この環境の Claude Code に、この plugin が入っているか。参照を設定に書いただけでは、対話のセッションの始めに読まれない。
@@ -319,7 +310,6 @@ export function installed(dir) {
   const settings = readJson(path.join(root, CLAUDE_SETTINGS), {});
   const toml = fs.existsSync(path.join(root, CODEX_CONFIG)) ? fs.readFileSync(path.join(root, CODEX_CONFIG), 'utf8') : '';
   const packages = readJson(path.join(root, PI_SETTINGS), {}).packages;
-  const piEntries = (Array.isArray(packages) ? packages : []).map((entry) => String(typeof entry === 'string' ? entry : entry?.source));
   const mode = (reference, copy) => (reference ? 'reference' : copy ? 'copy' : null);
   const enabled = Object.entries(settings.enabledPlugins ?? {}).filter(([id, on]) => on === true && id.startsWith(`${NAME}@`)).map(([id]) => id.slice(NAME.length + 1));
   const tables = [...toml.matchAll(new RegExp(`^\\[plugins\\."${NAME}@([\\w-]+)"\\]`, 'gm'))].map((match) => match[1]);
@@ -327,9 +317,9 @@ export function installed(dir) {
     hosts: {
       'Claude Code': mode(enabled.includes(MARKETPLACE), enabled.some((name) => VENDORED.test(name))),
       Codex: mode(tables.includes(MARKETPLACE), tables.some((name) => VENDORED.test(name))),
-      Pi: mode(piEntries.some((entry) => entry === piPackage() || entry.startsWith(`${piPackage()}@`)), piEntries.includes(piCopy())),
     },
     copy: readJson(path.join(root, COPY_DIR, RECORD), null),
     oldCopy: readJson(path.join(root, OLD_COPY_DIR, RECORD), null),
+    oldPi: (Array.isArray(packages) ? packages : []).some(isOldPi),
   };
 }

@@ -62,9 +62,3 @@ export function claudeRun(transcriptPath) {
     tools: run.tools,
   };
 }
-
-// Pi の子のプロセスが返した応答(JSON モードの message_end)から数える。時間は、呼び出した側が測る。
-export function piRun(messages, seconds) {
-  const sum = (key) => messages.reduce((total, message) => total + count(message.usage?.[key]), 0);
-  return { model: messages.at(-1)?.model, seconds, out: sum('output'), in: sum('input') + sum('cacheWrite'), cached: sum('cacheRead') };
-}

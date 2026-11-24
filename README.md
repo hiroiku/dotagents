@@ -1,6 +1,6 @@
 # dotagents
 
-A harness for delegating work to AI coding agents. One set of contents — one always-on page per role, project-selected styles, and mechanisms that stop operations reaching outside your machine — delivered natively to **Claude Code**, **Codex** and **Pi**.
+A harness for delegating work to AI coding agents. One set of contents — one always-on page per role, project-selected styles, and mechanisms that stop operations reaching outside your machine — delivered natively to **Claude Code** and **Codex**.
 
 English | [日本語](docs/README.ja.md)
 
@@ -30,7 +30,6 @@ The first two can be re-run by the lead with `DOTAGENTS_CONFIRMED=1` when the us
 |---|---|---|
 | Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | turn on auto-update for the marketplace in `/plugin`, or `claude plugin update dotagents@dotagents` |
 | Codex | `codex plugin marketplace add hiroiku/dotagents` then `codex plugin add dotagents@dotagents`, and trust its hooks in `/hooks` | `codex plugin marketplace upgrade dotagents` (hooks need trusting again after an update) |
-| Pi | `pi install git:github.com/hiroiku/dotagents` | `pi update --extensions` |
 
 Hooks run with `bun` when it is installed and with `node` otherwise.
 
@@ -46,11 +45,10 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 |---|---|---|
 | Claude Code | `.claude/settings.json`: `extraKnownMarketplaces` and `enabledPlugins` | Trust the folder. If you have not installed the harness yourself, run `claude plugin install dotagents@dotagents --scope project` once (`--scope user` for every project). Enabling it in the settings alone does not load it at the start of an interactive session. `doctor` tells you whether it is installed on your machine. |
 | Codex | `.codex/config.toml`: a git marketplace and the plugin, unpinned | Trust the project, then approve the hooks in `/hooks`. Codex asks again whenever the plugin's contents change. |
-| Pi | `.pi/settings.json`: an unpinned `git:` package | Trust the project. Update with `pi update --extensions`. |
 
 If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. `uninstall` removes the references.
 
-`vendor` copies the plugin into the repository instead (`.agents/plugins/dotagents/`, a repository marketplace that all three hosts read) for people who cannot reach GitHub. Every upgrade then needs a commit, so use it only when you choose to. Claude Code needs no install: after you trust the folder, the first session registers the repository marketplace and the copy loads from the next session. Codex needs `/plugins` opened once to install it. `unvendor` removes it.
+`vendor` copies the plugin into the repository instead (`.agents/plugins/dotagents/`, a repository marketplace that both hosts read) for people who cannot reach GitHub. Every upgrade then needs a commit, so use it only when you choose to. Claude Code needs no install: after you trust the folder, the first session registers the repository marketplace and the copy loads from the next session. Codex needs `/plugins` opened once to install it. `unvendor` removes it.
 
 ## The project declaration
 
@@ -79,11 +77,11 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 | Path | What |
 |---|---|
 | `plugin/core/` | The page every role reads (`core.md`) and the lead's page (`lead.md`). A test enforces their size. |
-| `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents, Codex agent TOML and Pi child roles. |
+| `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents and Codex agent TOML. |
 | `plugin/styles/` | Git flows and design shapes. Front matter says which roles read the text and which values the hooks use. |
 | `plugin/skills/` | `setup`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `style.mjs`, `install.mjs`, `check.mjs`, and the host adapters' shared code. |
-| `plugin/hosts/` | Thin adapters: Claude Code hooks, Codex hooks, a Pi extension. |
+| `plugin/hosts/` | Thin adapters: Claude Code hooks and Codex hooks. |
 | `plugin/scripts/dotagents.mjs` | `install`, `uninstall`, `vendor`, `unvendor`, `doctor`, `stats`. |
 
 ## Limits
@@ -96,7 +94,7 @@ The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, n
 npm test    # node --test, no dependencies
 ```
 
-Coming from 8.x: run `install` (or `vendor`) in each project. It replaces the copy under `.claude/skills/dotagents` and the pinned Pi package. `doctor` reports what is left.
+Coming from 8.x: run `install` (or `vendor`) in each project. It replaces the copy under `.claude/skills/dotagents` and removes the pinned package line 8.x wrote into `.pi/settings.json`; 9.0.0 no longer supports Pi. `doctor` reports what is left.
 
 ## License
 

@@ -14,7 +14,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PLUGIN = path.join(ROOT, 'plugin');
 const json = (...parts) => JSON.parse(fs.readFileSync(path.join(...parts), 'utf8'));
 
-test('3 つのホストの定義は、同じ名前と版を持つ', () => {
+test('ホストごとの定義は、同じ名前と版を持つ', () => {
   const manifests = [json(PLUGIN, '.claude-plugin', 'plugin.json'), json(PLUGIN, '.codex-plugin', 'plugin.json'), json(PLUGIN, 'package.json'), json(ROOT, 'package.json')];
   assert.deepEqual([...new Set(manifests.map((manifest) => manifest.version))].length, 1);
   for (const manifest of manifests.slice(0, 3)) assert.equal(manifest.name, NAME);
@@ -94,7 +94,8 @@ function existing() {
   fs.mkdirSync(path.join(dir, '.pi'));
   fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] }, enabledPlugins: { 'other@market': true } }));
   fs.writeFileSync(path.join(dir, '.codex', 'config.toml'), 'model = "x"\n\n[plugins."other@market"]\nenabled = true\n');
-  fs.writeFileSync(path.join(dir, '.pi', 'settings.json'), JSON.stringify({ theme: 'dark', packages: ['npm:@example/tools', 'git:github.com/hiroiku/dotagents@v8.0.5'] }));
+  // 8.x が Pi に書いた、版を固定した package の行。利用者が自分で書いた行は残す。
+  fs.writeFileSync(path.join(dir, '.pi', 'settings.json'), JSON.stringify({ theme: 'dark', packages: ['npm:@example/tools', 'git:github.com/hiroiku/dotagents@v8.0.5', 'git:github.com/hiroiku/dotagents'] }));
   return dir;
 }
 
@@ -102,7 +103,7 @@ test('参照で入れると、各ホストのプロジェクトの設定に版�
   const dir = existing();
   const before = { claude: json(dir, '.claude', 'settings.json'), codex: toml(dir) };
   const result = install(dir, { style: { git: 'trunk' } });
-  assert.equal(result.each.length, 3);
+  assert.equal(result.each.length, 2);
   const settings = json(dir, '.claude', 'settings.json');
   assert.deepEqual(settings.permissions, before.claude.permissions);
   assert.equal(settings.enabledPlugins['other@market'], true);
@@ -111,7 +112,7 @@ test('参照で入れると、各ホストのプロジェクトの設定に版�
   assert.match(toml(dir), /^model = "x"\n\n\[plugins\."other@market"\]\nenabled = true\n/);
   assert.match(toml(dir), /\[marketplaces\.dotagents\]\nsource_type = "git"\nsource = "https:\/\/github\.com\/hiroiku\/dotagents\.git"\n/);
   assert.doesNotMatch(toml(dir), /ref =/);
-  // 8.x の固定した版は、固定しない参照に置き換わる。
+  // 9.0.0 は Pi に入れない。8.x が書いた行だけを消す。
   assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: ['npm:@example/tools', 'git:github.com/hiroiku/dotagents'] });
   assert.deepEqual(json(dir, '.agents', 'dotagents.json'), { style: { git: 'trunk' } });
   // 入れ直しても、同じものが 2 つにならない。
@@ -121,7 +122,7 @@ test('参照で入れると、各ホストのプロジェクトの設定に版�
   uninstall(dir);
   assert.deepEqual(json(dir, '.claude', 'settings.json'), before.claude);
   assert.equal(toml(dir), before.codex);
-  assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: ['npm:@example/tools'] });
+  assert.deepEqual(json(dir, '.pi', 'settings.json'), { theme: 'dark', packages: ['npm:@example/tools', 'git:github.com/hiroiku/dotagents'] });
   assert.deepEqual(json(dir, '.agents', 'dotagents.json'), { style: { git: 'trunk' } }, '宣言は残す');
 });
 
@@ -151,7 +152,7 @@ test('写して入れると、リポジトリーの中の marketplace に置き�
   vendor(dir);
   const copy = path.join(dir, '.agents', 'plugins', NAME);
   assert.equal(json(copy, 'VENDORED.json').version, json(PLUGIN, 'package.json').version);
-  assert.ok(fs.existsSync(path.join(copy, 'src', 'guard.mjs')) && fs.existsSync(path.join(copy, 'hosts', 'pi', 'index.js')));
+  assert.ok(fs.existsSync(path.join(copy, 'src', 'guard.mjs')) && fs.existsSync(path.join(copy, 'hosts', 'codex', 'hooks.json')));
   assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', NAME)), false);
   const claudeMarket = json(dir, '.agents', 'plugins', '.claude-plugin', 'marketplace.json');
   assert.deepEqual(claudeMarket.plugins.map((plugin) => [plugin.name, plugin.source]), [[NAME, './dotagents']]);
@@ -162,13 +163,23 @@ test('写して入れると、リポジトリーの中の marketplace に置き�
   assert.equal(codexMarket.plugins[0].source.path, './.agents/plugins/dotagents');
   assert.match(toml(dir), new RegExp(`\\[plugins\\."dotagents@${codexMarket.name}"\\]\\nenabled = true`));
   assert.doesNotMatch(toml(dir), /\[marketplaces\.dotagents\]/);
-  // Pi は、.pi/ から見た相対パスで読む。
-  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, ['npm:@example/tools', '../.agents/plugins/dotagents']);
   unvendor(dir);
   assert.equal(fs.existsSync(path.join(dir, '.agents', 'plugins')), false);
   assert.deepEqual(json(dir, '.claude', 'settings.json'), before.claude);
   assert.equal(toml(dir), before.codex);
-  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, ['npm:@example/tools']);
+  assert.deepEqual(json(dir, '.pi', 'settings.json').packages, ['npm:@example/tools', 'git:github.com/hiroiku/dotagents']);
+});
+
+test('8.x が Pi の設定に書いた package の行は、外すときにも消し、点検で知らせる', () => {
+  for (const remove of [uninstall, unvendor]) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-pi-'));
+    fs.mkdirSync(path.join(dir, '.pi'));
+    fs.writeFileSync(path.join(dir, '.pi', 'settings.json'), JSON.stringify({ packages: ['git:github.com/hiroiku/dotagents@v8.0.5', 'npm:@example/tools'] }));
+    assert.match(doctor(dir, { remote: false }).map((entry) => `${entry.level}: ${entry.text}`).join('\n'), /warn: 8\.x が Pi の設定/);
+    remove(dir);
+    assert.deepEqual(json(dir, '.pi', 'settings.json'), { packages: ['npm:@example/tools'] });
+    assert.doesNotMatch(doctor(dir, { remote: false }).map((entry) => entry.text).join('\n'), /Pi/);
+  }
 });
 
 // ホストは marketplace の置き場を名前ごとに 1 つだけ覚える。名前が同じだと、別のプロジェクトの写しの hook が動く。

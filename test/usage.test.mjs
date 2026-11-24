@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { claudeRun, piRun } from '../plugin/src/usage.mjs';
+import { claudeRun } from '../plugin/src/usage.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-usage-'));
 process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
@@ -81,14 +81,4 @@ test('家のディレクトリーを ~ で書いた場所も読む', () => {
   } finally {
     fs.rmSync(inside, { recursive: true, force: true });
   }
-});
-
-test('Pi の応答から数える', () => {
-  const messages = [
-    { role: 'assistant', model: 'a', usage: { input: 10, output: 20, cacheRead: 300, cacheWrite: 40, totalTokens: 370 } },
-    { role: 'assistant', model: 'b', usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 } },
-    { role: 'assistant', model: 'b' },
-  ];
-  assert.deepEqual(piRun(messages, 12), { model: 'b', seconds: 12, out: 22, in: 55, cached: 303 });
-  assert.deepEqual(piRun([], 0), { model: undefined, seconds: 0, out: 0, in: 0, cached: 0 });
 });

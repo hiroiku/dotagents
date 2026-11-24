@@ -69,9 +69,9 @@ export function doctor(dir, { remote = true, claudeHome } = {}) {
     if (axes.length) note('info', `流を選んでいない軸: ${axes.join('、')}。選ばなければ、その軸の文も決まりも入らない。`);
   }
 
-  const { hosts, copy, oldCopy } = installed(root);
+  const { hosts, copy, oldCopy, oldPi } = installed(root);
   const missing = Object.entries(hosts).filter(([, mode]) => !mode).map(([host]) => host);
-  if (missing.length === 3) note('warn', 'どのホストの設定にも、この plugin への参照が無い。各人が自分の環境に入れていなければ、このプロジェクトでは働かない。install で書く。');
+  if (missing.length === Object.keys(hosts).length) note('warn', 'どのホストの設定にも、この plugin への参照が無い。各人が自分の環境に入れていなければ、このプロジェクトでは働かない。install で書く。');
   else if (missing.length) note('info', `参照の設定が無いホスト: ${missing.join('、')}`);
   if (hosts['Claude Code'] === 'reference') {
     const here = claudeInstalled(root, claudeHome);
@@ -81,6 +81,7 @@ export function doctor(dir, { remote = true, claudeHome } = {}) {
   }
   if (copy) note(copy.version === version() ? 'ok' : 'warn', `リポジトリーに写した版: ${copy.version}(この道具の版: ${version()})`);
   if (oldCopy) note('warn', `8.x の写しが残っている: .claude/skills/${NAME}(${oldCopy.version})。install か vendor で置き換える。`);
+  if (oldPi) note('warn', `8.x が Pi の設定(.pi/settings.json)に書いた package が残っている。9.0.0 は Pi に対応しない。install、vendor、uninstall のどれかで消える。`);
   for (const old of [path.join('.claude', 'dotagents.json'), path.join('.claude', 'rules', 'dotagents'), path.join('.codex', 'dotagents')]) {
     if (fs.existsSync(path.join(root, old))) note('warn', `7.x が配ったものが残っている: ${old}`);
   }

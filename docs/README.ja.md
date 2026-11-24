@@ -1,6 +1,6 @@
 # dotagents
 
-AI のコーディングエージェントに仕事を任せるためのハーネス。役ごとに毎回入る 1 枚、プロジェクトが選ぶ流、手元の外へ届く操作を止める仕組みを、同じ中身のまま **Claude Code**、**Codex**、**Pi** へ届ける。
+AI のコーディングエージェントに仕事を任せるためのハーネス。役ごとに毎回入る 1 枚、プロジェクトが選ぶ流、手元の外へ届く操作を止める仕組みを、同じ中身のまま **Claude Code** と **Codex** へ届ける。
 
 [English](../README.md) | 日本語
 
@@ -30,7 +30,6 @@ AI のコーディングエージェントに仕事を任せるためのハー�
 |---|---|---|
 | Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | `/plugin` で marketplace の自動更新をオンにする。または `claude plugin update dotagents@dotagents` |
 | Codex | `codex plugin marketplace add hiroiku/dotagents` のあと `codex plugin add dotagents@dotagents`。hook は `/hooks` で承認する | `codex plugin marketplace upgrade dotagents`(更新のあと、hook をもう一度承認する) |
-| Pi | `pi install git:github.com/hiroiku/dotagents` | `pi update --extensions` |
 
 hook は、`bun` があれば `bun` で、無ければ `node` で動く。
 
@@ -46,11 +45,10 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 |---|---|---|
 | Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。入っているかは `doctor` が知らせる。 |
 | Codex | `.codex/config.toml` に、版を固定しない git の marketplace と plugin | プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。 |
-| Pi | `.pi/settings.json` に、版を固定しない `git:` の package | プロジェクトを信頼する。更新は `pi update --extensions` で取る。 |
 
 自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。`uninstall` で参照を外す。
 
-`vendor` は、参照の代わりに、plugin をリポジトリーの中に写す(`.agents/plugins/dotagents/`。3 つのホストが読む、リポジトリーの中の marketplace)。GitHub に届かない人のためのもので、版を上げるたびにコミットが要るので、利用者が選んだときだけ使う。Claude Code は、入れる操作が要らない。フォルダーを信頼すると、最初のセッションでリポジトリーの中の marketplace が登録され、次のセッションから写しが読まれる。Codex は、`/plugins` を一度開くと入る。`unvendor` で外す。
+`vendor` は、参照の代わりに、plugin をリポジトリーの中に写す(`.agents/plugins/dotagents/`。2 つのホストが読む、リポジトリーの中の marketplace)。GitHub に届かない人のためのもので、版を上げるたびにコミットが要るので、利用者が選んだときだけ使う。Claude Code は、入れる操作が要らない。フォルダーを信頼すると、最初のセッションでリポジトリーの中の marketplace が登録され、次のセッションから写しが読まれる。Codex は、`/plugins` を一度開くと入る。`unvendor` で外す。
 
 ## プロジェクトの宣言
 
@@ -79,11 +77,11 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 | 場所 | 中身 |
 |---|---|
 | `plugin/core/` | どの役も読む 1 枚(`core.md`)と、進める役の 1 枚(`lead.md`)。大きさはテストが守る。 |
-| `plugin/agents/` | `builder`(作る役)と `reviewer`(確かめる役)。Claude Code のエージェント、Codex の TOML、Pi の子の役は、ここから導く。 |
+| `plugin/agents/` | `builder`(作る役)と `reviewer`(確かめる役)。Claude Code のエージェントと Codex の TOML は、ここから導く。 |
 | `plugin/styles/` | git の流れと設計の形。frontmatter に、文を読む役と、hook が使う値を持つ。 |
 | `plugin/skills/` | `setup`、`prompting`、`releases`、`triage`。 |
-| `plugin/src/` | `guard.mjs`(3 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs`、`install.mjs`、`check.mjs` など。 |
-| `plugin/hosts/` | 薄い受け口。Claude Code の hook、Codex の hook、Pi の拡張。 |
+| `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs`、`install.mjs`、`check.mjs` など。 |
+| `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
 | `plugin/scripts/dotagents.mjs` | `install`、`uninstall`、`vendor`、`unvendor`、`doctor`、`stats`。 |
 
 ## 限界
@@ -96,7 +94,7 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 npm test    # node --test。依存は無い
 ```
 
-8.x から移るときは、各プロジェクトで `install`(または `vendor`)を実行する。`.claude/skills/dotagents` の写しと、版を固定した Pi の package は、置き換わる。残ったものは `doctor` が知らせる。
+8.x から移るときは、各プロジェクトで `install`(または `vendor`)を実行する。`.claude/skills/dotagents` の写しは置き換わり、8.x が `.pi/settings.json` に書いた版を固定した package の行は消える。9.0.0 は Pi に対応しない。残ったものは `doctor` が知らせる。
 
 ## ライセンス
 
