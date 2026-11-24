@@ -44,13 +44,13 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 
 | ホスト | `install` が書くもの | 各人がすること |
 |---|---|---|
-| Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。次のセッション(または `/reload-plugins`)から読まれる。`claude plugin install` は要らない。 |
+| Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。入っているかは `doctor` が知らせる。 |
 | Codex | `.codex/config.toml` に、版を固定しない git の marketplace と plugin | プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。 |
 | Pi | `.pi/settings.json` に、版を固定しない `git:` の package | プロジェクトを信頼する。更新は `pi update --extensions` で取る。 |
 
 自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。`uninstall` で参照を外す。
 
-`vendor` は、参照の代わりに、plugin をリポジトリーの中に写す(`.agents/plugins/dotagents/`。3 つのホストが読む、リポジトリーの中の marketplace)。GitHub に届かない人のためのもので、版を上げるたびにコミットが要るので、利用者が選んだときだけ使う。Codex は、`/plugins` を一度開くと入る。`unvendor` で外す。
+`vendor` は、参照の代わりに、plugin をリポジトリーの中に写す(`.agents/plugins/dotagents/`。3 つのホストが読む、リポジトリーの中の marketplace)。GitHub に届かない人のためのもので、版を上げるたびにコミットが要るので、利用者が選んだときだけ使う。Claude Code は、入れる操作が要らない。フォルダーを信頼すると、最初のセッションでリポジトリーの中の marketplace が登録され、次のセッションから写しが読まれる。Codex は、`/plugins` を一度開くと入る。`unvendor` で外す。
 
 ## プロジェクトの宣言
 

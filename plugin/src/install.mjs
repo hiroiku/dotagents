@@ -11,8 +11,10 @@
 //
 // ホストごとの違い(0.172.0 の Codex、1.6.0 の Pi、2.1.331 の Claude Code で確かめた):
 //
-// - Claude Code: .claude/settings.json の extraKnownMarketplaces と enabledPlugins。marketplace の中の相対パスの plugin
-//   なので、各人の install は要らない。フォルダーを信頼すると読まれる。
+// - Claude Code: .claude/settings.json の extraKnownMarketplaces と enabledPlugins。設定で有効にしただけでは、対話の
+//   セッションの始めに読まれない(-p は裏で入れるので読まれる)。自分で入れていない人は、1 回
+//   claude plugin install dotagents@dotagents --scope project を実行する。写し(相対パスの directory marketplace)は、
+//   入れなくても、フォルダーを信頼すれば、marketplace を登録した最初のセッションの次から読まれる。
 // - Codex: .codex/config.toml の marketplaces と plugins。git の marketplace は、プロジェクトの信頼と hook の承認
 //   (/hooks)のあと、各人の操作なしで入る。hook の承認は、plugin の中身が変わるたびに要る。リポジトリーの中の
 //   marketplace は、/plugins を一度開くまで入らない。
@@ -21,6 +23,7 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { DECLARATION, readDeclaration } from './declaration.mjs';
 import { PLUGIN_ROOT } from './root.mjs';
@@ -99,8 +102,10 @@ function vendoredName(root) {
 
 function claude(root, mode, market) {
   editJson(path.join(root, CLAUDE_SETTINGS), (data) => {
-    data.extraKnownMarketplaces ??= {};
+    // enabledPlugins を先に置く。各人の claude plugin install --scope project は、この順に書き直すので、先にそろえておくと
+    // 差分ができない。
     data.enabledPlugins ??= {};
+    data.extraKnownMarketplaces ??= {};
     for (const name of Object.keys(data.extraKnownMarketplaces)) if (isOurMarket(name)) delete data.extraKnownMarketplaces[name];
     for (const id of Object.keys(data.enabledPlugins)) if (id.startsWith(`${NAME}@`) && isOurMarket(id.slice(NAME.length + 1))) delete data.enabledPlugins[id];
     if (mode === 'reference') {
@@ -234,12 +239,12 @@ function scaffold(root) {
 
 const EACH = {
   reference: [
-    'Claude Code: フォルダーを信頼すると、次のセッションから読まれる。開いているセッションでは /reload-plugins を実行する。',
+    `Claude Code: 自分で入れていない人は、1 回 claude plugin install ${NAME}@${MARKETPLACE} --scope project を実行する(すべてのプロジェクトで使うなら --scope user)。設定で有効にしただけでは、対話のセッションの始めに読まれない。フォルダーの信頼も要る。`,
     'Codex: プロジェクトを信頼し(trust_level = "trusted")、/hooks で dotagents の hook を承認する。版が上がるたびに承認し直す。',
     'Pi: プロジェクトを信頼すると入る。更新は pi update --extensions で取る。',
   ],
   copy: [
-    'Claude Code: フォルダーを信頼すると、次のセッションから読まれる。',
+    'Claude Code: 入れる操作は要らない。フォルダーを信頼すると、最初のセッションで写しの marketplace が登録され、次のセッションから読まれる。',
     'Codex: プロジェクトを信頼し、/plugins を一度開いて入れ、/hooks で hook を承認する。写しを更新するたびに、入れ直しと承認が要る。',
     'Pi: プロジェクトを信頼すると読まれる。',
   ],
@@ -288,6 +293,24 @@ export function unvendor(dir) {
   const root = path.resolve(dir);
   removeCopy(root);
   for (const host of [claude, codex, pi]) host(root, 'none');
+}
+
+// この環境の Claude Code に、この plugin が入っているか。参照を設定に書いただけでは、対話のセッションの始めに読まれない。
+// user の scope か、このプロジェクトの project か local の scope の記録があれば入っている。記録が読めなければ null。
+export function claudeInstalled(dir, home = process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude')) {
+  const record = readJson(path.join(home, 'plugins', 'installed_plugins.json'), null);
+  if (!record || typeof record !== 'object') return null;
+  const entries = record.plugins?.[`${NAME}@${MARKETPLACE}`];
+  if (!Array.isArray(entries)) return false;
+  const real = (file) => {
+    try {
+      return fs.realpathSync(file);
+    } catch {
+      return path.resolve(file);
+    }
+  };
+  const root = real(dir);
+  return entries.some((entry) => entry?.scope === 'user' || ((entry?.scope === 'project' || entry?.scope === 'local') && typeof entry.projectPath === 'string' && real(entry.projectPath) === root));
 }
 
 // どのホストに、どの入れ方で書いてあるか。点検に使う。

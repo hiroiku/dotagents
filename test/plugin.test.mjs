@@ -209,6 +209,29 @@ test('読めない設定は書き換えずに止め、関係の無い設定は�
   assert.equal(fs.existsSync(path.join(tidy, '.claude')), false);
 });
 
+// 参照を設定に書いただけでは、対話のセッションの始めに読まれない。各人が 1 回入れる。
+test('参照で入れたプロジェクトの点検は、この環境の Claude Code に入っているかを知らせる', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-doctor-'));
+  install(dir);
+  const settings = json(dir, '.claude', 'settings.json');
+  // 各人の claude plugin install --scope project が同じ順に書き直すので、差分ができない。
+  assert.deepEqual(Object.keys(settings), ['enabledPlugins', 'extraKnownMarketplaces']);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-claude-'));
+  const level = () => doctor(dir, { remote: false, claudeHome: home }).find((entry) => /Claude Code (に|には)入|Claude Code に入っているか/.test(entry.text))?.level;
+  assert.equal(level(), 'info');
+  const record = (entries) => {
+    fs.mkdirSync(path.join(home, 'plugins'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'dotagents@dotagents': entries } }));
+  };
+  record([{ scope: 'project', projectPath: '/somewhere/else' }]);
+  assert.equal(level(), 'warn');
+  assert.match(doctor(dir, { remote: false, claudeHome: home }).find((entry) => entry.level === 'warn' && /Claude Code/.test(entry.text)).text, /claude plugin install dotagents@dotagents --scope project/);
+  record([{ scope: 'project', projectPath: dir }]);
+  assert.equal(level(), 'ok');
+  record([{ scope: 'user' }]);
+  assert.equal(level(), 'ok');
+});
+
 test('この道具が置いたのではないものがある場所と、プロジェクトの marketplace には、写さない', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-vendor-'));
   const own = path.join(dir, '.agents', 'plugins', NAME, 'skills', 'mine', 'SKILL.md');

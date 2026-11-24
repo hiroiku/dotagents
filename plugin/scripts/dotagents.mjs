@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 import { PLUGIN_ROOT, budgetOf, standingSize } from '../src/context.mjs';
 import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declaration.mjs';
 import { KIND_LABELS, PROCEDURE_LABELS, styleValues } from '../src/guard.mjs';
-import { NAME, install, installed, uninstall, unvendor, vendor, version } from '../src/install.mjs';
+import { NAME, claudeInstalled, install, installed, uninstall, unvendor, vendor, version } from '../src/install.mjs';
 import { logDir } from '../src/log.mjs';
 import { catalog, chosenStyles } from '../src/style.mjs';
 
@@ -37,7 +37,7 @@ const tryRun = (cwd, file, ...args) => {
   }
 };
 
-export function doctor(dir, { remote = true } = {}) {
+export function doctor(dir, { remote = true, claudeHome } = {}) {
   const root = path.resolve(dir);
   const notes = [];
   const note = (level, text) => notes.push({ level, text });
@@ -73,6 +73,12 @@ export function doctor(dir, { remote = true } = {}) {
   const missing = Object.entries(hosts).filter(([, mode]) => !mode).map(([host]) => host);
   if (missing.length === 3) note('warn', 'どのホストの設定にも、この plugin への参照が無い。各人が自分の環境に入れていなければ、このプロジェクトでは働かない。install で書く。');
   else if (missing.length) note('info', `参照の設定が無いホスト: ${missing.join('、')}`);
+  if (hosts['Claude Code'] === 'reference') {
+    const here = claudeInstalled(root, claudeHome);
+    if (here === true) note('ok', 'この環境の Claude Code に入っている。');
+    else if (here === false) note('warn', `この環境の Claude Code には入っていない。設定で有効にしただけでは、対話のセッションの始めに読まれない。1 回 claude plugin install ${NAME}@${NAME} --scope project を実行する(すべてのプロジェクトで使うなら --scope user)。`);
+    else note('info', 'この環境の Claude Code に入っているかを、確かめられなかった。');
+  }
   if (copy) note(copy.version === version() ? 'ok' : 'warn', `リポジトリーに写した版: ${copy.version}(この道具の版: ${version()})`);
   if (oldCopy) note('warn', `8.x の写しが残っている: .claude/skills/${NAME}(${oldCopy.version})。install か vendor で置き換える。`);
   for (const old of [path.join('.claude', 'dotagents.json'), path.join('.claude', 'rules', 'dotagents'), path.join('.codex', 'dotagents')]) {
