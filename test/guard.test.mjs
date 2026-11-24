@@ -64,6 +64,8 @@ const OUTWARD = [
   ['npm run deploy:prod', ['deploy:production']],
   ['make release_notes', ['release:*']],
   ['npm run build:release', ['release:*']],
+  // test は動詞の後ろでは行き先の名前にもなるので、確かめる側に倒す。
+  ['npm run deploy:test', ['deploy:*']],
   ["sh -c 'cd app && npm publish'", ['release:*']],
   ['echo x > .agents/dotagents.json', ['policy:dotagents.json']],
   ['sed -i "" s/a/b/ AGENTS.md', ['instructions:AGENTS.md']],
@@ -89,6 +91,11 @@ const HARMLESS = [
   'gh api repos/$R/milestones -f title=v1',
   "gh api -X DELETE 'repos/o/r/git/refs/heads/work/issue#418'",
   'npm run deploy -- --dry-run',
+  // 同じ語の中に、外へ出さないことを表す語があれば、動詞があっても通す。
+  'npm run deploy:dry-run',
+  'npm run release:check',
+  'bun run test:deploy',
+  'pnpm verify_publish',
   'cargo build --release',
   'terraform plan',
   'node scripts/report.mjs publish',

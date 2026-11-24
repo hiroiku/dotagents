@@ -26,6 +26,10 @@ const DEPLOY_VERBS = new Set(['deploy', 'promote', 'rollback', 'destroy']);
 // 動詞と同じ語を、引数(ファイル名や検索する語)として取る道具。ここに無い道具は、確かめる側に倒れる。
 const TAKES_WORDS = new Set(['cat', 'ls', 'cd', 'grep', 'rg', 'find', 'fd', 'echo', 'printf', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'test', '[', 'head', 'tail', 'wc', 'sed', 'awk', 'open', 'code', 'tree', 'du', 'stat', 'diff', 'which', 'type', 'man', 'export', 'git', 'gh']);
 const DRY = new Set(['--dry-run', '--dry', '--help', '-h', '--check', '--list', 'plan', 'diff', 'status', 'list', 'logs', 'view']);
+// 同じ語の中で動詞と並ぶと、外へ出さないことを表す語(`deploy:dry-run`、`release:check`)。test は動詞の後ろでは
+// 行き先の名前にもなる(`deploy:test`)ので、動詞の前にあるときだけ数える。
+const STAYS = new Set(['dry', 'plan', 'diff', 'check', 'status', 'validate', 'verify', 'lint']);
+const STAYS_BEFORE = new Set(['test']);
 const ENVIRONMENTS = { production: 'production', prod: 'production', staging: 'staging', stg: 'staging', preview: 'preview', development: 'development', dev: 'development', local: 'local' };
 // 守るファイルを書き換える道具。これ以外は、読むだけとして通す。
 const WRITERS = new Set(['sed', 'tee', 'cp', 'mv', 'rm', 'ln', 'truncate', 'dd', 'perl', 'install', 'rsync', 'patch', 'ed']);
@@ -296,13 +300,21 @@ function environment(words, assignments) {
 const kindOf = (verb) => (RELEASE_VERBS.has(verb) ? 'release' : DEPLOY_VERBS.has(verb) ? 'deploy' : null);
 const isFile = (word) => /[./]/.test(word ?? '');
 
+// 1 つの語を :、_、- で分けて、動詞の種類を返す。外へ出さないことを表す語が同じ語の中にあれば、動詞として読まない。
+function verbIn(word) {
+  const parts = (word ?? '').split(/[:_-]/);
+  const at = parts.findIndex(kindOf);
+  if (at < 0 || parts.some((part, index) => STAYS.has(part) || (index < at && STAYS_BEFORE.has(part)))) return null;
+  return kindOf(parts[at]);
+}
+
 // 下位のコマンドの語(2 語目と 3 語目)に動詞があれば、外へ届く。script の名前(`npm run deploy:prod`)は、
-// `:`、`_`、`-` で分けた語も読む。動詞は下位のコマンドとして読み、スクリプトのファイルに渡す引数としては読まない。
+// `:`、`_`、`-` で分けた語も読む(verbIn)。動詞は下位のコマンドとして読み、スクリプトのファイルに渡す引数としては読まない。
 function outwardVerb(words, assignments) {
   if (TAKES_WORDS.has(words[0]) || words.some((word) => DRY.has(word))) return [];
   const bare = words.filter((word) => !word.startsWith('-'));
   const read = isFile(bare[1]) ? [bare[1]] : [bare[1], bare[2]];
-  const kind = read.flatMap((word) => (word ?? '').split(/[:_-]/)).map(kindOf).find(Boolean);
+  const kind = read.map(verbIn).find(Boolean);
   if (!kind) return [];
   const target = environment(words, assignments) ?? '*';
   return target === 'local' ? [] : [{ kind, target }];
