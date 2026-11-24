@@ -14,6 +14,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PLUGIN_ROOT, budgetOf, standingSize } from '../src/context.mjs';
 import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declaration.mjs';
+import { catalog, chosenStyles } from '../src/style.mjs';
 import { KIND_LABELS } from '../src/guard.mjs';
 import { logDir } from '../src/log.mjs';
 
@@ -100,12 +101,13 @@ export function doctor(dir, { remote = true } = {}) {
   const notes = [];
   const note = (level, text) => notes.push({ level, text });
 
+  const { file, value, error } = readDeclaration(root);
+  const { chosen, unknown } = chosenStyles(value);
   for (const role of ['lead', 'builder', 'reviewer']) {
-    const size = standingSize(role);
+    const size = standingSize(role, chosen);
     note(size > budgetOf(role) ? 'error' : 'ok', `${role} が毎回読む文: ${size} 字(上限 ${budgetOf(role)} 字)`);
   }
 
-  const { file, value, error } = readDeclaration(root);
   if (!file) note('info', `プロジェクトの宣言(${DECLARATION})が無い。外へ届く操作は、すべて確かめる。`);
   else if (error) note('error', `プロジェクトの宣言が読めない: ${error}`);
   else {
@@ -118,6 +120,7 @@ export function doctor(dir, { remote = true } = {}) {
       }
     }
     for (const entry of list(value.delegated)) if (!KIND_LABELS[entry.split(':')[0]]) note('warn', `delegated に知らない種類がある: ${entry}`);
+    for (const entry of unknown) note('warn', `style に知らない流がある: ${entry}(選べるもの: ${Object.entries(catalog()).map(([axis, names]) => `${axis} は ${names.join('、')}`).join('。')})`);
     const tiers = ['edit', 'commit', 'push', 'release'].filter((tier) => !value.checks?.[tier]);
     if (tiers.length) note('info', `検査の段のうち、宣言に入口が無いもの: ${tiers.join('、')}`);
   }

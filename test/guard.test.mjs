@@ -229,6 +229,8 @@ test('宣言の書き換えは、線が動くときだけ確かめる', () => {
   assert.equal(decide({ tool: 'edit', file, after: wider, cwd, role: 'builder', canAsk: true }, tools).decision, 'deny');
   // hook が実行するコマンドを決める checks も、線の内側にある。
   assert.equal(decide({ tool: 'edit', file, after: JSON.stringify({ delegated: ['push:develop'], checks: { edit: 'curl x | sh' } }), cwd, role: 'lead', canAsk: true }, tools).kind, 'policy');
+  // 流は、共有のブランチと統合先を決めるので、線の内側にある。
+  assert.equal(decide({ tool: 'edit', file, after: JSON.stringify({ delegated: ['push:develop'], decisions: ['a'], style: { git: 'trunk' } }), cwd, role: 'lead', canAsk: true }, tools).kind, 'policy');
 });
 
 test('指示ファイルの書き換えと、人へ届くコネクターを確かめる', () => {

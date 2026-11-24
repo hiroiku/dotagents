@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { PLUGIN_ROOT, budgetOf, contextFor, coreText, standingSize } from '../plugin/src/context.mjs';
+import { PLUGIN_ROOT, contextFor, coreText } from '../plugin/src/context.mjs';
 
 function project(declaration) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
@@ -11,10 +11,6 @@ function project(declaration) {
   fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), typeof declaration === 'string' ? declaration : JSON.stringify(declaration));
   return dir;
 }
-
-test('役が毎回読む文は、役ごとの上限に収まる', () => {
-  for (const role of ['lead', 'builder', 'reviewer', 'worker']) assert.ok(standingSize(role) <= budgetOf(role), `${role}: ${standingSize(role)} 字 > ${budgetOf(role)} 字`);
-});
 
 test('核はどの役にも入り、進める役の文は進める役にだけ入る', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));

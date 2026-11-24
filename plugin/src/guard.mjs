@@ -15,6 +15,7 @@ import path from 'node:path';
 import { attribution } from './attribution.mjs';
 import { DECLARATION, list, parseDeclaration, policyOf, readDeclaration } from './declaration.mjs';
 import { simpleCommands } from './shell.mjs';
+import { chosenStyles } from './style.mjs';
 
 export const CONFIRMED = 'DOTAGENTS_CONFIRMED';
 
@@ -96,10 +97,17 @@ export function delegated(entries, finding) {
 // 本番のブランチがこの名前で残っていることが多く、宣言を書くまで、そこへの push が確かめなしで通っていた。
 const CONVENTIONAL = ['main', 'master'];
 
+// 選んだ流の値。流ごとの共有のブランチの既定と統合先を、流の部品(styles/)から読む。
+export function styleValues(declaration) {
+  const values = Object.assign({}, ...chosenStyles(declaration).chosen.map((style) => style.values));
+  return { shared: list(values.shared), integration: typeof values.integration === 'string' ? values.integration : null, pulls: list(values.pulls) };
+}
+
+// 共有のブランチ。リモートの既定のブランチ、main と master、選んだ流の既定、宣言の protected を合わせる。
 function guardedBranches(dir, remote, declaration, git) {
   const head = git(dir, 'symbolic-ref', '-q', '--short', `refs/remotes/${remote}/HEAD`);
   const defaults = head ? [head.slice(remote.length + 1)] : CONVENTIONAL;
-  return { defaults, guarded: [...new Set([...defaults, ...CONVENTIONAL, ...list(declaration.protected)])] };
+  return { defaults, guarded: [...new Set([...defaults, ...CONVENTIONAL, ...styleValues(declaration).shared, ...list(declaration.protected)])] };
 }
 
 function gitPush(words, cwd, declaration, git) {
