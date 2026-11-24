@@ -4,9 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { CONFIRMED, command, DEADLINE_MS, decide } from '../plugin/src/guard.mjs';
-
-const command_ = (file) => command(file, Date.now() + DEADLINE_MS);
+import { CONFIRMED, command, decide, GITHUB_MS, LOCAL_MS, runners } from '../plugin/src/guard.mjs';
 
 function project(declaration = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-procedure-'));
@@ -174,7 +172,7 @@ test('本物の git が真偽として読む pull.rebase の値と、-c で渡�
   const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
   git('init', '-q', '-b', 'work/x');
   git('remote', 'add', 'origin', 'https://github.com/o/r.git');
-  const real = (command) => decide({ tool: 'shell', command, cwd: dir, role: 'lead', canAsk: true }, { git: command_('git'), gh: () => null })?.kind ?? null;
+  const real = (command) => decide({ tool: 'shell', command, cwd: dir, role: 'lead', canAsk: true }, { git: runners().git, gh: () => null })?.kind ?? null;
   assert.equal(real('git pull'), 'follow');
   assert.equal(real('git -c pull.rebase=true pull'), null);
   for (const value of ['yes', 'On', '1', 'merges']) {
@@ -183,6 +181,34 @@ test('本物の git が真偽として読む pull.rebase の値と、-c で渡�
   }
   git('config', 'pull.rebase', 'off');
   assert.equal(real('git pull'), 'follow');
+});
+
+test('pull.rebase が利用者全体とリポジトリーで違っても、git と同じく効いている値で読む', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-pull-'));
+  const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
+  git('init', '-q', '-b', 'work/x');
+  git('remote', 'add', 'origin', 'https://github.com/o/r.git');
+  const global = path.join(dir, 'global.gitconfig');
+  const previous = process.env.GIT_CONFIG_GLOBAL;
+  process.env.GIT_CONFIG_GLOBAL = global;
+  try {
+    const real = () => decide({ tool: 'shell', command: 'git pull', cwd: dir, role: 'lead', canAsk: true }, { git: runners().git, gh: () => null })?.kind ?? null;
+    // 利用者全体が merges、リポジトリーが true。git config --type=bool は merges を読めずに失敗するが、git は rebase する。
+    for (const [outer, inner, expected] of [['merges', 'true', null], ['true', 'merges', null], ['merges', 'false', 'follow'], ['false', 'interactive', null]]) {
+      fs.writeFileSync(global, `[pull]\n\trebase = ${outer}\n`);
+      git('config', 'pull.rebase', inner);
+      assert.equal(real(), expected, `${outer} / ${inner}`);
+    }
+    // 値の無い鍵は真、読めない値では git は pull をせずに止まる。どちらも merge の跡は残らない。
+    fs.writeFileSync(global, '[pull]\n\trebase\n');
+    git('config', '--unset', 'pull.rebase');
+    assert.equal(real(), null);
+    git('config', 'pull.rebase', 'bogus');
+    assert.equal(real(), null);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previous;
+  }
 });
 
 const pr = (...runs) => ({ number: 12, commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: runs } } } }] } });
@@ -209,31 +235,74 @@ test('workflow が終わっている、PR が無い、gh の答えが読めな�
   for (const command of ['git push --dry-run origin work/x', 'git push origin v1.2.3', 'git push origin --delete work/x', 'git push origin :work/x']) assert.notEqual(kind(command, { prs: running }), 'ci', command);
 });
 
-test('push するブランチがいくつあっても、GitHub へは 1 回だけ尋ね、外へ届く操作が見つかれば尋ねない', () => {
+test('push するブランチがいくつあっても、GitHub へは 1 回だけ尋ねる', () => {
   const probe = tools({ prs: { 'work/b': pr(run_('IN_PROGRESS', 778, 'e2e')) } });
   const stopped = decide({ tool: 'shell', command: 'git push origin work/a work/b', cwd: project(), role: 'lead', canAsk: true }, probe);
   assert.equal(stopped.kind, 'ci');
   assert.match(stopped.reason, /work\/b.*e2e.*gh run cancel 778/);
   assert.deepEqual(probe.asked, ['api graphql']);
-  // 共有のブランチへの push は利用者に確かめるので、CI の状態は尋ねない。尋ねている間に hook の時間が切れると、確かめが届かない。
-  const outward = tools({ prs: { 'work/b': pr(run_('IN_PROGRESS')) } });
-  assert.equal(decide({ tool: 'shell', command: 'git push origin work/a work/b main', cwd: project(), role: 'lead', canAsk: true }, outward).decision, 'ask');
-  assert.deepEqual(outward.asked, []);
 });
 
-test('git と gh への問い合わせは、締め切りを過ぎたら答えを待たずに通す', () => {
+// CI の待ちは、了承の印でも、利用者の受け入れでも通らない。確かめの要る push でも、まず待つよう返す。
+test('同じコマンドに外へ届く操作があっても、CI が走っている間の push は、ほかの判定より先に止める', () => {
+  const running = { prs: { 'work/x': pr(run_('IN_PROGRESS')), main: pr(run_('QUEUED')) } };
+  for (const command of ['git push origin work/x v1.2.3', 'git push origin work/x main', 'git push origin main', `${CONFIRMED}=1 git push origin main`, 'git commit -m x && git push origin work/x']) {
+    for (const canAsk of [true, false]) {
+      const stopped = decide({ tool: 'shell', command, cwd: project(), role: 'lead', canAsk }, tools(running));
+      assert.equal(stopped?.kind, 'ci', `${command} (canAsk: ${canAsk})`);
+      assert.equal(stopped.decision, 'deny');
+    }
+  }
+  // 任せた push でも同じである。
+  assert.equal(decide({ tool: 'shell', command: 'git push origin main', cwd: project({ delegated: ['push:main'] }), role: 'lead', canAsk: true }, tools(running)).kind, 'ci');
+  // 走っていなければ、外へ届く操作の確かめに戻る。
+  assert.equal(decide({ tool: 'shell', command: 'git push origin work/x main', cwd: project(), role: 'lead', canAsk: true }, tools()).decision, 'ask');
+});
+
+test('今いるブランチが分からないときは、行き先を書かない push を外へ届くものとして扱う', () => {
+  for (const command of ['git push', 'git push origin HEAD', 'git push -u origin @']) {
+    const result = run(command, { branch: null });
+    assert.equal(result?.decision, 'ask', command);
+    assert.equal(result.kind, 'push', command);
+  }
+  assert.equal(run('git push --force', { branch: null }).kind, 'rewrite');
+  // 追従の merge は、確かな手順だけを止めるので、分からなければ止めない。
+  assert.equal(kind('git merge origin/main', { branch: null }), null);
+});
+
+test('GitHub への問い合わせが時間を使い切っても、手元の判定は自分の時間で git に尋ねる', () => {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-slow-'));
+  fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexec sleep 5\n', { mode: 0o755 });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-slow-repo-'));
+  const git = (...args) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
+  git('init', '-q', '-b', 'main');
+  git('remote', 'add', 'origin', 'https://github.com/o/r.git');
+  const previous = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${previous}`;
+  try {
+    const started = Date.now();
+    // gh pr merge の base を尋ねて GitHub の時間を使い切ったあとでも、main の上の git push を見落とさない。
+    const result = decide({ tool: 'shell', command: `${CONFIRMED}=1 gh pr merge 5 --squash && git push`, cwd: dir, role: 'lead', canAsk: false }, runners({ github: 300 }));
+    assert.equal(result?.decision, 'deny');
+    assert.deepEqual(result.findings, [{ kind: 'push', target: 'main' }]);
+    assert.ok(Date.now() - started < 3000, `${Date.now() - started}ms`);
+  } finally {
+    process.env.PATH = previous;
+  }
+});
+
+test('git と gh への問い合わせは、それぞれの時間を過ぎたら答えを待たずに返り、合わせても hook の上限より十分短い', () => {
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-slow-'));
   const slow = path.join(bin, 'gh');
   fs.writeFileSync(slow, '#!/bin/sh\nexec sleep 5\n', { mode: 0o755 });
   const started = Date.now();
-  assert.equal(command(slow, started + 300)('.', 'pr', 'view'), null);
+  const ask = command(slow, 300);
+  assert.equal(ask('.', 'pr', 'view'), null);
+  // 時間を使い切ったあとは、始めもしない。
+  assert.equal(ask('.', 'pr', 'view'), null);
   assert.ok(Date.now() - started < 2000, `${Date.now() - started}ms`);
-  // 締め切りを過ぎていれば、始めもしない。
-  assert.equal(command(slow, started - 1)('.', 'pr', 'view'), null);
-  // hook の上限より十分短くする。上限を過ぎると、外へ届く操作の確かめそのものが届かない。
   for (const host of ['claude', 'codex']) {
     const hooks = JSON.parse(fs.readFileSync(new URL(`../plugin/hosts/${host}/hooks.json`, import.meta.url), 'utf8'));
-    const limit = hooks.hooks.PreToolUse.flatMap((entry) => entry.hooks).map((hook) => hook.timeout);
-    for (const seconds of limit) assert.ok(DEADLINE_MS <= seconds * 1000 / 2, `${host}: ${seconds}s`);
+    for (const seconds of hooks.hooks.PreToolUse.flatMap((entry) => entry.hooks).map((hook) => hook.timeout)) assert.ok(LOCAL_MS + GITHUB_MS + 2000 <= seconds * 1000, `${host}: ${seconds}s`);
   }
 });

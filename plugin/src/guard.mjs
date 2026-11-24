@@ -69,19 +69,29 @@ const PACED = new Set(['builder', 'reviewer']);
 // 任せられない種類。線そのものを動かすか、保護を外す操作である。
 const NEVER_DELEGATED = new Set(['rewrite', 'bypass', 'policy']);
 
-// 1 回の判定で git と gh に尋ねてよい時間。hook の上限(10 秒)より十分短くする。上限を過ぎると、ホストは hook を
-// 失敗として扱い、外へ届く操作の確かめそのものが届かない。締め切りを過ぎた問い合わせは、答えが無いものとして通す。
-export const DEADLINE_MS = 4000;
+// 1 回の判定で、手元の git に尋ねてよい時間と、GitHub に尋ねてよい時間。片方の遅さがもう片方の答えを変えないよう、
+// 別々に持つ。合わせても hook の上限(10 秒)より十分短くする。上限を過ぎると、ホストは hook を失敗として扱い、
+// 確かめそのものが届かない。
+export const LOCAL_MS = 3000;
+export const GITHUB_MS = 4000;
 
-export const command = (file, until) => (cwd, ...args) => {
-  const left = until - Date.now();
-  if (left <= 0) return null;
-  try {
-    return execFileSync(file, args, { cwd, encoding: 'utf8', timeout: left, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return null;
-  }
+// file を実行する関数を返す。最初に呼ばれたときから ms の間だけ答えを待ち、過ぎたら答えが無いもの(null)とする。
+export const command = (file, ms) => {
+  let until = null;
+  return (cwd, ...args) => {
+    until ??= Date.now() + ms;
+    const left = until - Date.now();
+    if (left <= 0) return null;
+    try {
+      return execFileSync(file, args, { cwd, encoding: 'utf8', timeout: left, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      return null;
+    }
+  };
 };
+
+// 手元の git と、GitHub に尋ねる gh。
+export const runners = ({ local = LOCAL_MS, github = GITHUB_MS } = {}) => ({ git: command('git', local), gh: command('gh', github) });
 
 const glob = (pattern) => new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
 const matches = (patterns, name) => patterns.some((pattern) => glob(pattern).test(name));
@@ -174,8 +184,12 @@ function parsePush(words, cwd, declaration, git) {
   const current = () => ask('symbolic-ref', '-q', '--short', 'HEAD');
   const found = [];
   const updated = [];
+  // 行き先が今いるブランチで、それが分からないとき(git が答えないとき)は、共有のブランチかもしれないものとして扱う。
   const branch = (name, rewrites, removes = false) => {
-    if (!name) return;
+    if (!name) {
+      found.push({ kind: rewrites || removes ? 'rewrite' : 'push', target: 'HEAD' });
+      return;
+    }
     if (!removes) updated.push(name);
     if (matches(guarded, name)) found.push({ kind: rewrites || removes ? 'rewrite' : 'push', target: name });
   };
@@ -201,7 +215,10 @@ function parsePush(words, cwd, declaration, git) {
     const at = spec.indexOf(':');
     const source = at < 0 ? spec : spec.slice(0, at);
     let target = at < 0 ? spec : spec.slice(at + 1);
-    if (target === 'HEAD' || target === '@') target = current() ?? target;
+    if (target === 'HEAD' || target === '@') {
+      branch(current(), forced, remove);
+      continue;
+    }
     if (target.startsWith('refs/tags/')) {
       found.push({ kind: 'tag', target: target.slice(10) });
       continue;
@@ -398,12 +415,20 @@ function branchOf(ref, remotes) {
 // リモートの名前だけと、<リモート>/HEAD は、そのリモートの既定のブランチを指す。
 const remoteDefault = (ref, remotes) => remotes.some((remote) => [remote, `${remote}/HEAD`, `refs/remotes/${remote}/HEAD`].includes(ref));
 
-// rebase で取り込むかを、git が読むとおりに読む。真偽は git に読ませ、設定が無ければ null を返す。
+// rebase で取り込むかを、git が pull.rebase と branch.<名前>.rebase を読むのと同じ意味で読む。範囲(利用者全体、
+// リポジトリー、-c)ごとに値が違ってもよいよう、効いている値(最後の 1 つ)を読む。設定が無ければ null を返す。
+// git config --type=bool は、どこか 1 つの範囲に merges があるだけで失敗するので使わない。
 function rebaseSetting(setting, key) {
-  const bool = setting('--type=bool', '--get', key);
-  if (bool === 'true' || bool === 'false') return bool === 'true';
   const raw = setting('--get', key);
-  return raw === null ? null : REBASE_MODES.has(raw);
+  if (raw === null) return null;
+  // 値の無い鍵は真、空の値は偽で、--get の答えでは区別できない。
+  if (raw === '') return setting('--type=bool', '--get', key) === 'true';
+  if (/^(?:true|yes|on)$/i.test(raw)) return true;
+  if (/^(?:false|no|off)$/i.test(raw)) return false;
+  const number = raw.match(/^[-+]?(\d+)[kmg]?$/i);
+  if (number) return Number(number[1]) !== 0;
+  // merges、interactive とその略は rebase する。読めない値では、git は pull をせずに止まる。どちらも merge の跡は残らない。
+  return true;
 }
 
 function follow(command, declaration, git) {
@@ -516,13 +541,11 @@ function ciRunning(request, declaration, tools) {
   return null;
 }
 
-// 追従の merge と PR の base。進める役は、そのコマンドに了承の印があれば通す。
-export function procedure(request, declaration, tools) {
-  if (request.tool !== 'shell') return null;
+// 単純なコマンドごとに check で止める手順を探す。進める役は、そのコマンドに了承の印があれば通す。
+function stopIn(request, check) {
   for (const command of simpleCommands(request.command, request.cwd)) {
     if (!command.words.length) continue;
-    const head = command.words[0];
-    const stop = head === 'git' ? follow(command, declaration, tools.git) : head === 'gh' ? prBase(command, declaration, tools.gh) : null;
+    const stop = check(command);
     if (!stop) continue;
     if (request.role === 'lead') {
       if (command.assignments[CONFIRMED] === '1') continue;
@@ -531,6 +554,13 @@ export function procedure(request, declaration, tools) {
     return stop;
   }
   return null;
+}
+
+// 追従の merge(手元の判定)と、PR の base(GitHub に尋ねる判定)。
+export function procedure(request, declaration, tools) {
+  if (request.tool !== 'shell') return null;
+  return stopIn(request, (command) => (command.words[0] === 'git' ? follow(command, declaration, tools.git) : null))
+    ?? stopIn(request, (command) => (command.words[0] === 'gh' ? prBase(command, declaration, tools.gh) : null));
 }
 
 // ---------------------------------------------------------------- 判定
@@ -630,11 +660,21 @@ function remembered(tools) {
 //            command, background,              … shell
 //            file, after,                      … edit(after は書き換えたあとの全文。分からなければ省く)
 //            name }                            … connector(道具の名前)
+// 判定は 2 つに分かれる。
+//
+// - 手元の判定(外へ届く操作、追従の merge、署名、検査の段): 手元の git に、手元の時間の内で尋ねる。要る答えが
+//   得られなければ、外へ届くものとして扱う(閉じる側)。gh pr merge の対象(base)だけは GitHub に尋ね、答えが無ければ
+//   対象を決めず、任せた種類に当てない。
+// - GitHub に尋ねる判定(CI の待ち、PR の base): 手元の判定の結果に関わらず、GitHub の時間の内で尋ねる。答えが無ければ
+//   止めない(開く側)。
+//
+// CI の待ちは、ほかのどの判定より先に返す。了承の印でも、利用者の受け入れでも通らないからである。
 export function decide(request, given) {
-  const until = Date.now() + DEADLINE_MS;
-  const tools = remembered(given ?? { git: command('git', until), gh: command('gh', until) });
+  const tools = remembered(given ?? runners());
   const { value: declaration } = readDeclaration(request.cwd);
   if (request.tool === 'shell') {
+    const ci = ciRunning(request, declaration, tools);
+    if (ci) return { decision: 'deny', kind: ci.kind, reason: ci.reason };
     const stamp = attribution(request.command, request.cwd);
     if (stamp) return { decision: 'deny', kind: 'attribution', reason: stamp };
     const slow = pace(request, declaration);
@@ -642,11 +682,8 @@ export function decide(request, given) {
     const stop = procedure(request, declaration, tools);
     if (stop) return { decision: 'deny', kind: stop.kind, reason: stop.reason };
   }
-  // 外へ届く操作を先に決める。見つかれば、CI の状態は尋ねない。尋ねている間に hook の時間が切れると、確かめが届かない。
   const open = findings(request, declaration, tools).filter((finding) => !delegated(declaration.delegated, finding));
-  if (open.length) return outward(request, open);
-  const ci = request.tool === 'shell' ? ciRunning(request, declaration, tools) : null;
-  return ci ? { decision: 'deny', kind: ci.kind, reason: ci.reason } : null;
+  return open.length ? outward(request, open) : null;
 }
 
 function outward(request, open) {
