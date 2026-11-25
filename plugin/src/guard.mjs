@@ -100,7 +100,7 @@ export function delegated(entries, finding) {
 const CONVENTIONAL = ['main', 'master'];
 
 // 選んだ流の値。流ごとの共有のブランチの既定を、流の部品(styles/)から読む。
-export function styleValues(declaration) {
+function styleValues(declaration) {
   const { chosen } = chosenStyles(declaration);
   const values = Object.assign({}, ...chosen.map((style) => style.values));
   const flow = chosen.find((style) => style.axis === 'git')?.name ?? null;

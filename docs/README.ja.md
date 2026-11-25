@@ -35,18 +35,14 @@ hook は、`bun` があれば `bun` で、無ければ `node` で動く。
 
 ### リポジトリーに
 
-```sh
-node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches --architecture layered
-```
+エージェントに、リポジトリーへハーネスを入れるよう頼む(`setup` スキル)。入れるコマンドは無い。エージェントが、スキルの手順に沿ってその場でファイルを書き換え、結果を見せるので、それをコミットする。
 
-`install` は、プロジェクトの宣言に流を書き、各ホストのプロジェクトの設定に、このリポジトリーへの**参照**を書く。写さないので、ハーネスの版を上げても、プロジェクトにコミットはできない。書かれたものをコミットする。
-
-| ホスト | `install` が書くもの | 各人がすること |
+| ホスト | リポジトリーに書くもの | 各人がすること |
 |---|---|---|
-| Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。入っているかは `doctor` が知らせる。 |
+| Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。 |
 | Codex | `.codex/config.toml` に、版を固定しない git の marketplace と plugin | プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。 |
 
-自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。`uninstall` で参照を外す。入れるときも外すときも、この道具が書いた項目だけを足し引きし、設定のほかの文字は変えない。読めない設定が 1 つでもあれば、何も変えずに止める。入れ方は参照だけで、ハーネスをリポジトリーの中に写すことはしない。
+エージェントは、プロジェクトの宣言(流、`checks`、`outward`)も書く。書くのは、このリポジトリーへの**参照**だけで、写しは置かないので、ハーネスの版を上げても、プロジェクトにコミットはできない。足し引きするのはハーネスの項目だけで、設定のほかの項目と字は変えない。自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。外すこと、8.x と 7.x の残りを消すこと、プロジェクトの点検(宣言、参照、流、共有のブランチが GitHub で守られているか)も、同じスキルの手順で行う。
 
 ## プロジェクトの宣言
 
@@ -79,14 +75,13 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 | `plugin/agents/` | `builder`(作る役)と `reviewer`(確かめる役)。Claude Code のエージェントと Codex の TOML は、ここから導く。 |
 | `plugin/styles/` | git の流れと設計の形。frontmatter に、文を読む役と、hook が使う値を持つ。 |
 | `plugin/skills/` | `setup`、`prompting`、`releases`、`triage`。 |
-| `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs`、`install.mjs` など。 |
+| `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs` など。 |
 | `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
-| `plugin/scripts/dotagents.mjs` | `install`、`uninstall`、`doctor`。 |
 | `tools/stats.mjs` | ハーネスの記録の集計。marketplace は `./plugin` だけを配るので、配られない。 |
 
 ## 限界
 
-判定は、誤りを防ぐ仕掛けで、隔離ではない。読むのはコマンドで、スクリプトの中身までは読まない。縛れるのは、このハーネスで動くエージェントだけである。全員に守らせる決まりは、ブランチの保護と CI に置く。`doctor` は、GitHub で守られていない共有のブランチを知らせる。
+判定は、誤りを防ぐ仕掛けで、隔離ではない。読むのはコマンドで、スクリプトの中身までは読まない。縛れるのは、このハーネスで動くエージェントだけである。全員に守らせる決まりは、ブランチの保護と CI に置く。`setup` スキルの点検は、GitHub で守られていない共有のブランチを知らせる。
 
 ## 開発
 
@@ -95,7 +90,7 @@ npm test                       # node --test。依存は無い
 node tools/stats.mjs --days 7  # この環境でハーネスが何をしたか。~/.dotagents/log を集計する
 ```
 
-8.x から移るときは、各プロジェクトで `install` を実行する。`.claude/skills/dotagents` の写しは置き換わり、8.x が `.pi/settings.json` に書いた版を固定した package の行は消える。9.0.0 は Pi に対応しない。残ったものは `doctor` が知らせる。
+8.x から移るときは、各プロジェクトで、エージェントに `setup` スキルで入れ直すよう頼む。`.claude/skills/dotagents` の写しと、8.x が `.pi/settings.json` に書いた版を固定した package の行が消える。9.0.0 は Pi に対応しない。
 
 ## ライセンス
 

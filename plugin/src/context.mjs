@@ -59,7 +59,7 @@ function standing(role, styles) {
 }
 
 // 役が毎回読む文の字数。hook が入れる文に、ホストが入れる役の定義の本文を足す。上限と比べるのに使う。
-export function standingSize(role, styles = []) {
+function standingSize(role, styles = []) {
   const body = roles().find((definition) => definition.name === role)?.body ?? '';
   return [...standing(role, styles), body].filter(Boolean).join('\n\n').length;
 }

@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const DECLARATION = path.join('.agents', 'dotagents.json');
-export const POLICY_KEYS = ['protected', 'outward', 'delegated', 'checks', 'style'];
+const POLICY_KEYS = ['protected', 'outward', 'delegated', 'checks', 'style'];
 
 export function parseDeclaration(text) {
   const value = JSON.parse(text);

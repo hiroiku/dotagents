@@ -35,18 +35,14 @@ Hooks run with `bun` when it is installed and with `node` otherwise.
 
 ### Into a repository
 
-```sh
-node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches --architecture layered
-```
+Ask the agent to set the harness up in the repository (the `setup` skill). There is no install command: the agent edits the files in place, following the procedure in the skill, and shows you the result to commit.
 
-`install` writes the styles into the project declaration and a **reference** to this repository into each host's project settings. Nothing is copied, so upgrading the harness creates no commits in your project. Commit what it wrote.
-
-| Host | What `install` writes | What each person does |
+| Host | What goes into the repository | What each person does |
 |---|---|---|
-| Claude Code | `.claude/settings.json`: `extraKnownMarketplaces` and `enabledPlugins` | Trust the folder. If you have not installed the harness yourself, run `claude plugin install dotagents@dotagents --scope project` once (`--scope user` for every project). Enabling it in the settings alone does not load it at the start of an interactive session. `doctor` tells you whether it is installed on your machine. |
+| Claude Code | `.claude/settings.json`: `extraKnownMarketplaces` and `enabledPlugins` | Trust the folder. If you have not installed the harness yourself, run `claude plugin install dotagents@dotagents --scope project` once (`--scope user` for every project). Enabling it in the settings alone does not load it at the start of an interactive session. |
 | Codex | `.codex/config.toml`: a git marketplace and the plugin, unpinned | Trust the project, then approve the hooks in `/hooks`. Codex asks again whenever the plugin's contents change. |
 
-If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. `uninstall` removes the references. `install` and `uninstall` add and remove only the entries they own and leave every other character of your settings as it was; if any settings file they need cannot be read as JSON, they change nothing. A reference is the only way to install: the harness is never copied into a repository.
+The agent also writes the project declaration (styles, `checks`, `outward`). Only a **reference** to this repository is written, never a copy, so upgrading the harness creates no commits in your project. Only the harness's own entries are added or removed; every other key and character of your settings stays as it was. If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. The same skill removes it, cleans up what 8.x and 7.x left behind, and checks a project (declaration, references, styles, and whether GitHub protects the shared branches).
 
 ## The project declaration
 
@@ -79,14 +75,13 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 | `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents and Codex agent TOML. |
 | `plugin/styles/` | Git flows and design shapes. Front matter says which roles read the text and which values the hooks use. |
 | `plugin/skills/` | `setup`, `prompting`, `releases`, `triage`. |
-| `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `style.mjs`, `install.mjs`, and the host adapters' shared code. |
+| `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `style.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code hooks and Codex hooks. |
-| `plugin/scripts/dotagents.mjs` | `install`, `uninstall`, `doctor`. |
 | `tools/stats.mjs` | Totals of the harness's log. Not delivered by the marketplace, which ships `./plugin` only. |
 
 ## Limits
 
-The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, not what a script does internally. It binds only agents that run this harness. Rules that must hold for everyone belong in branch protection and CI; `doctor` reports shared branches that GitHub does not protect.
+The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, not what a script does internally. It binds only agents that run this harness. Rules that must hold for everyone belong in branch protection and CI; the `setup` skill's check reports shared branches that GitHub does not protect.
 
 ## Development
 
@@ -95,7 +90,7 @@ npm test                       # node --test, no dependencies
 node tools/stats.mjs --days 7  # what the harness did on this machine, from ~/.dotagents/log
 ```
 
-Coming from 8.x: run `install` in each project. It replaces the copy under `.claude/skills/dotagents` and removes the pinned package line 8.x wrote into `.pi/settings.json`; 9.0.0 no longer supports Pi. `doctor` reports what is left.
+Coming from 8.x: ask the agent to set up each project again with the `setup` skill. It removes the copy under `.claude/skills/dotagents` and the pinned package line 8.x wrote into `.pi/settings.json`; 9.0.0 no longer supports Pi.
 
 ## License
 
