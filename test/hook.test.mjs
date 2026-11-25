@@ -7,6 +7,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const HOOK = fileURLToPath(new URL('../plugin/src/hook.mjs', import.meta.url));
+// 入れ方として知らせる実行は、cli/ が配る名前の init である。
+const INSTALL = `npx ${JSON.parse(fs.readFileSync(new URL('../cli/package.json', import.meta.url), 'utf8')).name} init`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
 const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-codex-'));
 
@@ -30,7 +32,7 @@ test('dotagents.json の無いリポジトリーで Claude Code のセッショ�
   const raw = (host, event, input) => JSON.parse(spawnSync(process.execPath, [HOOK, host, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, DOTAGENTS_HOME: home, CODEX_HOME: codexHome } }).stdout);
   const repo = project();
   fs.mkdirSync(path.join(repo, '.git'));
-  assert.match(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source: 'startup' }).systemMessage, /dotagents を入れて/);
+  assert.ok(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source: 'startup' }).systemMessage.includes(INSTALL));
   assert.equal(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source: 'compact' }).systemMessage, undefined);
   assert.equal(raw('claude', 'subagent', { cwd: repo, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'dotagents:builder' }).systemMessage, undefined);
   const declared = project({});

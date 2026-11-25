@@ -1,50 +1,37 @@
 ---
 name: setup
-description: このハーネスをプロジェクトに入れるとき、外すとき、8.x から移るとき、`dotagents.json` やスタイルを書くとき、点検するときに読む。
+description: このハーネスをプロジェクトに入れるとき、外すとき、8.x と 7.x から移るとき、`dotagents.json` やスタイルを書くとき、点検するときに読む。
 ---
 
 # ハーネスを整える
 
-入れる、外す、点検するための道具は無い。下の手順に沿って、その場でファイルを読み、書き換える。
+入れるには、インストーラー(`npx @hiroiku/dotagents init`)を使う。外す、点検する道具は無い。下の手順に沿って、その場でファイルを読み、書き換える。
 
-入れ方は、各ホストのプロジェクトの設定に、このハーネスの置き場への参照を書くことだけである。ハーネスはリポジトリーに写さないので、版を上げてもプロジェクトにコミットはできない。設定は、この道具の項目だけを足し引きし、ほかの項目と字(並び、字下げ、注釈)は変えない。JSON として読めない設定(注釈の入ったものなど)は書き換えず、利用者に知らせる。書き換えたものは、利用者に見せてからコミットする。
+ハーネスはリポジトリーに写さず、各ホストのプロジェクトの設定に、このハーネスの置き場への参照を書くだけなので、版を上げてもプロジェクトにコミットはできない。設定は、この道具の項目だけを足し引きし、ほかの項目と字(並び、字下げ、注釈)は変えない。JSON として読めない設定(注釈の入ったものなど)は書き換えず、利用者に知らせる。書き換えたものは、利用者に見せてからコミットする。
 
 ## 入れるとき
 
-1. スタイルを利用者に尋ねる。先に、ブランチ、tag、workflow、文書から推した案を示す。git の流れは `trunk`(既定のブランチだけに統合し、tag で版を切る)と `release-branches`(開発は trunk と同じで、版の系列ごとに `release/` のブランチを切る)から選ぶ。設計の形は `layered` を選ぶか、選ばない。どちらの軸も省ける。`layered` を選んだら、層の依存の向きを落とす lint か検査がプロジェクトにあるかを確かめる。ハーネスは決まりを入れるだけで、検査の道具は入れない。無ければ、作ることを利用者に提案し、作ったらチェックの段階に置く。
-2. `checks` を、プロジェクトの script と workflow から当てはめる。CI が呼んでいる入口を、push の段階に置く。無い段階は、作ることを提案する。
-3. `.agents/dotagents.json` に、選んだスタイルと、`checks` を書く(書き方は「dotagents.json」)。ファイルがあれば、ほかの項目は残す。
-4. `.claude/settings.json` に、次の 2 つの項目を足す。ファイルが無ければ、この中身で作る。`enabledPlugins` と `extraKnownMarketplaces` がすでにあれば、その中に、この鍵だけを足す。各人の `claude plugin install --scope project` は `enabledPlugins` を先に置いて書き直すので、新しく足すときは、この順にしておくと差分ができない。
+`dotagents.json`、`.claude/settings.json`、`.codex/config.toml` に何を書くか、8.x の残りの消し方は、インストーラーが 1 か所で持つ。スキルには書かない。インストーラーはコミットしない。
 
-   ```json
-   {
-     "enabledPlugins": {
-       "dotagents@dotagents": true
-     },
-     "extraKnownMarketplaces": {
-       "dotagents": {
-         "source": { "source": "github", "repo": "hiroiku/dotagents" },
-         "autoUpdate": true
-       }
-     }
-   }
+1. 利用者が、リポジトリーの中の端末で `npx @hiroiku/dotagents init` を実行する形を、先に示す。ホスト、git のスタイル、設計のスタイル、チェックの段階ごとの入口、plugin を入れる範囲を、画面で尋ね、書いたファイルと次にすることを見せる。
+2. エージェントが代わりに行うときは、尋ねる中身を、先に利用者に尋ねる。
+   - スタイルは、ブランチ、tag、workflow、文書から推した案を示す。git の流れは `trunk`(既定のブランチだけに統合し、tag で版を切る)と `release-branches`(開発は trunk と同じで、版の系列ごとに `release/` のブランチを切る)から選ぶ。設計の形は `layered` を選ぶか、選ばない。どちらの軸も省ける。`layered` を選んだら、層の依存の向きを落とす lint か検査がプロジェクトにあるかを確かめる。ハーネスは決まりを入れるだけで、検査の道具は入れない。無ければ、作ることを利用者に提案し、作ったらチェックの段階に置く。
+   - `checks` は、プロジェクトの script と workflow から当てはめる。CI が呼んでいる入口を、push の段階に置く。無い段階は、作ることを提案する。
+   - ホストと、plugin を入れる範囲(`project` か `user`)。
+3. 答えを、質問なしの指定にして実行する。尋ねなかった質問は、いまの値か、推した値で答えられるので、すべて指定する。指定は `dotagents --help` にある。
+
+   ```sh
+   npx @hiroiku/dotagents init --yes --hosts claude,codex --git trunk --architecture layered --scope project --check push="npm run check"
    ```
 
-5. `.codex/config.toml` の終わりに、空の行を 1 つ挟んで、次の 2 つの表を足す。ファイルが無ければ、この中身で作る。同じ見出しの表がすでにあれば、表の中のこの鍵の行だけをそろえ、利用者が表に足した行(`ref` など)は残す。版は固定しない。
-
-   ```toml
-   [marketplaces.dotagents]
-   source_type = "git"
-   source = "https://github.com/hiroiku/dotagents.git"
-
-   [plugins."dotagents@dotagents"]
-   enabled = true
-   ```
-
-6. 根に `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
-7. 8.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
-8. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
-9. 各人がすることを、利用者に伝える。
+   選ばない軸と範囲は `none`、空にする段階は `--check push=` と書く。
+4. 書いたファイルを、利用者に見せる。インストーラーが「知らせ」に出したものは、利用者に伝える。
+5. インストーラーが扱わないものは、ここで行う。
+   - 根に `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
+   - 7.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
+   - `decisions` と `delegated` は、「dotagents.json を書くとき」に沿って、利用者の言葉から書く。
+6. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
+7. 各人がすることを、利用者に伝える。インストーラーも、終わりに同じことを出す。
    - Claude Code: フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。
    - Codex: プロジェクトを信頼し(`trust_level = "trusted"`)、`/hooks` で dotagents の hook を承認する。plugin の中身が変わるたびに、承認し直す。
 
@@ -56,11 +43,9 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 
 ## 8.x と 7.x から移るとき
 
-9.0.0 は、写しで入れることも、Pi に入れることもしない。次のものだけを消し、ほかは残す。
+8.x の残り(`.claude/skills/dotagents` の写しと、`.pi/settings.json` の `git:github.com/hiroiku/dotagents@` で始まる package の行)は、インストーラーが消す。9.0.0 は、写しで入れることも、Pi に入れることもしない。インストーラーは、7.x の残りを消さず、知らせるだけにする。
 
-- `.claude/skills/dotagents`: 中に `VENDORED.json` があるときだけ、8.x の写しなので、ディレクトリーごと消す。親の `.claude/skills` とほかのスキルは残す。`VENDORED.json` が無ければ、利用者のものなので触れない。
-- `.pi/settings.json`: `packages` のうち、`git:github.com/hiroiku/dotagents@` で始まる行(8.x が書いた、版を固定した行。`{ "source": … }` の形でも同じ)だけを消す。`@` の無い行と、ほかの package は残す。`packages` が空になれば、`packages` を消す。
-- 7.x が配ったもの: `.claude/dotagents.json`、`.claude/rules/dotagents`、`.codex/dotagents`。9.0.0 は読まない。中に、このプロジェクトの決めごとがあれば、`dotagents.json` の `decisions` などに移してから消す。
+7.x が配ったもの(`.claude/dotagents.json`、`.claude/rules/dotagents`、`.codex/dotagents`)は、9.0.0 は読まない。中に、このプロジェクトの決めごとがあれば、`dotagents.json` の `decisions` などに移してから消す。ほかは残す。
 
 ## 点検
 
@@ -75,7 +60,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 - この環境の Claude Code に入っていない: `~/.claude/plugins/installed_plugins.json`(`CLAUDE_CONFIG_DIR` があればその下)の `plugins["dotagents@dotagents"]` に、`scope` が `user` の記録か、`projectPath` がこのプロジェクトで `scope` が `project` か `local` の記録が無い。
 - 共有のブランチが GitHub で守られていない: リモートのデフォルトブランチ、選んだスタイルの共有のブランチ、`protected` の名前(`*` を含むものは除く)ごとに、`gh api repos/{owner}/{repo}/rules/branches/<ブランチ> --jq length` が 1 以上か、`gh api repos/{owner}/{repo}/branches/<ブランチ>/protection` が答えれば守られている。どちらも答えなければ、確かめられなかったと伝える。守られていなければ、ハーネスを入れていない人と道具は、確かめなしで push できる。
 - 根に `ARCHITECTURE.md` が無い: エージェントは作りの地図を持たずに作る。あれば、書いた不変条件と置き場を落とす lint か検査が、チェックの段階にあるか。
-- 8.x と 7.x の残りが、上の「8.x と 7.x から移るとき」のどれかに当てはまる。
+- 8.x と 7.x の残りが、インストーラーが知らせたか、上の「8.x と 7.x から移るとき」に当てはまる。
 
 ## dotagents.json
 

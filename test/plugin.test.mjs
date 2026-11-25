@@ -15,7 +15,8 @@ const json = (...parts) => JSON.parse(fs.readFileSync(path.join(...parts), 'utf8
 const NAME = json(PLUGIN, '.claude-plugin', 'plugin.json').name;
 
 test('ホストごとの定義は、同じ名前と版を持つ', () => {
-  const manifests = [json(PLUGIN, '.claude-plugin', 'plugin.json'), json(PLUGIN, '.codex-plugin', 'plugin.json'), json(PLUGIN, 'package.json'), json(ROOT, 'package.json')];
+  // 版を上げるときは、この 5 か所をそろえる。インストーラーの版は、入れる plugin の版と同じにする。
+  const manifests = [json(PLUGIN, '.claude-plugin', 'plugin.json'), json(PLUGIN, '.codex-plugin', 'plugin.json'), json(PLUGIN, 'package.json'), json(ROOT, 'package.json'), json(ROOT, 'cli', 'package.json')];
   assert.deepEqual([...new Set(manifests.map((manifest) => manifest.version))].length, 1);
   for (const manifest of manifests.slice(0, 3)) assert.equal(manifest.name, NAME);
   assert.equal(json(ROOT, '.claude-plugin', 'marketplace.json').plugins[0].source, './plugin');
@@ -108,20 +109,22 @@ test('プロジェクトに入れる、外す、点検するコマンドは配�
   for (const file of ['scripts', 'src/install.mjs', 'src/jsontext.mjs']) assert.equal(fs.existsSync(path.join(PLUGIN, file)), false, file);
 });
 
-// setup スキルは、エージェントがその場で設定を書くための中身を持つ。同じ事実を manifest と marketplace の定義にも
-// 持つので、食い違わないことをここで守る。
-test('setup スキルに書いた marketplace の名前、plugin の名前、リポジトリーの場所は、manifest と marketplace の定義に合う', () => {
+// 入れるときに何を書くかは、インストーラー(cli/)が 1 か所で持つ。setup スキルは、インストーラーを呼ぶ手順と、外すときと点検に
+// 要る項目の名前だけを持つので、その名前が manifest、marketplace、インストーラーの指定と食い違わないことを守る。
+test('setup スキルが呼ぶインストーラーの名前と指定は、cli/ の定義に合い、書く中身はスキルに持たない', () => {
   const skill = fs.readFileSync(path.join(PLUGIN, 'skills', 'setup', 'SKILL.md'), 'utf8');
   const market = json(ROOT, '.claude-plugin', 'marketplace.json').name;
   assert.equal(json(ROOT, '.agents', 'plugins', 'marketplace.json').name, market);
   const repository = json(PLUGIN, '.claude-plugin', 'plugin.json').repository.replace(/^https:\/\/github\.com\//, '');
   const id = `${NAME}@${market}`;
-  const blocks = (lang) => [...skill.matchAll(new RegExp(`^( *)\`\`\`${lang}\\n([\\s\\S]*?)^\\1\`\`\`$`, 'gm'))].map(([, indent, body]) => body.split('\n').map((line) => line.slice(indent.length)).join('\n'));
-  const claude = blocks('json').map((body) => JSON.parse(body)).find((value) => value.extraKnownMarketplaces);
-  assert.deepEqual(claude, { enabledPlugins: { [id]: true }, extraKnownMarketplaces: { [market]: { source: { source: 'github', repo: repository }, autoUpdate: true } } });
-  const codex = blocks('toml').find((body) => body.includes('[marketplaces.'));
-  assert.equal(codex, `[marketplaces.${market}]\nsource_type = "git"\nsource = "https://github.com/${repository}.git"\n\n[plugins."${id}"]\nenabled = true\n`);
+  assert.ok(skill.includes(`npx ${json(ROOT, 'cli', 'package.json').name} init`));
+  const help = spawnSync(process.execPath, [path.join(ROOT, 'cli', 'bin', 'dotagents.mjs'), '--help'], { encoding: 'utf8' }).stdout;
+  const flags = new Set(skill.slice(skill.indexOf('## 入れるとき'), skill.indexOf('## 外すとき')).match(/--[a-z]+/g));
+  assert.ok(flags.size > 0);
+  for (const flag of flags) assert.ok(help.includes(flag), flag);
+  assert.doesNotMatch(skill, /```toml|"source": "github"|source_type/, 'ホストの設定に書く中身は、インストーラーが持つ');
   assert.deepEqual([...new Set(skill.match(/\b[\w-]+@[\w-]+\b/g))], [id]);
   assert.ok(skill.includes(`git:github.com/${repository}@`) && skill.includes(`.claude/skills/${NAME}`));
+  assert.ok(skill.includes(`[marketplaces.${market}]`));
   for (const names of Object.values(catalog())) for (const name of names) assert.ok(skill.includes(`\`${name}\``), name);
 });

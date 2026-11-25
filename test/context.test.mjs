@@ -5,6 +5,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { PLUGIN_ROOT, contextFor, coreText } from '../plugin/src/context.mjs';
 
+// 入れ方として知らせる実行は、cli/ が配る名前の init である。
+const INSTALL = `npx ${JSON.parse(fs.readFileSync(new URL('../cli/package.json', import.meta.url), 'utf8')).name} init`;
+
 function project(declaration) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
   fs.mkdirSync(path.join(dir, '.agents'));
@@ -67,17 +70,17 @@ test('進め方は既定で、利用者とプロジェクトの決めごとが�
   }
 });
 
-test('dotagents.json の無いリポジトリーでは、オーケストレーターが setup で入れることを提案する。空の dotagents.json を置けば提案しない', () => {
+test('dotagents.json の無いリポジトリーでは、オーケストレーターが インストーラーで入れることを提案する。空の dotagents.json を置けば提案しない', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
   fs.mkdirSync(path.join(repo, '.git'));
   fs.mkdirSync(path.join(repo, 'src'));
-  for (const cwd of [repo, path.join(repo, 'src')]) assert.match(contextFor({ role: 'orchestrator', cwd }), /setup のスキル/, cwd);
-  assert.doesNotMatch(contextFor({ role: 'builder', cwd: repo }), /setup のスキル/);
+  for (const cwd of [repo, path.join(repo, 'src')]) assert.ok(contextFor({ role: 'orchestrator', cwd }).includes(INSTALL), cwd);
+  assert.ok(!contextFor({ role: 'builder', cwd: repo }).includes(INSTALL));
   const declined = project({});
   fs.mkdirSync(path.join(declined, '.git'));
-  assert.doesNotMatch(contextFor({ role: 'orchestrator', cwd: declined }), /setup のスキル/);
+  assert.ok(!contextFor({ role: 'orchestrator', cwd: declined }).includes(INSTALL));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
-  assert.doesNotMatch(contextFor({ role: 'orchestrator', cwd: outside }), /setup のスキル/);
+  assert.ok(!contextFor({ role: 'orchestrator', cwd: outside }).includes(INSTALL));
 });
 
 test('読めない dotagents.json は、オーケストレーターに知らせる', () => {
