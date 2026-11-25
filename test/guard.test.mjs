@@ -53,20 +53,7 @@ const OUTWARD = [
   ['gh api repos/o/r/rulesets/1 -X PUT --input x.json', ['settings:rulesets/1']],
   ['gh api -X DELETE repos/o/r/git/refs/heads/main', ['rewrite:main']],
   ['gh api -X PATCH repos/o/r -f visibility=public', ['settings:repo']],
-  ['timeout 1500 npm run deploy', ['deploy:*']],
-  ['bun run deploy production', ['deploy:production']],
-  ['npm publish', ['release:*']],
-  ['cargo publish', ['release:*']],
-  // 道具の名前は持たず、2 語目と 3 語目の動詞を読む。script の名前は :、_、- で分けた語も読む。
-  ['npx wrangler deploy --env staging', ['deploy:staging']],
-  ['fly deploy', ['deploy:*']],
-  ['wrangler rollback abc -y', ['deploy:*']],
-  ['npm run deploy:prod', ['deploy:production']],
-  ['make release_notes', ['release:*']],
-  ['npm run build:release', ['release:*']],
-  // test は動詞の後ろでは行き先の名前にもなるので、確かめる側に倒す。
-  ['npm run deploy:test', ['deploy:*']],
-  ["sh -c 'cd app && npm publish'", ['release:*']],
+  ["sh -c 'cd app && gh release create v2'", ['release:v2']],
   ['echo x > .agents/dotagents.json', ['policy:dotagents.json']],
   ['sed -i "" s/a/b/ AGENTS.md', ['instructions:AGENTS.md']],
 ];
@@ -90,19 +77,8 @@ const HARMLESS = [
   'gh api repos/o/r/pulls/3/comments -f body=hi',
   'gh api repos/$R/milestones -f title=v1',
   "gh api -X DELETE 'repos/o/r/git/refs/heads/work/issue#418'",
-  'npm run deploy -- --dry-run',
-  // 同じ語の中に、外へ出さないことを表す語があれば、動詞があっても通す。
-  'npm run deploy:dry-run',
-  'npm run release:check',
-  'bun run test:deploy',
-  'pnpm verify_publish',
-  'cargo build --release',
-  'terraform plan',
-  'node scripts/report.mjs publish',
-  'grep -rn deploy .',
   'echo "git push origin main"',
   "cat > notes.md <<'EOF'\nnpm publish\nEOF",
-  'npm run deploy --env local',
   'cat .agents/dotagents.json',
   'git add AGENTS.md && git commit -m x',
   'cat AGENTS.md | head',
@@ -118,22 +94,33 @@ test('手元で閉じる操作と、読むだけの操作は通す', () => {
 
 test('プロジェクトが宣言したブランチとコマンドも読む', () => {
   assert.deepEqual(kinds('git push origin release/1.2', { protected: ['release/*'] }), ['push:release/1.2']);
-  assert.deepEqual(kinds('./scripts/ship.sh', { outward: ['scripts/ship\\.sh'] }), ['project:*']);
-  assert.deepEqual(kinds('./scripts/ship.sh', { outward: ['('] }), []);
 });
 
-// 道具ごとの外へ届くコマンドは、ハーネスが持たず、プロジェクトが宣言の outward に書く。
-test('道具の名前で決まる操作は、宣言の outward に書いたものだけを確かめる', () => {
-  const tools = ['terraform apply -auto-approve', 'kubectl apply -f x.yaml', 'docker push ghcr.io/x/y', 'wrangler d1 execute db --remote --command "DELETE FROM t"', 'wrangler secret put TOKEN', 'npx wrangler d1 migrations apply db --remote'];
-  for (const command of tools) assert.deepEqual(kinds(command), [], command);
-  const outward = ['^terraform apply', '^kubectl (apply|delete)', '^docker push', '^wrangler (d1 .*--remote|secret put)'];
-  for (const command of tools) assert.deepEqual(kinds(command, { outward }), ['project:*'], command);
+// 道具の名前で決まる操作は、何を守るかをプロジェクトが決めることで、ハーネスは確かめない。
+// 古い宣言に残った outward も、何も確かめさせない。
+const STACK = ['npm run deploy', 'npm run deploy:prod', 'npx wrangler deploy --env production', 'npm publish', 'cargo publish', 'terraform apply -auto-approve', 'kubectl apply -f x.yaml', 'docker push ghcr.io/x/y', 'wrangler d1 execute db --remote --command "DELETE FROM t"', 'make release_notes'];
+
+test('道具の名前や script の動詞で決まる操作は、確かめずに通す', () => {
+  for (const command of STACK) {
+    assert.deepEqual(kinds(command), [], command);
+    assert.deepEqual(kinds(command, { outward: ['^terraform apply', '^npm run deploy', 'publish'] }), [], command);
+    for (const role of ['lead', 'builder', 'worker']) assert.equal(decide({ tool: 'shell', command, cwd: project({ outward: ['.'] }), role, canAsk: true }, tools), null, `${role}: ${command}`);
+  }
+});
+
+test('gh のリリースは、動詞の見分けを外しても確かめる', () => {
+  for (const command of ['gh release create v1 --notes x', 'rtk gh release create v1', 'gh release upload v1 a.zip']) {
+    assert.deepEqual(kinds(command).map((finding) => finding.split(':')[0]), ['release'], command);
+    assert.equal(decide({ tool: 'shell', command, cwd: project(), role: 'lead', canAsk: true }, tools).decision, 'ask', command);
+  }
+  // 宣言に outward があっても、gh の判定は変わらない。
+  assert.deepEqual(kinds('gh release create v1', { outward: ['^terraform apply'] }), ['release:v1']);
 });
 
 test('任せた種類は、種類だけでも対象つきでも通る。線を動かす種類は任せられない', () => {
   assert.equal(delegated(['push'], { kind: 'push', target: 'main' }), true);
   assert.equal(delegated(['push:develop'], { kind: 'push', target: 'main' }), false);
-  assert.equal(delegated(['deploy:stag*'], { kind: 'deploy', target: 'staging' }), true);
+  assert.equal(delegated(['release:v*'], { kind: 'release', target: 'v1' }), true);
   for (const kind of ['rewrite', 'bypass', 'policy']) assert.equal(delegated([kind], { kind, target: 'x' }), false);
 });
 
@@ -157,10 +144,10 @@ test('進める役には確かめ、ほかの役は止める', () => {
 });
 
 test('任せた操作は、どの役でも通る', () => {
-  const cwd = project({ delegated: ['push:main', 'deploy:staging'] });
+  const cwd = project({ delegated: ['push:main', 'release:v1'] });
   for (const role of ['lead', 'builder', 'worker']) assert.equal(decide({ tool: 'shell', command: 'git push origin main', cwd, role, canAsk: true }, tools), null);
-  assert.equal(decide({ tool: 'shell', command: 'npm run deploy -- --env staging', cwd, role: 'worker' }, tools), null);
-  assert.equal(decide({ tool: 'shell', command: 'npm run deploy -- --env production', cwd, role: 'worker' }, tools).decision, 'deny');
+  assert.equal(decide({ tool: 'shell', command: 'gh release create v1', cwd, role: 'worker' }, tools), null);
+  assert.equal(decide({ tool: 'shell', command: 'gh release create v2', cwd, role: 'worker' }, tools).decision, 'deny');
   assert.equal(decide({ tool: 'shell', command: 'git push --force origin main', cwd, role: 'lead', canAsk: true }, tools).decision, 'ask');
 });
 
@@ -176,13 +163,13 @@ test('確かめる手段の無いホストでは止め、了承の印を付け�
 });
 
 test('了承の印は、外へ届く操作そのものに付いているときだけ効く', () => {
-  const cwd = project({ outward: ['^make ship'] });
+  const cwd = project();
   const decideNoAsk = (command) => decide({ tool: 'shell', command, cwd, role: 'lead', canAsk: false }, tools);
-  for (const command of [`${CONFIRMED}=1 true && git push --force origin main`, `${CONFIRMED}=1 git push origin main && git push origin master`, `${CONFIRMED}=1 git status; make ship`, `${CONFIRMED}=1 true && git merge origin/main`]) {
+  for (const command of [`${CONFIRMED}=1 true && git push --force origin main`, `${CONFIRMED}=1 git push origin main && git push origin master`, `${CONFIRMED}=1 git status; gh release create v1`, `${CONFIRMED}=1 true && git merge origin/main`]) {
     assert.equal(decideNoAsk(command)?.decision, 'deny', command);
   }
   assert.deepEqual(decideNoAsk(`${CONFIRMED}=1 git push origin main && git push origin master`).findings, [{ kind: 'push', target: 'master' }]);
-  for (const command of [`git status && ${CONFIRMED}=1 git push origin main`, `${CONFIRMED}=1 git push --force origin main`, `${CONFIRMED}=1 make ship`, `git fetch && ${CONFIRMED}=1 make ship`]) {
+  for (const command of [`git status && ${CONFIRMED}=1 git push origin main`, `${CONFIRMED}=1 git push --force origin main`, `${CONFIRMED}=1 gh release create v1`, `git fetch && ${CONFIRMED}=1 gh release create v1`]) {
     assert.equal(decideNoAsk(command), null, command);
   }
 });

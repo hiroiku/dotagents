@@ -75,17 +75,17 @@ test('サブエージェントの文脈が作り直されたときは、進め�
 
 test('Claude Code では確かめ、Codex では止める', () => {
   const cwd = project();
-  const input = { cwd, tool_name: 'Bash', tool_input: { command: 'npm publish' } };
+  const input = { cwd, tool_name: 'Bash', tool_input: { command: 'gh release create v1' } };
   assert.equal(run('claude', 'tool', input).permissionDecision, 'ask');
   const codex = run('codex', 'tool', input);
   assert.equal(codex.permissionDecision, 'deny');
   assert.match(codex.permissionDecisionReason, /DOTAGENTS_CONFIRMED=1/);
-  assert.equal(run('codex', 'tool', { ...input, tool_input: { command: 'DOTAGENTS_CONFIRMED=1 npm publish' } }), null);
+  assert.equal(run('codex', 'tool', { ...input, tool_input: { command: 'DOTAGENTS_CONFIRMED=1 gh release create v1' } }), null);
 });
 
 test('サブエージェントの外へ届く操作と、進める役が回す検査を止める', () => {
   const cwd = project({ checks: { push: 'npm test' } });
-  const worker = run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'general-purpose', tool_name: 'Bash', tool_input: { command: 'npm publish' } });
+  const worker = run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'general-purpose', tool_name: 'Bash', tool_input: { command: 'gh release create v1' } });
   assert.equal(worker.permissionDecision, 'deny');
   const paced = run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'npm test' } });
   assert.equal(paced.permissionDecision, 'deny');
@@ -150,7 +150,7 @@ test('確かめた回数と止めた回数が、記録に残る', () => {
   assert.ok(lines.some((entry) => entry.event === 'guard' && entry.decision === 'ask' && entry.kind === 'release'));
   assert.ok(lines.some((entry) => entry.event === 'guard' && entry.decision === 'deny' && entry.kind === 'pace'));
   assert.ok(lines.some((entry) => entry.event === 'context' && entry.role === 'builder'));
-  assert.ok(lines.every((entry) => !/npm publish|secret-command|依頼の文/.test(JSON.stringify(entry))), 'コマンドの文字列も、依頼の文も残さない');
+  assert.ok(lines.every((entry) => !/gh release create v1|secret-command|依頼の文/.test(JSON.stringify(entry))), 'コマンドの文字列も、依頼の文も残さない');
 });
 
 test('スキルの読み込みは、判定せずに数える', () => {
@@ -171,7 +171,7 @@ test('プロジェクトに 8.x の写しが残っていても、受け口は譲
   for (const dir of [cwd, nested]) {
     for (const host of ['claude', 'codex']) {
       assert.match(run(host, 'session', { cwd: dir }).additionalContext, /# 核/);
-      assert.notEqual(run(host, 'tool', { cwd: dir, tool_name: 'Bash', tool_input: { command: 'npm publish' } }), null);
+      assert.notEqual(run(host, 'tool', { cwd: dir, tool_name: 'Bash', tool_input: { command: 'gh release create v1' } }), null);
     }
   }
 });

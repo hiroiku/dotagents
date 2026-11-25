@@ -2,7 +2,6 @@
 //
 //   protected  共有のブランチとして扱う名前。リモートのデフォルトブランチと main、master は、書かなくても含まれる。
 //              `*` が使える。
-//   outward    このプロジェクトで外へ届くコマンドの正規表現。
 //   delegated  確かめずに進めてよいと、プロジェクトが任せた種類。`種類` か `種類:対象`。
 //   checks     検査の段ごとのコマンド(edit、commit、push、release)。役の文脈に検査の入口として入る。hook は検査を
 //              実行しない。push と release に置いたコマンドは、作る役と確かめる役が実行すると止まり、どの段のコマンドも、
@@ -21,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const DECLARATION = path.join('.agents', 'dotagents.json');
-const POLICY_KEYS = ['protected', 'outward', 'delegated', 'checks', 'style'];
+const POLICY_KEYS = ['protected', 'delegated', 'checks', 'style'];
 
 export function parseDeclaration(text) {
   const value = JSON.parse(text);

@@ -8,8 +8,8 @@ English | [日本語](docs/README.ja.md)
 
 - **One page per role.** Each role reads everything it needs on every run: the lead session about 3,900 characters, a builder about 2,000, a reviewer about 2,400. Choosing styles adds their text only to the roles that need it. A test keeps the lead under 6,000 and a subagent under 4,000 characters whatever styles a project picks. The only skills left are the ones a user asks for: `setup`, `prompting`, `releases`, `triage`.
 - **Styles chosen by declaration.** A project picks a git flow (`trunk` or `release-branches`) and a design shape (`layered`). Only the chosen text is injected, and the git flow also sets the shared branches and the pull-request base the hooks enforce.
-- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, the heavy checks a project reserves for the lead, and three procedures (below). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
-- **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside: pushes to shared branches and tags, pull-request merges, releases, workflow runs and repository settings through `gh`, edits of instruction files and the declaration, messages to people, and commands whose subcommand is a release or deploy verb (`publish`, `release`, `deploy`, `promote`, `rollback`, `destroy`, also inside script names such as `deploy:prod`, but not when the same name says it stays local, as in `deploy:dry-run` or `release:check`). The harness knows no tool names. Commands that reach outside only because of the project's stack (`terraform apply`, `wrangler d1 execute --remote`, `docker push`) are listed by the project in `outward`; without that they pass unchecked. Each project can delegate the kinds it trusts.
+- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching git and `gh` operations, AI attribution in commits, the heavy checks a project reserves for the lead, and three procedures (below). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
+- **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside: pushes to shared branches and tags, pull-request merges, releases, workflow runs and repository settings through `gh`, edits of instruction files and the declaration, messages to people. The harness does not read a project's own commands, since what to guard is the project's decision: a project that wants `terraform apply` or `npm publish` confirmed writes that in the host's permission settings (for example `ask` under `permissions` in Claude Code). Each project can delegate the kinds it trusts.
 - **Measured.** Every confirmation and block is logged without command text in `~/.dotagents/log`; `tools/stats.mjs` in this repository shows how often the harness intervenes, by kind, and how much time and how many tokens each role used.
 
 ### Procedures it stops
@@ -42,7 +42,7 @@ Ask the agent to set the harness up in the repository (the `setup` skill). In a 
 | Claude Code | `.claude/settings.json`: `extraKnownMarketplaces` and `enabledPlugins` | Trust the folder. If you have not installed the harness yourself, run `claude plugin install dotagents@dotagents --scope project` once (`--scope user` for every project). Enabling it in the settings alone does not load it at the start of an interactive session. |
 | Codex | `.codex/config.toml`: a git marketplace and the plugin, unpinned | Trust the project, then approve the hooks in `/hooks`. Codex asks again whenever the plugin's contents change. |
 
-The agent also writes the project declaration (styles, `checks`, `outward`). Only a **reference** to this repository is written, never a copy, so upgrading the harness creates no commits in your project. Only the harness's own entries are added or removed; every other key and character of your settings stays as it was. If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. The same skill removes it, cleans up what 8.x and 7.x left behind, and checks a project (declaration, references, styles, and whether GitHub protects the shared branches).
+The agent also writes the project declaration (styles, `checks`). Only a **reference** to this repository is written, never a copy, so upgrading the harness creates no commits in your project. Only the harness's own entries are added or removed; every other key and character of your settings stays as it was. If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. The same skill removes it, cleans up what 8.x and 7.x left behind, and checks a project (declaration, references, styles, and whether GitHub protects the shared branches).
 
 ## The project declaration
 
@@ -52,8 +52,7 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 {
   "style": { "git": "release-branches", "architecture": "layered" },
   "protected": ["staging"],
-  "outward": ["^terraform apply", "^wrangler d1 .*--remote", "^docker push"],
-  "delegated": ["merge:main", "tag", "deploy:staging"],
+  "delegated": ["merge:main", "tag", "release:v1"],
   "checks": { "edit": "biome check {file}", "commit": "npm run check:changed", "push": "npm run check", "release": "npm run e2e" },
   "decisions": ["Contrast is set by the designer. Do not flag it in review."]
 }
@@ -65,7 +64,7 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 | `git: release-branches` | Same development as trunk; cut `release/…` per release line and cherry-pick fixes from the default branch | default branch, `release/*` |
 | `architecture: layered` | Six layers with inward dependencies; the text states which layer may import which. The harness ships rules, not checking tools: enforce the direction with the project's own lint or check | — |
 
-`protected` adds to a flow's shared branches. `outward` lists, as regular expressions, the commands that reach outside in this project's stack (deploys, package publishing, writes to remote data); `setup` proposes them from the project's scripts and configuration. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
+`protected` adds to a flow's shared branches. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
 
 ## Contents
 

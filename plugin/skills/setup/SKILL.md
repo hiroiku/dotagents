@@ -13,9 +13,8 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 
 1. 流を利用者に尋ねる。先に、ブランチ、tag、workflow、文書から推した案を示す。git の流れは `trunk`(既定のブランチだけに統合し、tag で版を切る)と `release-branches`(開発は trunk と同じで、版の系列ごとに `release/` のブランチを切る)から選ぶ。設計の形は `layered` を選ぶか、選ばない。どちらの軸も省ける。`layered` を選んだら、層の依存の向きを落とす lint か検査がプロジェクトにあるかを確かめる。ハーネスは決まりを入れるだけで、検査の道具は入れない。無ければ、作ることを利用者に提案し、作ったら検査の段に置く。
 2. `checks` を、プロジェクトの script と workflow から当てはめる。CI が呼んでいる入口を、push の段に置く。無い段は、作ることを提案する。
-3. `outward` の案を作る。プロジェクトの script、設定(package.json、Makefile、CI の workflow、配備の道具の設定)、使っている道具を読み、配備、パッケージの公開、手元の外のデータや秘密への書き込みをするコマンドを、正規表現で挙げる。ハーネスは道具の名前を持たないので、ここに書かなかったものは確かめずに通る。たとえば Terraform なら `^terraform apply`、Cloudflare の D1 なら `^wrangler d1 .*--remote`、コンテナーの公開なら `^docker push`、手元から本番へ届く script なら `^npm run db:migrate:prod` である。下位のコマンドが公開か配備の動詞(publish、release、deploy、promote、rollback、destroy)のものは、書かなくても確かめる。案を利用者に見せ、確かめてから書く。
-4. `.agents/dotagents.json` に、選んだ流と、`checks`、`outward` を書く(書き方は「プロジェクトの宣言」)。ファイルがあれば、ほかの項目は残す。
-5. `.claude/settings.json` に、次の 2 つの項目を足す。ファイルが無ければ、この中身で作る。`enabledPlugins` と `extraKnownMarketplaces` がすでにあれば、その中に、この鍵だけを足す。各人の `claude plugin install --scope project` は `enabledPlugins` を先に置いて書き直すので、新しく足すときは、この順にしておくと差分ができない。
+3. `.agents/dotagents.json` に、選んだ流と、`checks` を書く(書き方は「プロジェクトの宣言」)。ファイルがあれば、ほかの項目は残す。
+4. `.claude/settings.json` に、次の 2 つの項目を足す。ファイルが無ければ、この中身で作る。`enabledPlugins` と `extraKnownMarketplaces` がすでにあれば、その中に、この鍵だけを足す。各人の `claude plugin install --scope project` は `enabledPlugins` を先に置いて書き直すので、新しく足すときは、この順にしておくと差分ができない。
 
    ```json
    {
@@ -31,7 +30,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
    }
    ```
 
-6. `.codex/config.toml` の終わりに、空の行を 1 つ挟んで、次の 2 つの表を足す。ファイルが無ければ、この中身で作る。同じ見出しの表がすでにあれば、表の中のこの鍵の行だけをそろえ、利用者が表に足した行(`ref` など)は残す。版は固定しない。
+5. `.codex/config.toml` の終わりに、空の行を 1 つ挟んで、次の 2 つの表を足す。ファイルが無ければ、この中身で作る。同じ見出しの表がすでにあれば、表の中のこの鍵の行だけをそろえ、利用者が表に足した行(`ref` など)は残す。版は固定しない。
 
    ```toml
    [marketplaces.dotagents]
@@ -42,10 +41,10 @@ description: このハーネスをプロジェクトに入れるとき、外す�
    enabled = true
    ```
 
-7. 根に `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
-8. 8.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
-9. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
-10. 各人がすることを、利用者に伝える。
+6. 根に `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
+7. 8.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
+8. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
+9. 各人がすることを、利用者に伝える。
    - Claude Code: フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。
    - Codex: プロジェクトを信頼し(`trust_level = "trusted"`)、`/hooks` で dotagents の hook を承認する。plugin の中身が変わるたびに、承認し直す。
 
@@ -68,12 +67,10 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 次を確かめ、当てはまったものを利用者に伝える。
 
 - 宣言(`.agents/dotagents.json`)が無い: 外へ届く操作は、すべて確かめる。Claude Code はセッションを開くたびに画面で知らせ、進める役は最初の返答で入れることを提案する。入れないと決めたなら、中身が `{}` の宣言を置くと提案が止まる。読めない: hook と役は、宣言が無いものとして動く。
-- 宣言に、知らない項目がある(知っている項目は `style`、`protected`、`outward`、`delegated`、`checks`、`decisions`)。
-- `outward` に、正規表現として読めないものがある。
+- 宣言に、知らない項目がある(知っている項目は `style`、`protected`、`delegated`、`checks`、`decisions`)。`outward` は、もう読まれない。残っていれば、何も確かめないので、消すことを提案する。
 - `delegated` に、知らない種類がある(種類は「プロジェクトの宣言」にある)。
 - `style` に、知らない流がある。選べるのは、git が `trunk` と `release-branches`、architecture が `layered` である。流を選んでいない軸は、その軸の文も決まりも入らない。
 - `checks` が無い: 役の文脈に検査の入口が入らず、作る役が push の段の検査を回しても止まらない。一部の段だけが無いときは、その段を知らせる。
-- `outward` が無い: プロジェクトの技術によって外へ届くコマンドは、確かめずに通る。
 - どのホストの設定にも、参照が無い(`.claude/settings.json` の `enabledPlugins` に `dotagents@dotagents` が true で無く、`.codex/config.toml` に `[plugins."dotagents@dotagents"]` が無い): 各人が自分の環境に入れていなければ、このプロジェクトでは働かない。片方だけ無いときは、そのホストを知らせる。
 - この環境の Claude Code に入っていない: `~/.claude/plugins/installed_plugins.json`(`CLAUDE_CONFIG_DIR` があればその下)の `plugins["dotagents@dotagents"]` に、`scope` が `user` の記録か、`projectPath` がこのプロジェクトで `scope` が `project` か `local` の記録が無い。
 - 共有のブランチが GitHub で守られていない: リモートのデフォルトブランチ、選んだ流の共有のブランチ、`protected` の名前(`*` を含むものは除く)ごとに、`gh api repos/{owner}/{repo}/rules/branches/<ブランチ> --jq length` が 1 以上か、`gh api repos/{owner}/{repo}/branches/<ブランチ>/protection` が答えれば守られている。どちらも答えなければ、確かめられなかったと伝える。守られていなければ、ハーネスを入れていない人と道具は、確かめなしで push できる。
@@ -88,8 +85,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 {
   "style": { "git": "release-branches", "architecture": "layered" },
   "protected": ["staging"],
-  "outward": ["^terraform apply", "^wrangler d1 .*--remote", "^docker push", "scripts/ship\\.sh"],
-  "delegated": ["merge:main", "tag", "deploy:staging"],
+  "delegated": ["merge:main", "tag", "release:v1"],
   "checks": {
     "edit": "biome check {file}",
     "commit": "npm run check:changed",
@@ -102,8 +98,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 
 - `style`: 選んだ流。git の流れは、進める役の文脈に入り、共有のブランチの既定と PR の base を決める。設計の形は、どの役の文脈にも入る。知らない名前は、無いものとして扱う。
 - `protected`: 流の既定に足す、共有のブランチの名前。リモートのデフォルトブランチと、`main`、`master` は、書かなくても含まれる。
-- `outward`: このプロジェクトで外へ届くコマンドの正規表現。ハーネスは道具の名前を持たず、git と gh のほかは、下位のコマンドが公開か配備の動詞(publish、release、deploy、promote、rollback、destroy)のものだけを確かめる。道具によって外へ届くコマンドは、ここに書かなければ確かめずに通る。単純なコマンドごとに当てるので、`^` から書ける。
-- `delegated`: 確かめずに進めてよい種類。`種類` か `種類:対象` で書く。種類は push、tag、merge、release、deploy、settings、workflow、message、instructions、project である。共有のブランチの書き換え、保護を飛ばすマージ、この宣言の書き換えは、任せられない。
+- `delegated`: 確かめずに進めてよい種類。`種類` か `種類:対象` で書く。種類は push、tag、merge、release、settings、workflow、message、instructions である。共有のブランチの書き換え、保護を飛ばすマージ、この宣言の書き換えは、任せられない。
 - `checks`: 検査の段ごとの入口。役の文脈に入り、役が自分で回す。hook は検査を実行しない。`edit` には、編集したファイルを `{file}` で受ける軽い検査を置く。`push` と `release` に置いたコマンドは、作る役と確かめる役が実行すると止まる(引数を足して絞った実行は止まらない)。どの段のコマンドも、作る役と確かめる役がバックグラウンドで始めると止まる。CI も同じ入口を呼ぶ形にする。
 - `decisions`: どの役も読む、続いている決定。レビューで見ないもの、採っている設計の配置、環境の名前のように、会話から消えると困るものを 1 行ずつ書く。
 

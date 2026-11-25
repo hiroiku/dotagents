@@ -46,7 +46,7 @@ export const NOT_INSTALLED_NOTICE = 'dotagents: このリポジトリーには�
 function projectFacts({ role, value, error, unknown, missing }) {
   const parts = [];
   if (role === 'lead') {
-    if (missing) parts.push('このリポジトリーには、このハーネスの宣言(`.agents/dotagents.json`)が無い。流、検査の入口、外へ届くコマンドを知らないまま動いている。最初の返答で、setup のスキルで入れることを利用者に 1 回提案する。入れないと決めたなら、中身が `{}` の宣言を置けば、この提案は出なくなる。');
+    if (missing) parts.push('このリポジトリーには、このハーネスの宣言(`.agents/dotagents.json`)が無い。流と検査の入口を知らないまま動いている。最初の返答で、setup のスキルで入れることを利用者に 1 回提案する。入れないと決めたなら、中身が `{}` の宣言を置けば、この提案は出なくなる。');
     if (error) parts.push(`プロジェクトの宣言が読めない(${error})。宣言が無いものとして動いている。利用者に知らせる。`);
     if (unknown.length) parts.push(`宣言の style に、このハーネスの知らない流がある(${unknown.join('、')})。その軸は選ばれていないものとして動いている。利用者に知らせる。`);
   }
