@@ -36,6 +36,13 @@ function insideRepository(cwd) {
   }
 }
 
+// git のリポジトリーの中で、宣言が無いか。入れたか、入れないと決めたかを、宣言ファイルの有無だけで持つ。
+export const declarationMissing = (cwd) => !readDeclaration(cwd).file && insideRepository(cwd);
+
+// 利用者の画面に出す知らせ。エージェントは利用者が話しかけるまで返答しないので、文脈に入れるだけでは、開いた時点で
+// 気づけない。
+export const NOT_INSTALLED_NOTICE = 'dotagents: このリポジトリーには宣言(.agents/dotagents.json)がありません。「dotagents を入れて」と頼むと入れます。入れない場合は、中身が {} の宣言を置くと、この知らせは出なくなります。';
+
 function projectFacts({ role, value, error, unknown, missing }) {
   const parts = [];
   if (role === 'lead') {
@@ -85,10 +92,10 @@ export function largestSize(role) {
 export const budgetOf = (role) => (role === 'lead' ? BUDGET.lead : BUDGET.subagent);
 
 export function contextFor({ role = 'lead', cwd = process.cwd() } = {}) {
-  const { file, value, error } = readDeclaration(cwd);
+  const { value, error } = readDeclaration(cwd);
   const { chosen, unknown } = chosenStyles(value);
   const parts = standing(role, chosen);
-  const missing = role === 'lead' && !file && insideRepository(cwd);
+  const missing = role === 'lead' && declarationMissing(cwd);
   const facts = projectFacts({ role, value, error, unknown, missing });
   if (facts) parts.push(facts);
   return parts.join('\n\n');

@@ -35,7 +35,7 @@ Hooks run with `bun` when it is installed and with `node` otherwise.
 
 ### Into a repository
 
-Ask the agent to set the harness up in the repository (the `setup` skill). In a repository without a declaration, the lead offers this in its first reply of every session; a declaration containing just `{}` means you decided not to, and silences the offer. There is no install command: the agent edits the files in place, following the procedure in the skill, and shows you the result to commit.
+Ask the agent to set the harness up in the repository (the `setup` skill). In a repository without a declaration, Claude Code shows a notice when a session opens, and the lead offers the setup in its first reply; a declaration containing just `{}` means you decided not to, and silences the offer. There is no install command: the agent edits the files in place, following the procedure in the skill, and shows you the result to commit.
 
 | Host | What goes into the repository | What each person does |
 |---|---|---|

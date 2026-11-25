@@ -26,6 +26,18 @@ function run(host, event, input) {
   return result.stdout ? JSON.parse(result.stdout).hookSpecificOutput : null;
 }
 
+test('宣言の無いリポジトリーで Claude Code のセッションを始めると、利用者の画面に入れ方を知らせる', () => {
+  const raw = (host, event, input) => JSON.parse(spawnSync(process.execPath, [HOOK, host, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, DOTAGENTS_HOME: home, CODEX_HOME: codexHome } }).stdout);
+  const repo = project();
+  fs.mkdirSync(path.join(repo, '.git'));
+  assert.match(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source: 'startup' }).systemMessage, /dotagents を入れて/);
+  assert.equal(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source: 'compact' }).systemMessage, undefined);
+  assert.equal(raw('claude', 'subagent', { cwd: repo, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'dotagents:builder' }).systemMessage, undefined);
+  const declared = project({});
+  fs.mkdirSync(path.join(declared, '.git'));
+  assert.equal(raw('claude', 'session', { cwd: declared, hook_event_name: 'SessionStart', source: 'startup' }).systemMessage, undefined);
+});
+
 test('セッションの開始では進める役の文を、サブエージェントの開始では役の文を返す', () => {
   const cwd = project({ decisions: ['決定 A'] });
   const lead = run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'startup' });
