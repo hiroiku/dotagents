@@ -28,9 +28,18 @@ const TIERS = [
 
 export const coreText = (name) => fs.readFileSync(path.join(PLUGIN_ROOT, 'core', `${name}.md`), 'utf8').trim();
 
-function projectFacts({ role, value, error, unknown }) {
+// cwd から上へたどり、git のリポジトリーの中にいるか。git は起動しない(セッションの始めを待たせない)。
+function insideRepository(cwd) {
+  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, '.git'))) return true;
+    if (path.dirname(dir) === dir) return false;
+  }
+}
+
+function projectFacts({ role, value, error, unknown, missing }) {
   const parts = [];
   if (role === 'lead') {
+    if (missing) parts.push('このリポジトリーには、このハーネスの宣言(`.agents/dotagents.json`)が無い。流、検査の入口、外へ届くコマンドを知らないまま動いている。最初の返答で、setup のスキルで入れることを利用者に 1 回提案する。入れないと決めたなら、中身が `{}` の宣言を置けば、この提案は出なくなる。');
     if (error) parts.push(`プロジェクトの宣言が読めない(${error})。宣言が無いものとして動いている。利用者に知らせる。`);
     if (unknown.length) parts.push(`宣言の style に、このハーネスの知らない流がある(${unknown.join('、')})。その軸は選ばれていないものとして動いている。利用者に知らせる。`);
   }
@@ -76,10 +85,11 @@ export function largestSize(role) {
 export const budgetOf = (role) => (role === 'lead' ? BUDGET.lead : BUDGET.subagent);
 
 export function contextFor({ role = 'lead', cwd = process.cwd() } = {}) {
-  const { value, error } = readDeclaration(cwd);
+  const { file, value, error } = readDeclaration(cwd);
   const { chosen, unknown } = chosenStyles(value);
   const parts = standing(role, chosen);
-  const facts = projectFacts({ role, value, error, unknown });
+  const missing = role === 'lead' && !file && insideRepository(cwd);
+  const facts = projectFacts({ role, value, error, unknown, missing });
   if (facts) parts.push(facts);
   return parts.join('\n\n');
 }

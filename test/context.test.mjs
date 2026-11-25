@@ -67,6 +67,19 @@ test('進め方は既定で、利用者とプロジェクトの決めごとが�
   }
 });
 
+test('宣言の無いリポジトリーでは、進める役が setup で入れることを提案する。空の宣言を置けば提案しない', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
+  fs.mkdirSync(path.join(repo, '.git'));
+  fs.mkdirSync(path.join(repo, 'src'));
+  for (const cwd of [repo, path.join(repo, 'src')]) assert.match(contextFor({ role: 'lead', cwd }), /setup のスキル/, cwd);
+  assert.doesNotMatch(contextFor({ role: 'builder', cwd: repo }), /setup のスキル/);
+  const declined = project({});
+  fs.mkdirSync(path.join(declined, '.git'));
+  assert.doesNotMatch(contextFor({ role: 'lead', cwd: declined }), /setup のスキル/);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
+  assert.doesNotMatch(contextFor({ role: 'lead', cwd: outside }), /setup のスキル/);
+});
+
 test('読めない宣言は、進める役に知らせる', () => {
   const cwd = project('{ broken');
   assert.match(contextFor({ role: 'lead', cwd }), /宣言が読めない/);
