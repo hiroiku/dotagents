@@ -55,7 +55,7 @@ const skillNames = () => fs.readdirSync(path.join(PLUGIN_ROOT, 'skills')).sort()
 const amount = (value) => (value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1e3 ? `${Math.round(value / 1e3)}k` : String(value));
 
 // 止めた理由の名前。外へ届く操作の種類、止める手順、エージェントの持ち場、AI の署名。
-const LABELS = { ...KIND_LABELS, ...PROCEDURE_LABELS, pace: 'オーケストレーターが回す検査', attribution: 'AI の関与を示す記述' };
+const LABELS = { ...KIND_LABELS, ...PROCEDURE_LABELS, pace: 'オーケストレーターが回すチェック', attribution: 'AI の関与を示す記述' };
 
 function printStats(result) {
   const sum = (bucket) => Object.values(bucket).reduce((total, count) => total + count, 0);

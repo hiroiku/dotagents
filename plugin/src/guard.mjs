@@ -530,7 +530,7 @@ export function findings(request, declaration, tools) {
 const describe = (finding) => `${KIND_LABELS[finding.kind]}${finding.target && finding.target !== '*' ? `(${finding.target})` : ''}`;
 const entryOf = (finding) => `"${finding.kind}${finding.target && finding.target !== '*' ? `:${finding.target}` : ''}"`;
 
-// ビルダーとレビュアーが回さない検査。push と release の段階は、オーケストレーターがバッチごとに 1 回回す。
+// ビルダーとレビュアーが回さないチェック。push と release の段階は、オーケストレーターがバッチごとに 1 回回す。
 // 時間では切らない。止めるのは、プロジェクトがその段階に置いたコマンドそのものだけで、引数を足して絞った実行は通す。
 // 同じコマンドを edit や commit の段階にも置いているなら、このエージェントの持ち場なので止めない。
 const HEAVY_TIERS = [
@@ -555,15 +555,15 @@ function pace(request, declaration) {
   const heavy = heavyChecks(declaration, request.cwd);
   const hit = heavy.size ? commandLines(request.command, request.cwd).find((line) => heavy.has(line)) : undefined;
   if (hit) {
-    return `\`${hit}\` は、このプロジェクトが ${heavy.get(hit)}に置いた検査です。オーケストレーターがバッチごとに 1 回回すので、このエージェントは回しません。変更したファイルと、それに依存するテストに絞って実行してください。この検査を回していないことは、報告に書いてください。`;
+    return `\`${hit}\` は、このプロジェクトが ${heavy.get(hit)}に置いたチェックです。オーケストレーターがバッチごとに 1 回回すので、このエージェントは回しません。変更したファイルと、それに依存するテストに絞って実行してください。このチェックを回していないことは、報告に書いてください。`;
   }
-  // バックグラウンドで始めると、完了を受け取れずに待つことになる。検査かどうかは、`dotagents.json` の checks のコマンドで見分ける。
+  // バックグラウンドで始めると、完了を受け取れずに待つことになる。チェックかどうかは、`dotagents.json` の checks のコマンドで見分ける。
   // 絞った実行も同じである。edit の段階の {file} から後ろは、ファイルごとに変わるので比べない。
   if (request.background) {
     const declared = ['edit', 'commit', 'push', 'release'].flatMap((key) => tierLines(declaration, key, request.cwd)).map((line) => line.split('{file}')[0].trim()).filter(Boolean);
     const started = commandLines(request.command, request.cwd);
     if (started.some((line) => declared.some((check) => line === check || line.startsWith(`${check} `)))) {
-      return 'このエージェントは、バックグラウンドで始めた処理の完了を受け取れません。検査は、フォアグラウンドで実行してください。';
+      return 'このエージェントは、バックグラウンドで始めた処理の完了を受け取れません。チェックは、フォアグラウンドで実行してください。';
     }
   }
   return null;

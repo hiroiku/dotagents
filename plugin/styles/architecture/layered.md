@@ -12,7 +12,7 @@ roles: all
 - `interface` と `infrastructure` は `application` と `app-kernel`。
 - `frameworks` は `interface` と `app-kernel`。例外は、下に書くコンポジションルートだけである。
 
-この向きは、文やレビューではなく、プロジェクトの lint か検査で落とす。検査を通すために例外を足さない。
+この向きは、文やレビューではなく、プロジェクトの lint かチェックで落とす。チェックを通すために例外を足さない。
 
 - 置き場は `src/<層>/<種類>/<コンテキスト>/<名前>.<種類>.ts` を既定にする。
 - `domain` は業務の概念と規則を持ち、bounded context ごとに分ける。コンテキストをまたぐ調整は `application` が持つ。

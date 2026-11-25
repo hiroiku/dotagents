@@ -174,11 +174,11 @@ test('了承の印は、外へ届く操作そのものに付いているとき�
   }
 });
 
-test('ビルダーとレビュアーは、プロジェクトが push と release の段階に置いた検査を回さない', () => {
+test('ビルダーとレビュアーは、プロジェクトが push と release の段階に置いたチェックを回さない', () => {
   const cwd = project({ checks: { edit: 'biome check {file}', commit: 'npm run check:changed', push: 'npm run check', release: 'npm test && npm run e2e' } });
   const heavy = decide({ tool: 'shell', command: 'npm run check', cwd, role: 'builder' }, tools);
   assert.equal(heavy.kind, 'pace');
-  assert.match(heavy.reason, /`npm run check` は、このプロジェクトが push の段階に置いた検査/);
+  assert.match(heavy.reason, /`npm run check` は、このプロジェクトが push の段階に置いたチェック/);
   const nested = decide({ tool: 'shell', command: 'cd packages/app && CI=1 npm run e2e 2>&1 | tail -20', cwd, role: 'reviewer' }, tools);
   assert.equal(nested.kind, 'pace');
   assert.match(nested.reason, /release の段階/);
@@ -215,12 +215,12 @@ test('時間や数の上限では止めない', () => {
   }
 });
 
-test('ビルダーとレビュアーは、dotagents.json の検査をバックグラウンドで始めない。検査かどうかはdotagents.json のコマンドで見分ける', () => {
+test('ビルダーとレビュアーは、dotagents.json のチェックをバックグラウンドで始めない。チェックかどうかはdotagents.json のコマンドで見分ける', () => {
   const cwd = project({ checks: { edit: 'biome check {file}', commit: 'pnpm verify:changed', push: 'make ci' } });
   const background = (command, role = 'builder', at = cwd) => decide({ tool: 'shell', command, cwd: at, role, background: true }, tools)?.kind ?? null;
   for (const command of ['pnpm verify:changed', 'pnpm verify:changed -- src/a.ts', 'biome check src/a.ts', 'cd app && make ci']) assert.equal(background(command), 'pace', command);
   assert.equal(background('pnpm verify:changed', 'reviewer'), 'pace');
-  // dotagents.json に無いコマンドは、検査らしい名前でも見ない。dotagents.json が無ければ見ない。
+  // dotagents.json に無いコマンドは、チェックらしい名前でも見ない。dotagents.json が無ければ見ない。
   for (const command of ['npm run dev', 'npm test', 'npx vitest run', 'pytest -q']) assert.equal(background(command), null, command);
   assert.equal(background('npm test', 'builder', project()), null);
   for (const role of ['orchestrator', 'worker']) assert.equal(background('pnpm verify:changed', role), null, role);

@@ -26,7 +26,7 @@ test('共通ルールはどのロールにも入り、オーケストレータ�
   }
 });
 
-test('プロジェクトの決定と検査の入口は、どのロールにも届く', () => {
+test('プロジェクトの決定とチェックの入口は、どのロールにも届く', () => {
   const cwd = project({ decisions: ['コントラストはデザイナーの指示なので指摘しない'], checks: { edit: 'biome check {file}', push: 'npm run check' }, delegated: ['push:develop'] });
   for (const role of ['orchestrator', 'builder', 'reviewer', 'worker']) {
     const text = contextFor({ role, cwd });

@@ -15,7 +15,7 @@ import { appliesTo, catalog, chosenStyles, readStyle } from './style.mjs';
 export { PLUGIN_ROOT };
 
 // ロールが毎回読む文の上限(文字)。足すたびに、ほかの文が読まれる度合いが下がる。超えたらテストが落ちる。
-// 数えるのは、共通ルール、オーケストレーターの文、選んだスタイルの文、エージェントの定義の本文である。`dotagents.json` から導いた事実(決定、検査の入口)は、
+// 数えるのは、共通ルール、オーケストレーターの文、選んだスタイルの文、エージェントの定義の本文である。`dotagents.json` から導いた事実(決定、チェックの入口)は、
 // プロジェクトが持つものなので数えない。7.x では常設の文が 6,149 字になり、読まれない文が増えた。
 // これは、ハーネスが自分の大きさに掛ける上限である。エージェントの働き方に掛ける上限は、持たない。
 export const BUDGET = { orchestrator: 6000, subagent: 4000 };
@@ -42,7 +42,7 @@ export const NOT_INSTALLED_NOTICE = 'dotagents: このリポジトリーには .
 function projectFacts({ role, value, error, unknown, missing }) {
   const parts = [];
   if (role === 'orchestrator') {
-    if (missing) parts.push('このリポジトリーには、このハーネスの `.agents/dotagents.json` が無い。スタイルと検査の入口を知らないまま動いている。最初の返答で、`npx @hiroiku/dotagents init` の実行で入れることを利用者に 1 回提案する(エージェントが代わりに行うなら、setup のスキルに沿う)。入れないと決めたなら、中身が `{}` の `dotagents.json` を置けば、この提案は出なくなる。');
+    if (missing) parts.push('このリポジトリーには、このハーネスの `.agents/dotagents.json` が無い。スタイルとチェックの入口を知らないまま動いている。最初の返答で、`npx @hiroiku/dotagents init` の実行で入れることを利用者に 1 回提案する(エージェントが代わりに行うなら、setup のスキルに沿う)。入れないと決めたなら、中身が `{}` の `dotagents.json` を置けば、この提案は出なくなる。');
     if (error) parts.push(`dotagents.json が読めない(${error})。無いものとして動いている。利用者に知らせる。`);
     if (unknown.length) parts.push(`dotagents.json の style に、このハーネスの知らないスタイルがある(${unknown.join('、')})。その軸は選ばれていないものとして動いている。利用者に知らせる。`);
   }
@@ -50,7 +50,7 @@ function projectFacts({ role, value, error, unknown, missing }) {
   if (decisions.length) parts.push(['# このプロジェクトで続いている決定', ...decisions.map((line) => `- ${line}`)].join('\n'));
   const checks = TIERS.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
   if (checks.length) {
-    const lines = ['# 検査の入口', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
+    const lines = ['# チェックの入口', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
     const heavy = checks.filter((key) => key === 'push' || key === 'release').map((key) => `${key} の段階`);
     if (heavy.length && (role === 'builder' || role === 'reviewer')) lines.push('', `${heavy.join('と ')}のコマンドは、オーケストレーターが回す。このエージェントがそのまま実行すると止まる。対象を絞った実行は止まらない。`);
     parts.push(lines.join('\n'));
