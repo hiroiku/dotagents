@@ -25,7 +25,7 @@ const SEVEN = ['.claude/dotagents.json', '.claude/rules/dotagents', '.codex/dota
 
 function box(data, key, file) {
   data[key] ??= {};
-  if (!isObject(data[key])) throw new Error(`${file} の ${key} がオブジェクトではないので、書き換えない。`);
+  if (!isObject(data[key])) throw new Error(`${file} の ${key} が JSON のオブジェクトではありません。何も書き込まずに中止します。`);
   return data[key];
 }
 
@@ -79,16 +79,16 @@ function removeOldCopy(plan, notices) {
       if (!data.packages.length) delete data.packages;
     });
   } catch {
-    if (plan.read(PI_SETTINGS)?.includes(OLD_PI)) notices.push(`${PI_SETTINGS} に 8.x が書いた行(${OLD_PI} で始まる package)が残っていますが、JSON として読めないので消していません。手で消してください。`);
+    if (plan.read(PI_SETTINGS)?.includes(OLD_PI)) notices.push(`${PI_SETTINGS} に 8.x が追加した行(${OLD_PI} で始まる package)が残っていますが、JSON として読み込めないため削除していません。手動で削除してください。`);
   }
 }
 
 function notices(plan) {
   const out = [];
   const seven = SEVEN.filter((relative) => plan.exists(relative));
-  if (seven.length) out.push(`7.x の残りがあります(${seven.join('、')})。消していません。エージェントに、dotagents の setup スキルの「8.x と 7.x から移るとき」に沿った移行を頼んでください。`);
+  if (seven.length) out.push(`7.x のファイルが残っています(${seven.join('、')})。削除していません。dotagents の setup スキルの「8.x と 7.x から移るとき」に沿って移行するよう、エージェントに依頼してください。`);
   try {
-    if (Object.hasOwn(JSON.parse(plan.read(DECLARATION)), 'outward')) out.push(`${DECLARATION} に outward が残っています。もう読まれない(何も確かめない)ので、消してかまいません。`);
+    if (Object.hasOwn(JSON.parse(plan.read(DECLARATION)), 'outward')) out.push(`${DECLARATION} に outward が残っています。この項目はもう使われず、何の効果もないため、削除してかまいません。`);
   } catch {}
   return out;
 }

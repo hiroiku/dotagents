@@ -1,67 +1,68 @@
-// init の質問。指定(引数)があれば尋ねず、無ければ、画面があれば尋ね、無ければ既定で答える。
-// 既定は、いまの宣言があればその値、無ければプロジェクトから推した値である。
+// init の質問。オプションの指定があれば尋ねず、無ければ、画面があれば尋ね、無ければ既定で答える。
+// 既定は、いまの宣言があればその値、無ければプロジェクトから検出した値である。
 
 import { configuredHosts, currentDeclaration, detectChecks, detectGit, detectHosts } from './detect.mjs';
-import { AXIS_NAMES, HOST_NAMES, HOSTS, PLUGIN_ID, STAGES, STYLES, TARGET } from './target.mjs';
+import { AXIS_NAMES, DECLARATION, HOST_NAMES, HOSTS, PLUGIN_ID, STAGES, STYLES, TARGET } from './target.mjs';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-// 画面の文。質問ごとに、何を決めるか、答えがどこで使われるか、選ぶと何が起きるかを書く。
+// 画面の文。質問ごとに、何を決めるか、答えがどこに保存されるか、選ぶと何が起きるかを書く。
 // ハーネスの今の振る舞い(plugin/styles、plugin/core、setup のスキル)と合わせる。
+const saved = (key) => `答えは ${DECLARATION} の ${key} に保存されます。`;
 const HOST_HINTS = {
-  claude: '.claude/settings.json に、plugin の参照を書きます',
-  codex: '.codex/config.toml に、plugin の参照を書きます。プロジェクトを信頼し、/hooks で hook を承認すると、各人の操作なしで入ります',
+  claude: '.claude/settings.json に、plugin への参照を書き込みます',
+  codex: '.codex/config.toml に、plugin への参照を書き込みます。プロジェクトを信頼し、/hooks で hook を承認すると、各自で操作しなくても有効になります',
 };
 const AXIS_TEXT = {
   git: {
-    description: 'オーケストレーターが、どのブランチに統合し、PR をどこへ向けるかを決めます。守る共有のブランチも決まります。',
+    description: `オーケストレーターが、どのブランチに統合し、PR をどのブランチに向けるかを決めます。保護するブランチも、この選択で決まります。\n${saved('style.git')}`,
     hints: {
-      trunk: '既定のブランチだけに統合し、版は tag で切ります。共有のブランチは、既定のブランチです',
-      'release-branches': '開発は trunk と同じで、版の系列ごとに release/ のブランチを切ります。共有のブランチに release/ のブランチが加わります',
+      trunk: '既定のブランチだけに統合し、リリースは tag で切ります。保護するブランチは、既定のブランチです',
+      'release-branches': '統合先は trunk と同じです。バージョンの系列ごとに release/ ブランチを作ります。保護するブランチに、release/ で始まるブランチが加わります',
     },
-    none: 'ブランチの決まりを入れません。共有のブランチは、既定のブランチと main、master だけになります',
+    none: 'ブランチの決まりを設定しません。保護するブランチは、既定のブランチと main、master だけになります',
   },
   architecture: {
-    description: '設計の形を決めます。選んだ形の決まりは、すべてのエージェントの文脈に入ります。',
-    hints: { layered: '6 つの層と import の向きの決まりを、すべてのエージェントに入れます。向きを落とす lint は、プロジェクトで用意します' },
-    none: '設計の形の決まりは入れません',
+    description: `設計の形を決めます。選んだ形の決まりは、すべてのエージェントの文脈に追加されます。\n${saved('style.architecture')}`,
+    hints: { layered: '6 つの層と import の向きの決まりを、すべてのエージェントに渡します。依存の向きの違反を検出する lint は、プロジェクトで用意してください' },
+    none: '設計の形の決まりを設定しません',
   },
 };
-const NO_CHECK = '。ビルダーが重い検査を回しても止まらなくなります';
+const NO_CHECK = 'ビルダーが重いチェックを実行しても、止められなくなります。';
 const STAGE_TEXT = {
   edit: {
-    title: 'ファイルを編集するたびに回すチェック',
-    description: 'ビルダーが、ファイルを編集するたびに回す軽いコマンドです。{file} は、編集したファイルに置き換えて回します。',
+    title: 'ファイル編集時に実行するチェック',
+    description: 'ビルダーが、ファイルを編集するたびに実行する軽いコマンドです。{file} は、編集したファイルのパスに置き換えられます。',
     example: 'biome check {file}',
-    none: '編集のたびのチェックは入れません',
+    none: '編集時のチェックを設定しません',
   },
   commit: {
-    title: 'コミットの前に回すチェック',
-    description: 'ビルダーが、コミットする前に回すコマンドです。変更したファイルと、それに依存するテストに絞った速いものを置きます。',
+    title: 'コミット前に実行するチェック',
+    description: 'ビルダーが、コミットする前に実行するコマンドです。変更したファイルと、それに依存するテストに絞った、速いものを設定します。',
     example: 'npm run check:changed',
-    none: 'コミットの前のチェックは入れません',
+    none: 'コミット前のチェックを設定しません',
   },
   push: {
-    title: 'push の前に回すチェック',
+    title: 'push 前に実行するチェック',
     description:
-      'オーケストレーターが、バッチを取り込んだあと、バッチごとに 1 回回すコマンドです。型とビルドの全体など、重いものを置きます。ビルダーとレビュアーがそのまま実行すると止まります(引数を足して絞った実行は止まりません)。CI も同じ入口を呼ぶ形にします。',
+      'オーケストレーターが、バッチを取り込んだあと、バッチごとに 1 回実行するコマンドです。型チェックやビルド全体など、重いものを設定します。ビルダーとレビュアーがそのまま実行すると、止められます(引数を足して絞り込んだ実行は止まりません)。CI からも、同じコマンドを呼ぶようにします。',
     example: 'npm run check',
-    none: `push の前のチェックは入れません${NO_CHECK}`,
+    none: `push 前のチェックを設定しません。${NO_CHECK}`,
   },
   release: {
-    title: '版を切る前に回すチェック',
-    description: 'オーケストレーターが、版を切る前に回すコマンドです。通しのテストや E2E を置きます。ビルダーとレビュアーがそのまま実行すると止まります(引数を足して絞った実行は止まりません)。',
+    title: 'リリース前に実行するチェック',
+    description: 'オーケストレーターが、リリースする前に実行するコマンドです。通しのテストや E2E を設定します。ビルダーとレビュアーがそのまま実行すると、止められます(引数を足して絞り込んだ実行は止まりません)。',
     example: 'npm run e2e',
-    none: `版を切る前のチェックは入れません${NO_CHECK}`,
+    none: `リリース前のチェックを設定しません。${NO_CHECK}`,
   },
 };
 const SCOPE_CHOICES = [
-  { value: 'project', label: 'このプロジェクトだけ', hint: '--scope project。このリポジトリーでだけ有効です。ほかの人は、各自 1 回、同じコマンドを実行します' },
-  { value: 'user', label: '自分の全プロジェクト', hint: '--scope user。この環境の、どのリポジトリーでも有効です。ほかの人には効きません' },
-  { value: null, label: '入れない', hint: 'claude plugin install を実行しません。設定には参照を書くので、自分や、ほかの人が各自実行すると働きます' },
+  { value: 'project', label: 'このプロジェクトだけ', hint: '--scope project。このリポジトリーでだけ有効になります。ほかの人は、各自で同じコマンドを 1 回実行します' },
+  { value: 'user', label: '自分のすべてのプロジェクト', hint: '--scope user。この環境のすべてのリポジトリーで有効になります。ほかの人には影響しません' },
+  { value: null, label: 'インストールしない', hint: 'claude plugin install を実行しません。設定には plugin への参照を書き込むので、自分やほかの人が各自で実行すると有効になります' },
 ];
 
-// 質問ごとの既定。いまの宣言に style か checks があれば、それが既定になる(無い軸と段階は、選ばない、空)。
+// 質問ごとの既定。いまの宣言に style か checks があれば、それが既定になる(無い軸と段階は、なし、空)。
 export function defaultsOf(root, env) {
   const declaration = currentDeclaration(root);
   const name = (axis) => (STYLES[axis].includes(declaration.style?.[axis]) ? declaration.style[axis] : null);
@@ -75,26 +76,24 @@ export function defaultsOf(root, env) {
     git: isObject(declaration.style) ? name('git') : detectGit(root),
     architecture: name('architecture'),
     checks: declared ?? detected.checks,
-    // 段階ごとの、推した理由(画面で添える)。
-    why: Object.fromEntries(Object.keys(declared ?? detected.checks).map((stage) => [stage, declared ? '今の dotagents.json の値です' : `${detected.from[stage]} から推しました`])),
+    // 段階ごとの、既定にした理由(画面で添える)。
+    why: Object.fromEntries(Object.keys(declared ?? detected.checks).map((stage) => [stage, declared ? `現在の ${DECLARATION} の値です` : `${detected.from[stage]} から検出しました`])),
     scope: 'project',
   };
 }
 
-const styleChoices = (axis) => [...STYLES[axis].map((value) => ({ value, label: value, hint: AXIS_TEXT[axis].hints[value] })), { value: null, label: '選ばない', hint: AXIS_TEXT[axis].none }];
+const styleChoices = (axis) => [...STYLES[axis].map((value) => ({ value, label: value, hint: AXIS_TEXT[axis].hints[value] })), { value: null, label: 'なし', hint: AXIS_TEXT[axis].none }];
 
+// 「別のコマンドを入力する」は、同じ質問の画面で入力に移る。答えの履歴は、入力したコマンドの 1 行になる。
 async function askCheck(ui, stage, candidate, why) {
   const text = STAGE_TEXT[stage];
-  const clear = { value: 'clear', label: '使わない', hint: text.none };
-  const edit = { value: 'edit', label: '別のコマンドを入力する', hint: `例: ${text.example}` };
-  const choice = await ui.select({
+  const clear = { value: '', label: '使わない', hint: text.none };
+  const edit = { value: null, label: '別のコマンドを入力する', hint: `例: ${text.example}`, input: { initial: candidate ?? '', description: `例: ${text.example}\n${saved(`checks.${stage}`)}` } };
+  return ui.select({
     message: `${text.title}  (${stage})`,
-    description: text.description,
-    choices: candidate ? [{ value: 'keep', label: `${candidate} を使う`, hint: why }, edit, clear] : [clear, edit],
+    description: `${text.description}\n${saved(`checks.${stage}`)}`,
+    choices: candidate ? [{ value: candidate, label: `${candidate} を使う`, hint: why }, edit, clear] : [clear, edit],
   });
-  if (choice === 'keep') return candidate;
-  if (choice === 'clear') return '';
-  return ui.text({ message: `${text.title}のコマンド  (${stage})`, description: `例: ${text.example}`, initial: candidate ?? '' });
 }
 
 // ui が null なら、尋ねずに既定で答える。
@@ -103,8 +102,8 @@ export async function ask({ options, defaults, ui }) {
     options.hosts ??
     (ui
       ? await ui.multiselect({
-          message: '入れるホスト',
-          description: 'dotagents を使うホストを選びます(複数選べます)。選んだホストの設定ファイルに、plugin への参照を書きます。',
+          message: '対象のツール',
+          description: 'dotagents を使うツールを選びます(複数選択できます)。選んだツールの設定ファイルに、plugin への参照を書き込みます。',
           choices: HOSTS.map((value) => ({ value, label: HOST_NAMES[value], hint: HOST_HINTS[value] })),
           initial: defaults.hosts,
         })
@@ -128,8 +127,8 @@ export async function ask({ options, defaults, ui }) {
       ? options.scope
       : ui
         ? await ui.select({
-            message: 'plugin を入れる範囲(Claude Code)',
-            description: 'この環境の Claude Code に、claude plugin install で plugin を入れます。範囲は、plugin がどこで有効になるかを決めます。',
+            message: 'plugin のインストール範囲(Claude Code)',
+            description: 'この環境の Claude Code に、claude plugin install で plugin をインストールします。範囲によって、plugin が有効になる場所が変わります。',
             choices: SCOPE_CHOICES,
             initial: defaults.scope,
             recommended: defaults.scope,

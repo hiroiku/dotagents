@@ -1,4 +1,4 @@
-// 質問以外の画面。始まりの見出し、見つけたもの、書くファイルの枠、スピナー、知らせ、次にすること、終わり。
+// 質問以外の画面。始まりの見出し、検出した内容、書き込むファイルの枠、スピナー、注意、次にすること、終わり。
 //
 // 端末(縦線でつなぐ画面)と、端末でない出力(素の文)で、同じ呼び出しに別の出し方を持つ。呼ぶ側は、どちらかを知らない。
 // 端末でない出力と NO_COLOR には、色の制御列を一切出さない(themeOf が色を消す)。同じ行を描き直すスピナーは、
@@ -41,7 +41,7 @@ export function createView({ output, errput = output, term }) {
   // 1 つの記号に続く文。記号の行の下に、2 行目以降を縦線でつなぐ。
   const entry = (symbol, value, style) => [...wrap(value, inner).map((line, index) => (index === 0 ? `${symbol}  ${style(line)}` : row(style(line)))), row()];
 
-  const kinds = { new: ['新規', S.new, c.green], change: ['変更', S.change, c.yellow], remove: ['削除', S.remove, c.red] };
+  const kinds = { new: ['追加', S.new, c.green], change: ['変更', S.change, c.yellow], remove: ['削除', S.remove, c.red] };
 
   return {
     fancy,
@@ -52,14 +52,14 @@ export function createView({ output, errput = output, term }) {
       lines([`${c.dim(S.start)}  ${c.bold('dotagents')} ${version}`, ...text(subtitle), row()]);
     },
 
-    // プロジェクトから見つけたもの。
+    // プロジェクトから検出した内容。
     found(facts) {
       if (!fancy || !facts.length) return;
-      lines([...head(c.green(S.done), '見つけたもの'), ...text(facts.join(` ${S.dot} `), c.dim), row()]);
+      lines([...head(c.green(S.done), '検出した内容'), ...text(facts.join(` ${S.dot} `), c.dim), row()]);
     },
 
-    // 書くファイルを 1 つの枠にまとめて見せる。変更が無いときは、何も出さない。
-    plan(rows, title = '書くファイル') {
+    // 書き込むファイルを 1 つの枠にまとめて見せる。変更が無いときは、何も出さない。
+    plan(rows, title = '書き込むファイル') {
       if (!fancy || !rows.length) return;
       boxed = true;
       lines(box(title, rows.map(({ kind, path }) => {
@@ -68,19 +68,19 @@ export function createView({ output, errput = output, term }) {
       })));
     },
 
-    // 書き終えたあとの知らせ。素の文では、ここで書いたファイルと git diff --stat を出す。
+    // 書き込んだあとの結果。素の文では、ここで書き込んだファイルと git diff --stat を出す。
     written({ version, root, rows, stat }) {
       if (!rows.length) {
-        if (fancy) lines(entry(c.green(S.done), '設定は、すでにそろっていて、変更はありません。', (line) => line));
-        else write(`\ndotagents ${version}: ${root} の設定は、すでにそろっていて、変更はありません。\n`);
+        if (fancy) lines(entry(c.green(S.done), '設定はすでに適用済みです。変更はありません。', (line) => line));
+        else write(`\ndotagents ${version}: ${root} の設定はすでに適用済みです。変更はありません。\n`);
         return;
       }
       if (fancy) {
-        if (!boxed) this.plan(rows, '書いたファイル');
+        if (!boxed) this.plan(rows, '書き込んだファイル');
         return;
       }
-      const label = { new: '新規', change: '変更', remove: '削除' };
-      write(`\ndotagents ${version} を ${root} に入れました。コミットはしていません。\n\n書き換えたファイル:\n`);
+      const label = { new: '追加', change: '変更', remove: '削除' };
+      write(`\ndotagents ${version} を ${root} に設定しました。変更はコミットしていません。\n\n変更したファイル:\n`);
       for (const { kind, path } of rows) write(`  ${label[kind]}  ${path}\n`);
       if (stat) write(`\n${stat}\n`);
     },
@@ -91,7 +91,7 @@ export function createView({ output, errput = output, term }) {
       else write(`${value}\n`);
     },
 
-    // 利用者が自分ですること、気をつけること。
+    // 利用者が自分ですること、注意すること。
     warn(value) {
       if (fancy) lines(entry(c.yellow(S.warn), value, (line) => line));
       else write(`\n${value}\n`);
@@ -100,7 +100,7 @@ export function createView({ output, errput = output, term }) {
     notices(list) {
       if (!list.length) return;
       if (fancy) for (const value of list) this.warn(value);
-      else write(`\n知らせ:\n${list.map((value) => `  - ${value}`).join('\n')}\n`);
+      else write(`\n注意:\n${list.map((value) => `  - ${value}`).join('\n')}\n`);
     },
 
     // 時間のかかる仕事。work は { ok, reason?, failure? } を返す。色が出せる端末では、スピナーを回す。

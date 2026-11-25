@@ -236,7 +236,7 @@ test('宣言に outward が残っていれば消さずに、もう読まれな�
   const result = await exec(dir, ['init', ...ALL]);
   assert.deepEqual(JSON.parse(read(dir, '.agents/dotagents.json')).outward, ['push']);
   assert.match(result.out, /outward/);
-  assert.match(result.out, /読まれない/);
+  assert.match(result.out, /もう使われず/);
 });
 
 test('JSON として読めない設定は、何も書き換えずに知らせる', async () => {
@@ -246,7 +246,7 @@ test('JSON として読めない設定は、何も書き換えずに知らせる
   const result = await exec(dir, ['init', ...ALL]);
   assert.equal(result.code, 1);
   assert.match(result.err, /\.claude\/settings\.json/);
-  assert.match(result.err, /読めない|書き換えない/);
+  assert.match(result.err, /読み込めません/);
   assert.deepEqual(snapshot(dir), before, '1 つでも読めなければ、ほかも書かない');
   assert.deepEqual(result.calls, []);
 });
@@ -325,7 +325,7 @@ test('既定: release/ のブランチがあれば release-branches、無けれ�
   assert.equal(exists(branched, '.codex/config.toml'), false);
 });
 
-test('既定: package.json の scripts から検査の入口を推す', async () => {
+test('既定: package.json の scripts からチェックのコマンドを検出する', async () => {
   const dir = repo({
     'package.json': JSON.stringify({ scripts: { check: 'a', 'check:changed': 'b', 'test:e2e': 'c' }, devDependencies: { '@biomejs/biome': '1' } }),
     'pnpm-lock.yaml': '',

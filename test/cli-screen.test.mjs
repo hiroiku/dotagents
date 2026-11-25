@@ -30,8 +30,8 @@ test('width: 全角は 2 桁、半角は 1 桁、結合文字と制御列は数�
 });
 
 const TEXTS = [
-  '入れるホストを選びます。選んだホストの設定ファイルに、plugin の参照を書きます。',
-  'package.json の scripts(check、lint)から npm run check を推しました。dotagents.json に書きます。',
+  '対象のツールを選びます。選んだツールの設定ファイルに、plugin への参照を書き込みます。',
+  'package.json の scripts(check、lint)から npm run check を検出しました。dotagents.json に保存します。',
   'averyveryverylongunbreakablecommandline--with-options --and more',
   '一行目\n二行目は、改行のあとに続きます。',
 ];
@@ -82,7 +82,7 @@ test('端末でない出力には、制御列も縦線も出さず、読める�
   assert.equal(result.code, 0, result.err);
   assert.ok(!result.out.includes('\x1b'), JSON.stringify(result.out));
   assert.ok(!BOX.test(result.out), result.out);
-  assert.match(result.out, /コミットはしていません/);
+  assert.match(result.out, /コミットしていません/);
   assert.match(result.out, /次にすること/);
 });
 
@@ -133,7 +133,7 @@ test('書く前に、書くファイルを見せて尋ねる。いいえなら�
   assert.match(screen, /\.claude\/settings\.json/);
   assert.match(screen, /書き込みますか/);
   assert.ok(screen.indexOf('書き込みますか') > screen.indexOf('.claude/settings.json'), '一覧を見せてから尋ねる');
-  assert.match(screen, /何も書かず/);
+  assert.match(screen, /何も書き込まず/);
 });
 
 test('はいを選べば書く。書いたあとは、次にすることを出し、コミットしていないと終える', async () => {
@@ -144,7 +144,7 @@ test('はいを選べば書く。書いたあとは、次にすることを出�
   assert.equal(result.calls.length, 1);
   const screen = strip(result.out);
   assert.match(screen, /次にすること/);
-  assert.match(screen, /コミットはしていません/);
+  assert.match(screen, /コミットしていません/);
   assert.ok(screen.indexOf('書き込みますか') < screen.indexOf('次にすること'));
 });
 
@@ -185,7 +185,7 @@ test('Ctrl-C は、何も書いていないと伝えて終える', async () => {
   const dir = repo();
   const result = await exec(dir, ['init'], { tty: true, input: `${ENTER}\x03` });
   assert.equal(result.code, 1);
-  assert.match(strip(result.err), /中断しました。何も書いていません。/);
+  assert.match(strip(result.err), /中断しました。何も書き込んでいません。/);
   assert.equal(exists(dir, '.agents'), false);
 });
 
@@ -230,10 +230,10 @@ test('質問の画面は、説明が折り返されても、どの描き直し�
   for (const columns of [24, 40, 80]) {
     const { ui, frames } = screenOf(`${DOWN}${ENTER}`, columns);
     await ui.select({
-      message: 'ファイルを編集するたびに回すチェック  (edit)',
-      description: 'ビルダーが、編集したファイルだけに回す軽いコマンドです。{file} は、編集したファイルに置き換えて回します。',
+      message: 'ファイル編集時に実行するチェック  (edit)',
+      description: 'ビルダーが、編集したファイルだけに実行する軽いコマンドです。{file} は、編集したファイルのパスに置き換えられます。',
       choices: [
-        { value: 'a', label: 'npm run lint を使う', hint: 'package.json の lint から推しました' },
+        { value: 'a', label: 'npm run lint を使う', hint: 'package.json の lint から検出しました' },
         { value: 'b', label: '別のコマンドを入力する', hint: '例: biome check {file}' },
       ],
     });
@@ -241,7 +241,7 @@ test('質問の画面は、説明が折り返されても、どの描き直し�
     const drawn = frames().flatMap(lines);
     assert.ok(drawn.length > 6);
     for (const line of drawn) assert.ok(width(line) <= columns, `${columns} 桁: ${line}`);
-    assert.match(strip(frames().join('')).replace(/\n(│  |   )/g, ''), /編集したファイルだけに回す軽いコマンド/, '説明が出る');
+    assert.match(strip(frames().join('')).replace(/\n(│  |   )/g, ''), /編集したファイルだけに実行する軽いコマンド/, '説明が出る');
   }
 });
 

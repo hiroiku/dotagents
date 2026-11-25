@@ -138,10 +138,10 @@ export function editJsonText(text, change, file = 'JSON') {
     try {
       data = JSON.parse(text);
     } catch (error) {
-      throw new Error(`${file} が JSON として読めないので、書き換えない: ${error.message}`);
+      throw new Error(`${file} を JSON として読み込めません。何も書き込まずに中止します: ${error.message}`);
     }
   }
-  if (!isObject(data)) throw new Error(`${file} がオブジェクトではないので、書き換えない。`);
+  if (!isObject(data)) throw new Error(`${file} の中身が JSON のオブジェクトではありません。何も書き込まずに中止します。`);
   const target = structuredClone(data);
   change(target);
   if (same(data, target)) return text;
@@ -153,5 +153,5 @@ export function editJsonText(text, change, file = 'JSON') {
     if (next === null) return out;
     out = next;
   }
-  throw new Error(`${file} を書き換えられなかった。`);
+  throw new Error(`${file} を更新できませんでした。何も書き込まずに中止します。`);
 }

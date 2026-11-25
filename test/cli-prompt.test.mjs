@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
+import { strip } from '../cli/src/term.mjs';
 import { createUi } from '../cli/src/ui.mjs';
 import { CTRL_C, DOWN, ENTER, SPACE, UP, collect, exec, exists, read, repo } from './cli-harness.mjs';
 
@@ -14,6 +15,9 @@ function ui(input) {
   const stdout = collect();
   return { ui: createUi({ input: stdin, output: stdout.stream }), out: stdout.text };
 }
+
+// 答えをたたんだ行の頭の記号。
+const S_DONE = '◇';
 
 const CHOICES = [
   { value: 'a', label: '一つ目' },
@@ -80,7 +84,7 @@ test('既定のまま Enter を続けると、質問なしの --yes と同じ結
   assert.deepEqual(interactive.calls[0].args.slice(-2), ['--scope', 'project']);
 });
 
-test('選び直す: ホストを外し、スタイルと検査の入口を変え、範囲を選ぶ', async () => {
+test('選び直す: ホストを外し、スタイルとチェックのコマンドを変え、範囲を選ぶ', async () => {
   const dir = repo({ 'package.json': SCRIPTS });
   const input = [
     // ホスト: claude を外して codex だけにする(claude, codex の順)
@@ -143,4 +147,41 @@ test('途中で中断したら、何も書かない', async () => {
   assert.equal(exists(dir, '.agents'), false);
   assert.equal(exists(dir, '.claude'), false);
   assert.deepEqual(result.calls, []);
+});
+
+// ---------------------------------------------------------------- 答えの保存先と、入力の履歴
+
+test('入力を伴う選択肢は、同じ質問の中で入力に移り、答えの履歴は入力した 1 行になる', async () => {
+  const choices = [
+    { value: 'keep', label: 'npm run check を使う' },
+    { value: null, label: '別のコマンドを入力する', input: { initial: '' } },
+  ];
+  const screen = ui(`${DOWN}${ENTER}make check${ENTER}`);
+  assert.equal(await screen.ui.select({ message: 'push 前のチェック', choices }), 'make check');
+  const text = strip(screen.out());
+  assert.equal(text.split(S_DONE).length - 1, 1, '答えの行は 1 つだけ');
+  assert.match(text, new RegExp(`${S_DONE}  push 前のチェック\\n│  make check\\n`));
+  assert.ok(!text.includes(`${S_DONE}  別のコマンドを入力する`), '選んだ項目の行は残らない');
+
+  assert.equal(await ui(ENTER).ui.select({ message: 'push 前のチェック', choices }), 'keep', '入力を伴わない選択肢は、これまでどおり value を返す');
+});
+
+test('チェックの別のコマンドを入力して選ぶと、画面に答えの保存先が出て、宣言に入る', async () => {
+  const dir = repo();
+  const input = [
+    ENTER, // ホスト
+    ENTER, // git
+    ENTER, // architecture
+    DOWN + ENTER + `npx biome check {file}${ENTER}`, // edit: 別のコマンドを入力する
+    ENTER.repeat(3), // commit、push、release: 空のまま
+    ENTER, // 範囲
+    ENTER, // 書き込みますか
+  ].join('');
+  const result = await exec(dir, ['init'], { tty: true, input });
+  assert.equal(result.code, 0, result.err);
+  assert.deepEqual(JSON.parse(read(dir, '.agents/dotagents.json')).checks, { edit: 'npx biome check {file}' });
+  const screen = strip(result.out);
+  for (const key of ['style.git', 'style.architecture', 'checks.edit', 'checks.commit', 'checks.push', 'checks.release']) assert.ok(screen.includes(`.agents/dotagents.json の ${key} に保存されます`), key);
+  assert.match(screen, /チームで共有/, '書き込む前の確認に、設定をチームで共有すると添える');
+  assert.equal(screen.split(`${S_DONE}  ファイル編集時に実行するチェック  (edit)`).length - 1, 1, 'edit の答えの行は 1 つ');
 });

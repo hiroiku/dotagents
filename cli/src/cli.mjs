@@ -10,27 +10,27 @@ import { errorLines } from './view.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
-const USAGE = `使い方: dotagents init [指定]
+const USAGE = `使い方: dotagents init [オプション]
 
-dotagents(Claude Code と Codex 向けのハーネスの plugin)を、プロジェクトに入れる。
-入れるときにも、設定を変えるときにも使う。参照だけを書き、ハーネスはリポジトリーに写さない。
-尋ねたときは、書く前に、書くファイルを見せて確かめる(--yes と、質問をすべて指定した実行は確かめない)。
-git のリポジトリーの中で実行する(途中のディレクトリーからでも、根に書く)。コミットはしない。
+dotagents(Claude Code と Codex 向けのハーネス)を、プロジェクトに設定します。
+初回のセットアップにも、設定の変更にも使えます。plugin への参照だけを書き込み、ハーネス本体はリポジトリーにコピーしません。
+質問に答えた場合は、書き込む前にファイルの一覧を表示して、確認します(--yes を付けた場合と、すべての質問をオプションで指定した場合は、確認しません)。
+git リポジトリーの中で実行してください(サブディレクトリーからでも、リポジトリーのルートに書き込みます)。コミットはしません。
 
-指定(省いた質問は、端末なら尋ねる。端末でなければ既定で答える):
-  --yes, -y                      尋ねず、指定の無い質問をすべて既定で答える
-  --hosts claude,codex           入れるホスト(none で入れない)
-  --git trunk|release-branches   git のスタイル(none で選ばない)
-  --architecture layered         アーキテクチャのスタイル(none で選ばない)
-  --scope project|user           plugin を入れる範囲(none で入れない)
-  --check 段階=コマンド          チェックの段階(edit、commit、push、release)ごとの入口。空にするなら push=
+オプション(指定した質問は表示しません。指定しない質問は、端末なら質問し、端末でなければ既定値で答えます):
+  --yes, -y                      質問せず、指定のない項目をすべて既定値にします
+  --hosts claude,codex           対象のツール(none で設定しない)
+  --git trunk|release-branches   git のスタイル(none で使わない)
+  --architecture layered         アーキテクチャのスタイル(none で使わない)
+  --scope project|user           plugin のインストール範囲(none でインストールしない)
+  --check 段階=コマンド          チェックの段階(edit、commit、push、release)ごとのコマンド。空にするときは push=
                                  例: --check push="npm run check"
 
-既定は、いまの .agents/dotagents.json の値。無ければ、PATH とプロジェクトから推した値。
-端末でなく、--yes も指定も無いときは、尋ねずにエラーで終える。
+既定値は、現在の .agents/dotagents.json の値です。ない場合は、PATH とプロジェクトの内容から検出した値になります。
+端末ではなく、--yes もオプションの指定もないときは、質問せずにエラーで終了します。
 
-  --help, -h     この説明
-  --version, -v  版`;
+  --help, -h     このヘルプを表示します
+  --version, -v  バージョンを表示します`;
 
 // claude を実行して、終わりを待つ。出力は取っておき(スピナーの画面を崩さない)、失敗の理由に使う。
 const realRun = (file, args, { cwd }) =>
@@ -66,12 +66,12 @@ export async function main(argv, io = {}) {
       stdout.write(`${USAGE}\n`);
       return 0;
     }
-    if (options.command === null) throw new UsageError('コマンドを指定する。\n\n' + USAGE);
-    if (options.command !== 'init') throw new UsageError(`${options.command} というコマンドは無い。あるのは init だけである。\n\n${USAGE}`);
+    if (options.command === null) throw new UsageError('コマンドを指定してください。\n\n' + USAGE);
+    if (options.command !== 'init') throw new UsageError(`${options.command} は不明なコマンドです。使えるのは init だけです。\n\n${USAGE}`);
     return await runInit(options, context);
   } catch (error) {
     const { term } = context;
-    if (error instanceof Cancelled) stderr.write(term.fancy ? errorLines(term, '中断しました。何も書いていません。') : '\n中断した。何も書いていない。\n');
+    if (error instanceof Cancelled) stderr.write(term.fancy ? errorLines(term, '中断しました。何も書き込んでいません。') : '\n中断しました。何も書き込んでいません。\n');
     else if (error instanceof UsageError || error instanceof Failure) stderr.write(errorLines(term, error.message));
     else stderr.write(`${errorLines(term, term.fancy ? error.message : `dotagents: ${error.message}`)}${context.env.DEBUG ? `${error.stack}\n` : ''}`);
     return 1;

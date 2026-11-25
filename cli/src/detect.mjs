@@ -53,7 +53,7 @@ export function detectGit(root) {
   return refs.split('\n').some((ref) => /^refs\/(heads|remotes\/[^/]+)\/release\//.test(ref)) ? 'release-branches' : 'trunk';
 }
 
-// ---------------------------------------------------------------- 検査の入口
+// ---------------------------------------------------------------- チェックのコマンド
 
 function readJson(file) {
   try {
@@ -79,7 +79,7 @@ const SCRIPTS = {
   push: ['check', 'ci', 'verify', 'test'],
   release: ['test:e2e', 'e2e', 'release:check', 'prerelease'],
 };
-// 編集したファイルを {file} で受けられる、軽い検査。
+// 編集したファイルを {file} で受けられる、軽いチェック。
 const EDITORS = [
   ['@biomejs/biome', 'biome check {file}'],
   ['eslint', 'eslint {file}'],
@@ -119,7 +119,7 @@ export function detectChecks(root) {
   return { checks: Object.fromEntries(found.map((stage) => [stage, checks[stage]])), from: Object.fromEntries(found.map((stage) => [stage, from[stage]])) };
 }
 
-// 画面の「見つけたもの」。推した値の材料になった事実を、短い文で並べる。
+// 画面の「検出した内容」。既定の値の材料になった事実を、短い語句で並べる。
 export function findings(root, env) {
   const facts = [];
   const pkg = readJson(path.join(root, 'package.json'));
@@ -129,12 +129,12 @@ export function findings(root, env) {
   try {
     const make = fs.readFileSync(path.join(root, 'Makefile'), 'utf8');
     const targets = ['check', 'test'].filter((name) => new RegExp(`^${name}\\s*:`, 'm').test(make));
-    if (targets.length) facts.push(`Makefile(${targets.join('、')})`);
+    if (targets.length) facts.push(`Makefile のターゲット(${targets.join('、')})`);
   } catch {}
-  facts.push(detectGit(root) === 'release-branches' ? 'release/ のブランチがある' : 'release/ のブランチは無い');
+  facts.push(detectGit(root) === 'release-branches' ? 'release/ ブランチあり' : 'release/ ブランチなし');
   const hosts = ['claude', 'codex'].filter((name) => onPath(name, env));
-  facts.push(hosts.length ? `PATH に ${hosts.join('、')}` : 'PATH に claude も codex も無い');
-  if (fs.existsSync(path.join(root, DECLARATION))) facts.push(`${DECLARATION} がある`);
+  facts.push(hosts.length ? `PATH に ${hosts.join('、')} あり` : 'PATH に claude と codex なし');
+  if (fs.existsSync(path.join(root, DECLARATION))) facts.push(`${DECLARATION} あり`);
   return facts;
 }
 
@@ -148,9 +148,9 @@ export function currentDeclaration(root) {
   try {
     value = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (error) {
-    throw new Error(`${DECLARATION} が JSON として読めないので、書き換えない: ${error.message}`);
+    throw new Error(`${DECLARATION} を JSON として読み込めません。何も書き込まずに中止します: ${error.message}`);
   }
-  if (!isObject(value)) throw new Error(`${DECLARATION} がオブジェクトではないので、書き換えない。`);
+  if (!isObject(value)) throw new Error(`${DECLARATION} の中身が JSON のオブジェクトではありません。何も書き込まずに中止します。`);
   return value;
 }
 

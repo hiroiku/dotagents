@@ -18,7 +18,7 @@ const VALUED = new Set(['--hosts', '--git', '--architecture', '--scope', '--chec
 
 function pick(flag, value, allowed) {
   if (value === 'none') return null;
-  if (!allowed.includes(value)) throw new UsageError(`${flag} に ${value} は指定できない。選べるもの: ${allowed.join('、')}、none`);
+  if (!allowed.includes(value)) throw new UsageError(`${flag} に ${value} は指定できません。指定できる値: ${allowed.join('、')}、none`);
   return value;
 }
 
@@ -36,23 +36,23 @@ export function parseArgs(argv) {
         value = argv[at + 1];
         at += 1;
       }
-      if (value === undefined) throw new UsageError(`${flag} に値が要る。`);
+      if (value === undefined) throw new UsageError(`${flag} に値を指定してください。`);
       if (flag === '--hosts') {
         const names = value === 'none' ? [] : value.split(',').map((name) => name.trim()).filter(Boolean);
-        for (const name of names) if (!HOSTS.includes(name)) throw new UsageError(`--hosts に ${name} は指定できない。選べるもの: ${HOSTS.join('、')}、none`);
+        for (const name of names) if (!HOSTS.includes(name)) throw new UsageError(`--hosts に ${name} は指定できません。指定できる値: ${HOSTS.join('、')}、none`);
         result.hosts = [...new Set(names)];
       } else if (flag === '--git' || flag === '--architecture') result[flag.slice(2)] = pick(flag, value, STYLES[flag.slice(2)]);
       else if (flag === '--scope') result.scope = pick(flag, value, SCOPES);
       else {
         const split = value.indexOf('=');
         const stage = split < 0 ? value : value.slice(0, split);
-        if (split < 0 || !STAGES.includes(stage)) throw new UsageError(`--check は 段階=コマンド の形で書く。段階は ${STAGES.join('、')}(例: --check push="npm run check")。`);
+        if (split < 0 || !STAGES.includes(stage)) throw new UsageError(`--check は 段階=コマンド の形で指定してください。段階は ${STAGES.join('、')} のいずれかです(例: --check push="npm run check")。`);
         result.checks[stage] = value.slice(split + 1).trim();
       }
-    } else if (flag.startsWith('-')) throw new UsageError(`${flag} という指定は無い。`);
+    } else if (flag.startsWith('-')) throw new UsageError(`${flag} は不明なオプションです。`);
     else rest.push(flag);
   }
-  if (rest.length > 1) throw new UsageError(`余計な引数がある: ${rest.slice(1).join(' ')}`);
+  if (rest.length > 1) throw new UsageError(`余分な引数があります: ${rest.slice(1).join(' ')}`);
   result.command = rest[0] ?? null;
   return result;
 }

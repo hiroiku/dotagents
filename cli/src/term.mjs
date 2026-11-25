@@ -117,7 +117,9 @@ export function wrap(text, cols, hang = 0) {
     };
     for (const unit of unitsOf(source)) {
       if (unit.space && !row.length) continue;
-      for (const part of unit.width > room() ? pieces(unit, room()) : [unit]) {
+      // 2 行目以降の字下げの分を引いた桁数に収まらない語は、先に切る(次の行へ送った語が、字下げのぶんはみ出さないように)。
+      const fits = limit - indent;
+      for (const part of unit.width > fits ? pieces(unit, fits) : [unit]) {
         if (size + part.width > room() && row.length) {
           // 行の頭に置けない字が来たら、直前の 1 語を一緒に次の行へ送る。
           const last = row[row.length - 1];

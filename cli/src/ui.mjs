@@ -130,12 +130,36 @@ export function createUi({ input, output, term = terminal(output, {}) }) {
     ];
   }
 
+  // 画面 screen に、1 行の入力を描いて読み、入力した文字列を返す。畳むのは呼ぶ側。カーソルの出し入れも呼ぶ側。
+  async function readLine(screen, { message, description, initial = '' }) {
+    let value = '';
+    let touched = false;
+    const cursor = term.color ? c.inverse(' ') : S.cursor;
+    for (;;) {
+      const shown = touched ? value : initial;
+      const lines = wrap(shown, inner - 1);
+      const body = lines.map((line, index) => `${index === 0 && !touched ? cursor : ''}${touched ? line : c.dim(line)}${index === lines.length - 1 && touched ? cursor : ''}`);
+      screen.draw([...opening(message, description), ...body.map(row), ...foot(!touched && initial ? 'enter でそのまま使う · 入力すると置き換わる' : 'enter 決定')]);
+      const key = await reader.next();
+      if (key.name === 'char') {
+        value = touched ? value + key.char : key.char;
+        touched = true;
+      } else if (key.name === 'backspace') {
+        value = touched ? Array.from(value).slice(0, -1).join('') : '';
+        touched = true;
+      } else if (key.name === 'clear') {
+        value = '';
+        touched = true;
+      } else if (key.name === 'enter') return (touched ? value : initial).trim();
+    }
+  }
+
   async function choose({ message, description, choices, initial, multiple, recommended }) {
     asked += 1;
     const screen = frame();
     let at = multiple ? 0 : Math.max(0, choices.findIndex((choice) => choice.value === initial));
     const picked = new Set(multiple ? (initial ?? []) : []);
-    const keys = multiple ? `${S.arrows} 選ぶ ${S.dot} space 切り替え ${S.dot} enter 決める` : `${S.arrows} 選ぶ ${S.dot} enter 決める`;
+    const keys = multiple ? `${S.arrows} 移動 ${S.dot} space 選択/解除 ${S.dot} enter 決定` : `${S.arrows} 移動 ${S.dot} enter 決定`;
     output.write(`${ESC}?25l`);
     try {
       for (;;) {
@@ -156,6 +180,12 @@ export function createUi({ input, output, term = terminal(output, {}) }) {
           if (!picked.delete(value)) picked.add(value);
         } else if (key.name === 'enter') {
           const chosen = choices.filter((choice) => (multiple ? picked.has(choice.value) : choices[at] === choice));
+          if (!multiple && chosen[0].input) {
+            // 同じ質問の画面で入力に移り、答えは入力した 1 行だけを残す。
+            const answer = await readLine(screen, { message, description: chosen[0].input.description ?? description, initial: chosen[0].input.initial });
+            screen.done(closing(message, answer === '' ? '(空)' : answer));
+            return answer;
+          }
           screen.done(closing(message, chosen.map((choice) => choice.label).join('、') || 'なし'));
           return multiple ? chosen.map((choice) => choice.value) : chosen[0].value;
         }
@@ -169,8 +199,9 @@ export function createUi({ input, output, term = terminal(output, {}) }) {
   }
 
   return {
-    // 1 つ選ぶ。choices は { value, label, hint? }。initial は最初に指す value、recommended は「(推奨)」を添える value。
-    // description は、見出しの下に置く説明。
+    // 1 つ選ぶ。choices は { value, label, hint?, input? }。initial は最初に指す value、recommended は「(推奨)」を添える value。
+    // description は、見出しの下に置く説明。input({ initial?, description? })を持つ選択肢を選ぶと、同じ質問の画面で 1 行を入力させ、
+    // value ではなく、入力した文字列を返す(答えの行は、入力した文字列の 1 行だけになる)。
     select: ({ message, description, choices, initial, recommended }) => choose({ message, description, choices, initial, recommended }),
     // 複数選ぶ。initial は、最初に選んでおく value の配列。結果は choices の並びで返す。
     multiselect: ({ message, description, choices, initial }) => choose({ message, description, choices, initial, multiple: true }),
@@ -190,32 +221,11 @@ export function createUi({ input, output, term = terminal(output, {}) }) {
     async text({ message, description, initial = '' }) {
       asked += 1;
       const screen = frame();
-      let value = '';
-      let touched = false;
-      const cursor = term.color ? c.inverse(' ') : S.cursor;
       output.write(`${ESC}?25l`);
       try {
-        for (;;) {
-          const shown = touched ? value : initial;
-          const lines = wrap(shown, inner - 1);
-          const body = lines.map((line, index) => `${index === 0 && !touched ? cursor : ''}${touched ? line : c.dim(line)}${index === lines.length - 1 && touched ? cursor : ''}`);
-          screen.draw([...opening(message, description), ...body.map(row), ...foot(!touched && initial ? 'enter でそのまま使う · 打つと書き換える' : 'enter 決める')]);
-          const key = await reader.next();
-          if (key.name === 'char') {
-            value = touched ? value + key.char : key.char;
-            touched = true;
-          } else if (key.name === 'backspace') {
-            value = touched ? Array.from(value).slice(0, -1).join('') : '';
-            touched = true;
-          } else if (key.name === 'clear') {
-            value = '';
-            touched = true;
-          } else if (key.name === 'enter') {
-            const answer = (touched ? value : initial).trim();
-            screen.done(closing(message, answer === '' ? '(空)' : answer));
-            return answer;
-          }
-        }
+        const answer = await readLine(screen, { message, description, initial });
+        screen.done(closing(message, answer === '' ? '(空)' : answer));
+        return answer;
       } catch (error) {
         if (error instanceof Cancelled) screen.clear();
         throw error;
