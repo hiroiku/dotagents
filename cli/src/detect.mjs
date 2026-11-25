@@ -85,26 +85,57 @@ const EDITORS = [
   ['eslint', 'eslint {file}'],
 ];
 
+// 推した入口と、その出どころ(画面で理由として見せる)。checks は段階ごとのコマンド、from は段階ごとの出どころ。
 export function detectChecks(root) {
   const pkg = readJson(path.join(root, 'package.json'));
   const scripts = isObject(pkg.scripts) ? pkg.scripts : {};
   const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
   const tool = manager(root);
   const checks = {};
+  const from = {};
   for (const [stage, names] of Object.entries(SCRIPTS)) {
     const name = names.find((script) => typeof scripts[script] === 'string');
-    if (name) checks[stage] = tool.run(name);
+    if (name) {
+      checks[stage] = tool.run(name);
+      from[stage] = `package.json の ${name}`;
+    }
   }
   const editor = EDITORS.find(([name]) => name in dependencies);
-  if (editor) checks.edit = `${tool.exec} ${editor[1]}`;
+  if (editor) {
+    checks.edit = `${tool.exec} ${editor[1]}`;
+    from.edit = `package.json の ${editor[0]}`;
+  }
   if (!checks.push) {
     try {
       const make = fs.readFileSync(path.join(root, 'Makefile'), 'utf8');
       const target = ['check', 'test'].find((name) => new RegExp(`^${name}\\s*:`, 'm').test(make));
-      if (target) checks.push = `make ${target}`;
+      if (target) {
+        checks.push = `make ${target}`;
+        from.push = `Makefile の ${target}`;
+      }
     } catch {}
   }
-  return Object.fromEntries(STAGES.filter((stage) => checks[stage]).map((stage) => [stage, checks[stage]]));
+  const found = STAGES.filter((stage) => checks[stage]);
+  return { checks: Object.fromEntries(found.map((stage) => [stage, checks[stage]])), from: Object.fromEntries(found.map((stage) => [stage, from[stage]])) };
+}
+
+// 画面の「見つけたもの」。推した値の材料になった事実を、短い文で並べる。
+export function findings(root, env) {
+  const facts = [];
+  const pkg = readJson(path.join(root, 'package.json'));
+  const scripts = isObject(pkg.scripts) ? pkg.scripts : {};
+  const known = [...new Set(Object.values(SCRIPTS).flat())].filter((name) => typeof scripts[name] === 'string');
+  if (known.length) facts.push(`package.json の scripts(${known.join('、')})`);
+  try {
+    const make = fs.readFileSync(path.join(root, 'Makefile'), 'utf8');
+    const targets = ['check', 'test'].filter((name) => new RegExp(`^${name}\\s*:`, 'm').test(make));
+    if (targets.length) facts.push(`Makefile(${targets.join('、')})`);
+  } catch {}
+  facts.push(detectGit(root) === 'release-branches' ? 'release/ のブランチがある' : 'release/ のブランチは無い');
+  const hosts = ['claude', 'codex'].filter((name) => onPath(name, env));
+  facts.push(hosts.length ? `PATH に ${hosts.join('、')}` : 'PATH に claude も codex も無い');
+  if (fs.existsSync(path.join(root, DECLARATION))) facts.push(`${DECLARATION} がある`);
+  return facts;
 }
 
 // ---------------------------------------------------------------- いまの宣言と設定

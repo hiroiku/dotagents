@@ -66,9 +66,10 @@ export function collect() {
 
 // main を実行する。tty が true なら、input を端末の入力として流す。
 //   commands  PATH に置くコマンド(既定は claude と codex)
-//   status    claude の実行の終了コード
+//   status    claude の実行の終了コード。output は、claude が出した文(失敗の理由になる)
 //   claudeHome  claude の記録の置き場(CLAUDE_CONFIG_DIR)
-export async function exec(dir, argv, { input = '', tty = false, commands = ['claude', 'codex'], status = 0, claudeHome = fresh('claude-home') } = {}) {
+//   env       足す環境変数(NO_COLOR、FORCE_COLOR、TERM)。columns は端末の桁数
+export async function exec(dir, argv, { input = '', tty = false, commands = ['claude', 'codex'], status = 0, output = '', env = {}, columns, claudeHome = fresh('claude-home') } = {}) {
   const stdin = new PassThrough();
   stdin.isTTY = tty;
   stdin.setRawMode = () => stdin;
@@ -78,13 +79,13 @@ export async function exec(dir, argv, { input = '', tty = false, commands = ['cl
   const calls = [];
   const code = await main(argv, {
     cwd: dir,
-    env: { PATH: bin(...commands), CLAUDE_CONFIG_DIR: claudeHome },
+    env: { PATH: bin(...commands), CLAUDE_CONFIG_DIR: claudeHome, ...env },
     stdin,
-    stdout: Object.assign(stdout.stream, { isTTY: tty }),
+    stdout: Object.assign(stdout.stream, { isTTY: tty, columns }),
     stderr: stderr.stream,
     run: (file, args, options) => {
       calls.push({ file, args, cwd: options.cwd });
-      return { status };
+      return { status, output };
     },
   });
   return { code, out: stdout.text(), err: stderr.text(), calls, claudeHome };

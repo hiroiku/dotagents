@@ -83,7 +83,7 @@ test('2 回目は差分が出ない。入っている plugin はもう一度入�
   assert.equal(second.code, 0, second.err);
   assert.deepEqual(snapshot(dir), before);
   assert.deepEqual(second.calls, []);
-  assert.match(second.out, /変更はない/);
+  assert.match(second.out, /変更はありません/);
 });
 
 test('ほかの項目と字(字下げ、並び、注釈)は変えず、この道具の項目だけを足す', async () => {

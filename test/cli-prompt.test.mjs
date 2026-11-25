@@ -54,8 +54,9 @@ test('text: 打った字を受け、Backspace で消し、空のまま Enter で
   assert.equal(await ui(`npm test${ENTER}`).ui.text({ message: '入力' }), 'npm test');
   assert.equal(await ui(`npm tesx\x7ft${ENTER}`).ui.text({ message: '入力' }), 'npm test');
   assert.equal(await ui(`日本語${ENTER}`).ui.text({ message: '入力' }), '日本語');
-  assert.equal(await ui(`${ENTER}`).ui.text({ message: '入力', initial: 'npm run check' }), 'npm run check');
-  assert.equal(await ui(`\x7f\x7f${ENTER}`).ui.text({ message: '入力', initial: 'ab' }), '', '既定を消せば空');
+  assert.equal(await ui(`${ENTER}`).ui.text({ message: '入力', initial: 'npm run check' }), 'npm run check', '下書きは、enter でそのまま使う');
+  assert.equal(await ui(`make${ENTER}`).ui.text({ message: '入力', initial: 'npm run check' }), 'make', '打つと下書きは消え、打った字になる');
+  assert.equal(await ui(`\x7f${ENTER}`).ui.text({ message: '入力', initial: 'ab' }), '', '消せば空');
 });
 
 test('Ctrl-C と入力の終わりは、中断として投げる', async () => {
@@ -71,7 +72,7 @@ const SCRIPTS = JSON.stringify({ scripts: { check: 'a', lint: 'b' } });
 test('既定のまま Enter を続けると、質問なしの --yes と同じ結果になる', async () => {
   const asked = repo({ 'package.json': SCRIPTS });
   const yes = repo({ 'package.json': SCRIPTS });
-  const interactive = await exec(asked, ['init'], { tty: true, input: ENTER.repeat(8) });
+  const interactive = await exec(asked, ['init'], { tty: true, input: ENTER.repeat(9) });
   assert.equal(interactive.code, 0, interactive.err);
   await exec(yes, ['init', '--yes']);
   for (const file of ['.agents/dotagents.json', '.claude/settings.json', '.codex/config.toml']) assert.equal(read(asked, file), read(yes, file), file);
@@ -106,6 +107,8 @@ test('選び直す: ホストを外し、スタイルと検査の入口を変え
     `make check${ENTER}`,
     // release: そのまま(空のまま)
     ENTER,
+    // 書き込みますか: はい
+    ENTER,
   ].join('');
   const result = await exec(dir, ['init'], { tty: true, input });
   assert.equal(result.code, 0, result.err);
@@ -121,14 +124,14 @@ test('選び直す: ホストを外し、スタイルと検査の入口を変え
 test('指定した質問は尋ねない', async () => {
   const dir = repo();
   // 尋ねるのは、チェックの段階の 4 つと、範囲だけ
-  const result = await exec(dir, ['init', '--hosts', 'claude', '--git', 'trunk', '--architecture', 'none'], { tty: true, input: ENTER.repeat(4) + DOWN + ENTER });
+  const result = await exec(dir, ['init', '--hosts', 'claude', '--git', 'trunk', '--architecture', 'none'], { tty: true, input: ENTER.repeat(4) + DOWN + ENTER + ENTER });
   assert.equal(result.code, 0, result.err);
   assert.deepEqual(result.calls[0].args.slice(-2), ['--scope', 'user']);
 });
 
 test('2 回目: 質問の既定は、いまの宣言の値', async () => {
   const dir = repo({ '.agents/dotagents.json': '{\n  "style": { "git": "release-branches", "architecture": "layered" },\n  "checks": { "push": "make check" }\n}\n' });
-  const result = await exec(dir, ['init'], { tty: true, input: ENTER.repeat(8) });
+  const result = await exec(dir, ['init'], { tty: true, input: ENTER.repeat(9) });
   assert.equal(result.code, 0, result.err);
   assert.equal(read(dir, '.agents/dotagents.json'), '{\n  "style": { "git": "release-branches", "architecture": "layered" },\n  "checks": { "push": "make check" }\n}\n');
 });

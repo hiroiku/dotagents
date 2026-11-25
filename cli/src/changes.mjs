@@ -79,16 +79,16 @@ function removeOldCopy(plan, notices) {
       if (!data.packages.length) delete data.packages;
     });
   } catch {
-    if (plan.read(PI_SETTINGS)?.includes(OLD_PI)) notices.push(`${PI_SETTINGS} に 8.x が書いた行(${OLD_PI} で始まる package)が残っているが、JSON として読めないので消していない。手で消す。`);
+    if (plan.read(PI_SETTINGS)?.includes(OLD_PI)) notices.push(`${PI_SETTINGS} に 8.x が書いた行(${OLD_PI} で始まる package)が残っていますが、JSON として読めないので消していません。手で消してください。`);
   }
 }
 
 function notices(plan) {
   const out = [];
   const seven = SEVEN.filter((relative) => plan.exists(relative));
-  if (seven.length) out.push(`7.x の残りがある(${seven.join('、')})。消していない。エージェントに、dotagents の setup スキルの「8.x と 7.x から移るとき」に沿った移行を頼む。`);
+  if (seven.length) out.push(`7.x の残りがあります(${seven.join('、')})。消していません。エージェントに、dotagents の setup スキルの「8.x と 7.x から移るとき」に沿った移行を頼んでください。`);
   try {
-    if (Object.hasOwn(JSON.parse(plan.read(DECLARATION)), 'outward')) out.push(`${DECLARATION} に outward が残っている。もう読まれない(何も確かめない)ので、消してよい。`);
+    if (Object.hasOwn(JSON.parse(plan.read(DECLARATION)), 'outward')) out.push(`${DECLARATION} に outward が残っています。もう読まれない(何も確かめない)ので、消してかまいません。`);
   } catch {}
   return out;
 }

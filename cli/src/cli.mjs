@@ -1,10 +1,12 @@
 // dotagents の入口。引数を読み、init を呼び、終了コードを返す。画面、ファイル、claude の実行は差し込める。
 
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { parseArgs, UsageError } from './args.mjs';
 import { Failure, runInit } from './init.mjs';
+import { terminal } from './term.mjs';
 import { Cancelled } from './ui.mjs';
+import { errorLines } from './view.mjs';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
@@ -12,6 +14,7 @@ const USAGE = `使い方: dotagents init [指定]
 
 dotagents(Claude Code と Codex 向けのハーネスの plugin)を、プロジェクトに入れる。
 入れるときにも、設定を変えるときにも使う。参照だけを書き、ハーネスはリポジトリーに写さない。
+尋ねたときは、書く前に、書くファイルを見せて確かめる(--yes と、質問をすべて指定した実行は確かめない)。
 git のリポジトリーの中で実行する(途中のディレクトリーからでも、根に書く)。コミットはしない。
 
 指定(省いた質問は、端末なら尋ねる。端末でなければ既定で答える):
@@ -29,7 +32,16 @@ git のリポジトリーの中で実行する(途中のディレクトリーか
   --help, -h     この説明
   --version, -v  版`;
 
-const realRun = (file, args, { cwd }) => spawnSync(file, args, { cwd, stdio: 'inherit' });
+// claude を実行して、終わりを待つ。出力は取っておき(スピナーの画面を崩さない)、失敗の理由に使う。
+const realRun = (file, args, { cwd }) =>
+  new Promise((resolve) => {
+    let output = '';
+    const child = spawn(file, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (chunk) => (output += chunk));
+    child.stderr.on('data', (chunk) => (output += chunk));
+    child.on('error', (error) => resolve({ status: null, output: error.message }));
+    child.on('close', (status) => resolve({ status, output }));
+  });
 
 export async function main(argv, io = {}) {
   const context = {
@@ -43,6 +55,7 @@ export async function main(argv, io = {}) {
     version: VERSION,
   };
   const { stdout, stderr } = context;
+  context.term = terminal(stdout, context.env);
   try {
     const options = parseArgs(argv);
     if (options.version) {
@@ -57,9 +70,10 @@ export async function main(argv, io = {}) {
     if (options.command !== 'init') throw new UsageError(`${options.command} というコマンドは無い。あるのは init だけである。\n\n${USAGE}`);
     return await runInit(options, context);
   } catch (error) {
-    if (error instanceof Cancelled) stderr.write('\n中断した。何も書いていない。\n');
-    else if (error instanceof UsageError || error instanceof Failure) stderr.write(`${error.message}\n`);
-    else stderr.write(`dotagents: ${error.message}\n${context.env.DEBUG ? `${error.stack}\n` : ''}`);
+    const { term } = context;
+    if (error instanceof Cancelled) stderr.write(term.fancy ? errorLines(term, '中断しました。何も書いていません。') : '\n中断した。何も書いていない。\n');
+    else if (error instanceof UsageError || error instanceof Failure) stderr.write(errorLines(term, error.message));
+    else stderr.write(`${errorLines(term, term.fancy ? error.message : `dotagents: ${error.message}`)}${context.env.DEBUG ? `${error.stack}\n` : ''}`);
     return 1;
   }
 }
