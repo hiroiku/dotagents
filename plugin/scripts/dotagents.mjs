@@ -5,7 +5,6 @@
 //                       プロジェクトに入れる。宣言に流を書き、各ホストのプロジェクトの設定に、この plugin への参照を書く。
 //   uninstall [dir]     参照を外す。宣言は残す。
 //   doctor [dir]        プロジェクトの宣言、流、入れ方、ブランチの保護を点検する。
-//   stats [--days n]    仕組みが何をしたかの記録を集計する。
 //
 // 取得、版、更新は、各ホストの仕組み(marketplace、package)が持つ。ここでは持たない。
 
@@ -13,11 +12,10 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PLUGIN_ROOT, budgetOf, standingSize } from '../src/context.mjs';
+import { budgetOf, standingSize } from '../src/context.mjs';
 import { DECLARATION, POLICY_KEYS, list, readDeclaration } from '../src/declaration.mjs';
-import { KIND_LABELS, PROCEDURE_LABELS, styleValues } from '../src/guard.mjs';
+import { KIND_LABELS, styleValues } from '../src/guard.mjs';
 import { NAME, claudeInstalled, install, installed, uninstall } from '../src/install.mjs';
-import { logDir } from '../src/log.mjs';
 import { catalog, chosenStyles } from '../src/style.mjs';
 
 export { NAME, install, uninstall };
@@ -97,71 +95,6 @@ export function doctor(dir, { remote = true, claudeHome } = {}) {
   return notes;
 }
 
-// ---------------------------------------------------------------- stats
-
-export function stats({ days = 7, now = new Date() } = {}) {
-  const since = new Date(now.getTime() - days * 86400000).toISOString();
-  const entries = [];
-  const dir = logDir();
-  for (const name of fs.existsSync(dir) ? fs.readdirSync(dir).filter((file) => file.endsWith('.jsonl')).sort() : []) {
-    for (const line of fs.readFileSync(path.join(dir, name), 'utf8').split('\n')) {
-      if (!line) continue;
-      try {
-        const entry = JSON.parse(line);
-        if (entry.t >= since) entries.push(entry);
-      } catch {}
-    }
-  }
-  const projects = {};
-  for (const entry of entries) {
-    const project = (projects[entry.project ?? '(不明)'] ??= { asks: {}, denies: {}, roles: {}, skills: {}, contexts: {}, errors: 0 });
-    if (entry.event === 'guard') {
-      const bucket = entry.decision === 'ask' ? project.asks : project.denies;
-      bucket[entry.kind] = (bucket[entry.kind] ?? 0) + 1;
-    } else if (entry.event === 'role') {
-      // 役の名前とモデルごとに足す。同じ役でも、モデルが違えば費用が違う。
-      const name = `${entry.agentType ?? entry.role ?? '(不明)'}${entry.model ? `(${entry.model})` : ''}`;
-      const role = (project.roles[name] ??= { count: 0, seconds: 0, out: 0, in: 0, cached: 0 });
-      role.count += 1;
-      for (const key of ['seconds', 'out', 'in', 'cached']) role[key] += Number.isFinite(entry[key]) ? entry[key] : 0;
-    }
-    else if (entry.event === 'skill') project.skills[entry.name] = (project.skills[entry.name] ?? 0) + 1;
-    else if (entry.event === 'context') {
-      const role = (project.contexts[entry.role] ??= { count: 0, chars: 0 });
-      role.count += 1;
-      role.chars = Math.max(role.chars, entry.chars ?? 0);
-    } else if (entry.event === 'error') project.errors += 1;
-  }
-  return { days, since, projects };
-}
-
-// 1 回も読まれていないスキルも並べる。読まれないスキルは、説明が合っていないか、要らない。
-const skillNames = () => fs.readdirSync(path.join(PLUGIN_ROOT, 'skills')).sort();
-
-// トークンの数を、桁が一目で分かる形にする。
-const amount = (value) => (value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1e3 ? `${Math.round(value / 1e3)}k` : String(value));
-
-// 止めた理由の名前。外へ届く操作の種類、止める手順、役の持ち場、AI の署名。
-const LABELS = { ...KIND_LABELS, ...PROCEDURE_LABELS, pace: '進める役が回す検査', attribution: 'AI の関与を示す記述' };
-
-function printStats(result) {
-  const sum = (bucket) => Object.values(bucket).reduce((total, count) => total + count, 0);
-  const each = (bucket) => Object.entries(bucket).sort((a, b) => b[1] - a[1]).map(([kind, count]) => `${LABELS[kind] ?? kind} ${count}`).join('、') || 'なし';
-  console.log(`直近 ${result.days} 日`);
-  for (const [name, project] of Object.entries(result.projects)) {
-    console.log(`\n${name}`);
-    console.log(`  確かめた: ${sum(project.asks)} 回(1 日 ${(sum(project.asks) / result.days).toFixed(1)} 回) ${each(project.asks)}`);
-    console.log(`  止めた: ${sum(project.denies)} 回 ${each(project.denies)}`);
-    for (const [role, used] of Object.entries(project.roles).sort((a, b) => b[1].out - a[1].out)) {
-      console.log(`  役が使った分: ${role} ${used.count} 回、${Math.round(used.seconds / 60)} 分、出力 ${amount(used.out)}、入力 ${amount(used.in)}、キャッシュから ${amount(used.cached)}`);
-    }
-    console.log(`  スキルの読み込み: ${skillNames().map((name) => `${name} ${project.skills[name] ?? 0}`).join('、')}`);
-    console.log(`  常設の文: ${Object.entries(project.contexts).map(([role, value]) => `${role} ${value.count} 回・${value.chars} 字`).join('、') || 'なし'}`);
-    if (project.errors) console.log(`  受け口の例外: ${project.errors} 回`);
-  }
-  if (!Object.keys(result.projects).length) console.log('記録が無い。');
-}
-
 // ---------------------------------------------------------------- main
 
 function option(rest, name) {
@@ -171,7 +104,7 @@ function option(rest, name) {
 
 function main(argv) {
   const [command, ...rest] = argv;
-  const valued = new Set(['--git', '--architecture', '--days']);
+  const valued = new Set(['--git', '--architecture']);
   const dir = rest.find((arg, index) => !arg.startsWith('-') && !valued.has(rest[index - 1])) ?? process.cwd();
   const tell = (result) => {
     console.log('書き換えたものをコミットする。各人がすることは次のとおり。');
@@ -187,11 +120,8 @@ function main(argv) {
     const marks = { ok: '✓', info: '・', warn: '!', error: '✗' };
     for (const { level, text } of notes) console.log(`${marks[level]} ${text}`);
     process.exitCode = notes.some((entry) => entry.level === 'error') ? 1 : 0;
-  } else if (command === 'stats') {
-    const at = rest.indexOf('--days');
-    printStats(stats({ days: at >= 0 ? Number(rest[at + 1]) || 7 : 7 }));
   } else {
-    console.log('使い方: dotagents.mjs <install|uninstall|doctor|stats> [dir]');
+    console.log('使い方: dotagents.mjs <install|uninstall|doctor> [dir]');
     process.exitCode = command ? 1 : 0;
   }
 }

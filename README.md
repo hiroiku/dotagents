@@ -10,7 +10,7 @@ English | [日本語](docs/README.ja.md)
 - **Styles chosen by declaration.** A project picks a git flow (`trunk` or `release-branches`) and a design shape (`layered`). Only the chosen text is injected, and the git flow also sets the shared branches and the pull-request base the hooks enforce.
 - **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching operations, AI attribution in commits, the heavy checks a project reserves for the lead, and three procedures (below). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside: pushes to shared branches and tags, pull-request merges, releases, workflow runs and repository settings through `gh`, edits of instruction files and the declaration, messages to people, and commands whose subcommand is a release or deploy verb (`publish`, `release`, `deploy`, `promote`, `rollback`, `destroy`, also inside script names such as `deploy:prod`, but not when the same name says it stays local, as in `deploy:dry-run` or `release:check`). The harness knows no tool names. Commands that reach outside only because of the project's stack (`terraform apply`, `wrangler d1 execute --remote`, `docker push`) are listed by the project in `outward`; without that they pass unchecked. Each project can delegate the kinds it trusts.
-- **Measured.** Every confirmation and block is logged without command text; `stats` shows how often the harness intervenes, by kind, and how much time and how many tokens each role used.
+- **Measured.** Every confirmation and block is logged without command text in `~/.dotagents/log`; `tools/stats.mjs` in this repository shows how often the harness intervenes, by kind, and how much time and how many tokens each role used.
 
 ### Procedures it stops
 
@@ -81,7 +81,8 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 | `plugin/skills/` | `setup`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `style.mjs`, `install.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code hooks and Codex hooks. |
-| `plugin/scripts/dotagents.mjs` | `install`, `uninstall`, `doctor`, `stats`. |
+| `plugin/scripts/dotagents.mjs` | `install`, `uninstall`, `doctor`. |
+| `tools/stats.mjs` | Totals of the harness's log. Not delivered by the marketplace, which ships `./plugin` only. |
 
 ## Limits
 
@@ -90,7 +91,8 @@ The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, n
 ## Development
 
 ```sh
-npm test    # node --test, no dependencies
+npm test                       # node --test, no dependencies
+node tools/stats.mjs --days 7  # what the harness did on this machine, from ~/.dotagents/log
 ```
 
 Coming from 8.x: run `install` in each project. It replaces the copy under `.claude/skills/dotagents` and removes the pinned package line 8.x wrote into `.pi/settings.json`; 9.0.0 no longer supports Pi. `doctor` reports what is left.

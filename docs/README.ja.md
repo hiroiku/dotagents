@@ -10,7 +10,7 @@ AI のコーディングエージェントに仕事を任せるためのハー�
 - **流を宣言で選ぶ。** プロジェクトは、git の流れ(`trunk` か `release-branches`)と設計の形(`layered`)を選ぶ。選んだ文だけが入り、git の流れは、hook が守る共有のブランチと PR の base も決める。
 - **文ではなく、仕組みで守る。** 守らせられるものは、モデルに覚えさせる文にせず、hook にする。外へ届く操作、コミットに混じる AI の署名、プロジェクトが進める役のために取っておいた重い検査、下の 3 つの手順である。検査そのものはプロジェクトのコマンドで、宣言の `checks` が検査の入口として役に届く。ハーネスは検査を実行しない。時間の上限や役の数の上限は、ハーネスには無い。
 - **確かめる線は 1 本。** 取り消せることは、エージェントが自分で決める。止まるのは、手元の外へ届く操作だけである。共有のブランチと tag への push、`gh` での PR のマージ、リリース、workflow の起動、リポジトリーの設定、指示ファイルと宣言の書き換え、人への連絡、それに下位のコマンドが公開か配備の動詞(`publish`、`release`、`deploy`、`promote`、`rollback`、`destroy`。`deploy:prod` のような script の名前の中も読む。`deploy:dry-run` や `release:check` のように、同じ名前が外へ出さないことを表していれば読まない)のコマンドである。ハーネスは道具の名前を持たない。プロジェクトの技術によって外へ届くコマンド(`terraform apply`、`wrangler d1 execute --remote`、`docker push` など)は、プロジェクトが宣言の `outward` に書く。書かなければ、確かめずに通る。プロジェクトは、任せる種類を宣言できる。
-- **自分を測る。** 確かめた回数と止めた回数を、コマンドの文字列を残さずに記録する。`stats` で、ハーネスがどれだけ割り込んでいるかを種類ごとに、役ごとに使った時間とトークンと一緒に見られる。
+- **自分を測る。** 確かめた回数と止めた回数を、コマンドの文字列を残さずに `~/.dotagents/log` に記録する。このリポジトリーの `tools/stats.mjs` で、ハーネスがどれだけ割り込んでいるかを種類ごとに、役ごとに使った時間とトークンと一緒に見られる。
 
 ### 止める手順
 
@@ -81,7 +81,8 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 | `plugin/skills/` | `setup`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs`、`install.mjs` など。 |
 | `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
-| `plugin/scripts/dotagents.mjs` | `install`、`uninstall`、`doctor`、`stats`。 |
+| `plugin/scripts/dotagents.mjs` | `install`、`uninstall`、`doctor`。 |
+| `tools/stats.mjs` | ハーネスの記録の集計。marketplace は `./plugin` だけを配るので、配られない。 |
 
 ## 限界
 
@@ -90,7 +91,8 @@ node plugin/scripts/dotagents.mjs install /path/to/repo --git release-branches -
 ## 開発
 
 ```sh
-npm test    # node --test。依存は無い
+npm test                       # node --test。依存は無い
+node tools/stats.mjs --days 7  # この環境でハーネスが何をしたか。~/.dotagents/log を集計する
 ```
 
 8.x から移るときは、各プロジェクトで `install` を実行する。`.claude/skills/dotagents` の写しは置き換わり、8.x が `.pi/settings.json` に書いた版を固定した package の行は消える。9.0.0 は Pi に対応しない。残ったものは `doctor` が知らせる。
