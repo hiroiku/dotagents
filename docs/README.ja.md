@@ -6,7 +6,7 @@ AI のコーディングエージェントに仕事を任せるためのハー�
 
 ## 何をするか
 
-- **ロールごとに 1 枚。** 各ロールは、要る文を毎回すべて読む。オーケストレーターで約 4,200 字、ビルダーで約 2,200 字、レビュアーで約 2,500 字である。スタイルを選ぶと、その文が、要るロールにだけ足される。どのスタイルを選んでも、オーケストレーターは 6,000 字、サブエージェントは 4,000 字に収まることを、テストが守る。スキルとして残すのは、利用者が頼んだときに使う `setup`、`prompting`、`releases`、`triage` だけである。
+- **ロールごとに 1 枚。** 各ロールは、要る文を毎回すべて読む。オーケストレーターで約 4,200 字、ビルダーで約 2,200 字、レビュアーで約 2,500 字である。スタイルを選ぶと、その文が、要るロールにだけ足される。どのスタイルを選んでも、オーケストレーターは 6,000 字、サブエージェントは 4,000 字に収まることを、テストが守る。スキルとして残すのは、利用者が頼んだときに使う `setup`、`architecture`、`prompting`、`releases`、`triage` だけである。
 - **スタイルを `dotagents.json` で選ぶ。** プロジェクトは、git の流れ(`trunk` か `release-branches`)と設計の形(`layered`)を選ぶ。選んだ文だけが入り、git の流れは、hook が守る共有のブランチと PR の base も決める。
 - **文ではなく、仕組みで守る。** 守らせられるものは、モデルに覚えさせる文にせず、hook にする。外へ届く操作、コミットに混じる AI の署名、プロジェクトがオーケストレーターのために取っておいた重い検査、下の 3 つの手順である。検査そのものはプロジェクトのコマンドで、`dotagents.json` の `checks` が検査の入口としてエージェントに届く。ハーネスは検査を実行しない。時間の上限やエージェントの数の上限は、ハーネスには無い。
 - **確かめる線は 1 本。** 取り消せることは、エージェントが自分で決める。止まるのは、手元の外へ届く操作だけである。共有のブランチと tag への push、`gh` での PR のマージ、リリース、workflow の起動、リポジトリーの設定、指示ファイルと `dotagents.json` の書き換え、人への連絡である。プロジェクト自身のコマンドは読まない。何を守るかはプロジェクトが決めることなので、`terraform apply` や `npm publish` を確かめたいプロジェクトは、ホストの権限の設定(Claude Code なら `permissions` の `ask` など)に自分で書く。プロジェクトは、任せる種類を `dotagents.json` に書ける。
@@ -35,14 +35,44 @@ hook は、`bun` があれば `bun` で、無ければ `node` で動く。
 
 ### リポジトリーに
 
-エージェントに、リポジトリーへハーネスを入れるよう頼む(`setup` スキル)。入れるコマンドは無い。エージェントが、スキルの手順に沿ってその場でファイルを書き換え、結果を見せるので、それをコミットする。
+リポジトリーの中で、インストーラーを実行する(Node.js 22 以上)。
+
+```sh
+npx @hiroiku/dotagents init
+```
+
+次を尋ねる。どの質問にも既定の答えがある。いまの `.agents/dotagents.json` の値、無ければ、`PATH`、ブランチ、`package.json` の scripts、Makefile から推した値である。
+
+- 入れるホスト: Claude Code、Codex
+- git の流れ(`trunk`、`release-branches`、選ばない)と、設計の形(`layered`、選ばない)
+- チェックの段階(`edit`、`commit`、`push`、`release`)ごとの入口
+- Claude Code の plugin を入れる範囲: このプロジェクトだけ、自分の全プロジェクト、入れない
+
+答えをもとに、`dotagents.json` とホストの設定を書き、8.x の残り(`.claude/skills/dotagents` の写しと、`.pi/settings.json` の版を固定した行)を消し、`claude` が `PATH` にあれば `claude plugin install` も実行する。終わりに、書き換えたファイルの一覧と、各人がすることを示す。コミットはしない。JSON として読めない設定があれば、何も書かずに止まる。書くのは、このリポジトリーへの**参照**だけで、写しは置かないので、ハーネスの版を上げても、プロジェクトにコミットはできない。足し引きするのはハーネスの項目だけで、設定のほかの項目と字は変えない。自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。選び直すときも、同じ実行をもう一度行う。
+
+端末でないとき(エージェントや CI)は、`--yes` か、答えの指定を付ける。
+
+```sh
+npx @hiroiku/dotagents init --yes --hosts claude,codex --git trunk --architecture layered --scope project --check push="npm run check"
+```
+
+| 指定 | 意味 |
+|---|---|
+| `--yes`, `-y` | 尋ねず、指定の無い質問をすべて既定で答える |
+| `--hosts claude,codex` | 入れるホスト(`none` で入れない) |
+| `--git trunk\|release-branches` | git のスタイル(`none` で選ばない) |
+| `--architecture layered` | 設計の形(`none` で選ばない) |
+| `--scope project\|user` | plugin を入れる範囲(`none` で入れない) |
+| `--check 段階=コマンド` | チェックの段階ごとの入口。空にするなら `--check push=` |
+
+エージェントに、リポジトリーへハーネスを入れるよう頼んでもよい(`setup` スキル)。同じことを尋ね、答えを指定にして、インストーラーを実行する。`dotagents.json` が無いリポジトリーでは、Claude Code がセッションを開くたびに知らせ、オーケストレーターが最初の返答で入れることを提案する。中身が `{}` の `dotagents.json` は、入れないと決めた印で、この提案を止める。
 
 | ホスト | リポジトリーに書くもの | 各人がすること |
 |---|---|---|
 | Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。 |
 | Codex | `.codex/config.toml` に、版を固定しない git の marketplace と plugin | プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。 |
 
-エージェントは、`.agents/dotagents.json`(スタイルと `checks`)も書く。書くのは、このリポジトリーへの**参照**だけで、写しは置かないので、ハーネスの版を上げても、プロジェクトにコミットはできない。足し引きするのはハーネスの項目だけで、設定のほかの項目と字は変えない。自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。外すこと、8.x と 7.x の残りを消すこと、プロジェクトの点検(`dotagents.json`、参照、スタイル、共有のブランチが GitHub で守られているか)も、同じスキルの手順で行う。
+インストーラーが持つのは `init` だけである。外すこと、7.x の残りの移行、`ARCHITECTURE.md` の提案、`decisions` と `delegated` を書くこと、プロジェクトの点検(`dotagents.json`、参照、スタイル、共有のブランチが GitHub で守られているか)は、引き続き `setup` スキルの手順で行う。
 
 ## dotagents.json
 
@@ -73,9 +103,10 @@ hook は、`bun` があれば `bun` で、無ければ `node` で動く。
 | `plugin/core/` | どのロールも読む共通ルール(`core.md`)と、オーケストレーターの 1 枚(`orchestrator.md`)。大きさはテストが守る。 |
 | `plugin/agents/` | `builder`(ビルダー)と `reviewer`(レビュアー)。Claude Code のエージェントと Codex の TOML は、ここから導く。 |
 | `plugin/styles/` | git の流れと設計の形。frontmatter に、文を読むロールと、hook が使う値を持つ。 |
-| `plugin/skills/` | `setup`、`prompting`、`releases`、`triage`。 |
+| `plugin/skills/` | `setup`、`architecture`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs`、`style.mjs` など。 |
 | `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
+| `cli/` | インストーラー。npm に `@hiroiku/dotagents` として公開する。`dotagents.json` とホストの設定に何を書くかを持つ。marketplace は配らない。 |
 | `tools/stats.mjs` | ハーネスの記録の集計。marketplace は `./plugin` だけを配るので、配られない。 |
 
 ## 限界
@@ -89,7 +120,9 @@ npm test                       # node --test。依存は無い
 node tools/stats.mjs --days 7  # この環境でハーネスが何をしたか。~/.dotagents/log を集計する
 ```
 
-8.x から移るときは、各プロジェクトで、エージェントに `setup` スキルで入れ直すよう頼む。`.claude/skills/dotagents` の写しと、8.x が `.pi/settings.json` に書いた版を固定した package の行が消える。9.0.0 は Pi に対応しない。
+版を上げるときは、`plugin/package.json`、2 つの plugin の manifest、根の `package.json`、`cli/package.json` をそろえる。そろっていることはテストが守る。
+
+8.x から移るときは、各プロジェクトで、`npx @hiroiku/dotagents init` をもう一度実行する。`.claude/skills/dotagents` の写しと、8.x が `.pi/settings.json` に書いた版を固定した package の行が消える。9.0.0 は Pi に対応しない。
 
 ## ライセンス
 

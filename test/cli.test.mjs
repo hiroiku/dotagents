@@ -383,11 +383,9 @@ test('不明なコマンドと、引数なしは使い方を示して終える�
 
 // ---------------------------------------------------------------- plugin との食い違い
 
-test('パッケージの定義は plugin と同じ版で、依存を持たない', () => {
+test('パッケージの定義は、依存を持たない(版は test/plugin.test.mjs が plugin とそろえる)', () => {
   const pkg = json('cli/package.json');
   assert.equal(pkg.name, '@hiroiku/dotagents');
-  assert.equal(pkg.version, json('plugin/package.json').version);
-  assert.equal(pkg.version, json('plugin/.claude-plugin/plugin.json').version);
   assert.deepEqual(pkg.bin, { dotagents: './bin/dotagents.mjs' });
   assert.equal(pkg.engines.node, '>=22');
   assert.equal(pkg.dependencies, undefined);
@@ -408,4 +406,15 @@ test('書く名前と場所は plugin の定義と食い違わない', async () 
     const found = fs.readdirSync(path.join(ROOT, 'plugin', 'styles', axis)).map((name) => name.replace(/\.md$/, ''));
     assert.deepEqual([...STYLES[axis]].sort(), found.sort(), axis);
   }
+});
+
+// npm のページに出る説明と、配る LICENSE。どちらも、リポジトリーの根と cli/ の 2 か所に要る。
+test('配る LICENSE は根のものと同じで、README は使える指定をすべて挙げる', async () => {
+  assert.equal(fs.readFileSync(path.join(ROOT, 'cli', 'LICENSE'), 'utf8'), fs.readFileSync(path.join(ROOT, 'LICENSE'), 'utf8'));
+  const readme = fs.readFileSync(path.join(ROOT, 'cli', 'README.md'), 'utf8');
+  const help = (await exec(repo(), ['--help'])).out;
+  const flags = new Set(help.match(/--[a-z]+/g));
+  for (const flag of ['--yes', '--hosts', '--git', '--architecture', '--scope', '--check']) assert.ok(flags.has(flag), flag);
+  for (const flag of flags) if (flag !== '--help' && flag !== '--version') assert.ok(readme.includes(flag), flag);
+  assert.ok(readme.includes('npx @hiroiku/dotagents init'));
 });
