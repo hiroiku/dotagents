@@ -1,5 +1,5 @@
 ---
-roles: lead
+roles: orchestrator
 shared: ["release/*"]
 ---
 

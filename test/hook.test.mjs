@@ -26,7 +26,7 @@ function run(host, event, input) {
   return result.stdout ? JSON.parse(result.stdout).hookSpecificOutput : null;
 }
 
-test('宣言の無いリポジトリーで Claude Code のセッションを始めると、利用者の画面に入れ方を知らせる', () => {
+test('dotagents.json の無いリポジトリーで Claude Code のセッションを始めると、利用者の画面に入れ方を知らせる', () => {
   const raw = (host, event, input) => JSON.parse(spawnSync(process.execPath, [HOOK, host, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, DOTAGENTS_HOME: home, CODEX_HOME: codexHome } }).stdout);
   const repo = project();
   fs.mkdirSync(path.join(repo, '.git'));
@@ -38,19 +38,19 @@ test('宣言の無いリポジトリーで Claude Code のセッションを始�
   assert.equal(raw('claude', 'session', { cwd: declared, hook_event_name: 'SessionStart', source: 'startup' }).systemMessage, undefined);
 });
 
-test('セッションの開始では進める役の文を、サブエージェントの開始では役の文を返す', () => {
+test('セッションの開始ではオーケストレーターの文を、サブエージェントの開始ではそのサブエージェントの文を返す', () => {
   const cwd = project({ decisions: ['決定 A'] });
-  const lead = run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'startup' });
-  assert.equal(lead.hookEventName, 'SessionStart');
-  assert.match(lead.additionalContext, /# 進める役/);
-  assert.match(lead.additionalContext, /決定 A/);
+  const orchestrator = run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'startup' });
+  assert.equal(orchestrator.hookEventName, 'SessionStart');
+  assert.match(orchestrator.additionalContext, /# オーケストレーター/);
+  assert.match(orchestrator.additionalContext, /決定 A/);
   const builder = run('claude', 'subagent', { cwd, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'dotagents:builder' });
   assert.equal(builder.hookEventName, 'SubagentStart');
-  assert.doesNotMatch(builder.additionalContext, /# 進める役/);
+  assert.doesNotMatch(builder.additionalContext, /# オーケストレーター/);
   assert.doesNotMatch(builder.additionalContext, /上限/);
   assert.equal(fs.existsSync(path.join(codexHome, 'agents')), false, 'Claude Code のセッションでは Codex の設定に触れない');
-  assert.match(run('codex', 'session', { cwd }).additionalContext, /# 核/);
-  // Codex は plugin で役を運べないので、セッションの開始で役の定義を置く。
+  assert.match(run('codex', 'session', { cwd }).additionalContext, /# 共通ルール/);
+  // Codex は plugin でエージェントを運べないので、セッションの開始でエージェントの定義を置く。
   const agent = path.join(codexHome, 'agents', 'dotagents-builder.toml');
   assert.match(fs.readFileSync(agent, 'utf8'), /^name = "dotagents-builder"/);
   fs.writeFileSync(agent, 'stale');
@@ -58,19 +58,19 @@ test('セッションの開始では進める役の文を、サブエージェ�
   assert.match(fs.readFileSync(agent, 'utf8'), /^name = "dotagents-builder"/);
 });
 
-test('サブエージェントの文脈が作り直されたときは、進める役の文ではなく、その役の文を返す', () => {
+test('サブエージェントの文脈が作り直されたときは、オーケストレーターの文ではなく、そのサブエージェントの文を返す', () => {
   const cwd = project();
-  // Claude Code は、作り直しのあと、サブエージェントの中でセッションの開始を知らせる。役の ID と種類が付く。
+  // Claude Code は、作り直しのあと、サブエージェントの中でセッションの開始を知らせる。エージェントの ID と種類が付く。
   const rebuilt = (agentType) => run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'compact', agent_id: 'a1', agent_type: agentType });
   const start = (agentType) => run('claude', 'subagent', { cwd, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: agentType });
   for (const agentType of ['general-purpose', 'dotagents:builder', 'dotagents:reviewer']) {
     const output = rebuilt(agentType);
     assert.equal(output.hookEventName, 'SessionStart');
-    assert.doesNotMatch(output.additionalContext, /# 進める役/, agentType);
+    assert.doesNotMatch(output.additionalContext, /# オーケストレーター/, agentType);
     assert.equal(output.additionalContext, start(agentType).additionalContext, `${agentType}: 始まったときと同じ文`);
   }
-  // 役として起こしたメインのセッション(claude --agent)は、ID を持たない。進める役のままである。
-  assert.match(run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'compact', agent_type: 'general-purpose' }).additionalContext, /# 進める役/);
+  // エージェントとして起こしたメインのセッション(claude --agent)は、ID を持たない。オーケストレーターのままである。
+  assert.match(run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'compact', agent_type: 'general-purpose' }).additionalContext, /# オーケストレーター/);
 });
 
 test('Claude Code では確かめ、Codex では止める', () => {
@@ -83,7 +83,7 @@ test('Claude Code では確かめ、Codex では止める', () => {
   assert.equal(run('codex', 'tool', { ...input, tool_input: { command: 'DOTAGENTS_CONFIRMED=1 gh release create v1' } }), null);
 });
 
-test('サブエージェントの外へ届く操作と、進める役が回す検査を止める', () => {
+test('サブエージェントの外へ届く操作と、オーケストレーターが回す検査を止める', () => {
   const cwd = project({ checks: { push: 'npm test' } });
   const worker = run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'general-purpose', tool_name: 'Bash', tool_input: { command: 'gh release create v1' } });
   assert.equal(worker.permissionDecision, 'deny');
@@ -92,7 +92,7 @@ test('サブエージェントの外へ届く操作と、進める役が回す�
   // 絞った実行は、長い時間を見込んでいても通す。時間では止めない。
   assert.equal(run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'npm test -- a.spec.ts', timeout: 600000 } }), null);
   assert.equal(run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'general-purpose', tool_name: 'Bash', tool_input: { command: 'npm test', timeout: 600000 } }), null);
-  // --agent で始めた対話のセッションは、役の名前を持つが、サブエージェントではない。
+  // --agent で始めた対話のセッションは、エージェントの名前を持つが、サブエージェントではない。
   assert.equal(run('claude', 'tool', { cwd, agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'npm test', timeout: 600000 } }), null);
 });
 
@@ -101,10 +101,10 @@ test('道具の呼び出しが続いても、時間を理由に文を足さな�
   for (let i = 0; i < 3; i += 1) {
     assert.equal(run('claude', 'tool', { cwd, agent_id: 'a2', agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'ls' } }), null);
   }
-  assert.equal(fs.existsSync(path.join(home, 'state')), false, '役ごとの状態を持たない');
+  assert.equal(fs.existsSync(path.join(home, 'state')), false, 'ロールごとの状態を持たない');
 });
 
-test('役が止まったときに、使った時間とトークンを記録に残す', () => {
+test('サブエージェントが止まったときに、使った時間とトークンを記録に残す', () => {
   const cwd = project();
   const transcript = path.join(home, 'agent-a9.jsonl');
   const usage = { input_tokens: 10, cache_creation_input_tokens: 90, cache_read_input_tokens: 1000, output_tokens: 50 };
@@ -115,7 +115,7 @@ test('役が止まったときに、使った時間とトークンを記録に�
     { type: 'assistant', timestamp: '2026-11-20T10:01:00.000Z', message: { id: 'm2', model: 'model-x', role: 'assistant', content: [{ type: 'text', text: '報告' }], usage } },
   ].map((row) => JSON.stringify(row)).join('\n'));
   const stop = { cwd, hook_event_name: 'SubagentStop', agent_id: 'a9', agent_type: 'dotagents:builder', agent_transcript_path: transcript };
-  assert.equal(run('claude', 'stopped', stop), null, '役の終わり方を変えない');
+  assert.equal(run('claude', 'stopped', stop), null, 'サブエージェントの終わり方を変えない');
   // 名前の無いエージェント(ホストが自分の機能のために走らせたもの)と、読めない記録は数えない。
   assert.equal(run('claude', 'stopped', { ...stop, agent_type: '' }), null);
   assert.equal(run('claude', 'stopped', { ...stop, agent_transcript_path: path.join(home, 'missing.jsonl') }), null);
@@ -125,7 +125,7 @@ test('役が止まったときに、使った時間とトークンを記録に�
   assert.deepEqual(entry, { host: 'claude', event: 'role', project: path.basename(cwd), role: 'builder', agentType: 'dotagents:builder', model: 'model-x', seconds: 60, out: 100, in: 200, cached: 2000, tools: 1 });
 });
 
-test('編集の道具は、宣言と指示ファイルのときだけ確かめる', () => {
+test('編集の道具は、dotagents.json と指示ファイルのときだけ確かめる', () => {
   const cwd = project({ delegated: ['push:develop'], decisions: ['a'] });
   const file = path.join(cwd, '.agents', 'dotagents.json');
   assert.equal(run('claude', 'tool', { cwd, tool_name: 'Edit', tool_input: { file_path: file, old_string: '"a"', new_string: '"a","b"' } }), null);
@@ -157,7 +157,7 @@ test('スキルの読み込みは、判定せずに数える', () => {
   const cwd = project();
   assert.equal(run('claude', 'tool', { cwd, tool_name: 'Skill', tool_input: { skill: 'dotagents:releases' } }), null);
   const lines = fs.readFileSync(path.join(home, 'log', fs.readdirSync(path.join(home, 'log'))[0]), 'utf8');
-  assert.match(lines, /"event":"skill","project":"[^"]+","role":"lead","name":"releases"/);
+  assert.match(lines, /"event":"skill","project":"[^"]+","role":"orchestrator","name":"releases"/);
 });
 
 // 8.x の写しが読み込まれているかは、ファイルの有無からは分からない(信頼されていないフォルダー、下のディレクトリーで
@@ -170,7 +170,7 @@ test('プロジェクトに 8.x の写しが残っていても、受け口は譲
   fs.mkdirSync(nested, { recursive: true });
   for (const dir of [cwd, nested]) {
     for (const host of ['claude', 'codex']) {
-      assert.match(run(host, 'session', { cwd: dir }).additionalContext, /# 核/);
+      assert.match(run(host, 'session', { cwd: dir }).additionalContext, /# 共通ルール/);
       assert.notEqual(run(host, 'tool', { cwd: dir, tool_name: 'Bash', tool_input: { command: 'gh release create v1' } }), null);
     }
   }

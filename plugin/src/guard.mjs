@@ -5,7 +5,7 @@
 //   { decision: 'deny', … }      止めて、理由をモデルへ返す
 //   { decision: 'ask', … }       利用者に確かめる(確かめる手段のあるホストでだけ返す)
 //
-// 確かめるのは、手元の外へ届く操作と、確かめる線そのものを動かす操作だけにする。プロジェクトが宣言で
+// 確かめるのは、手元の外へ届く操作と、確かめる線そのものを動かす操作だけにする。プロジェクトが `dotagents.json` で
 // 任せた種類は通す。読めない形は通す。判定の誤りで、作業そのものを止めないためである。
 // これは誤りを防ぐ仕掛けで、隔離ではない。スクリプトの中に隠した操作までは読まない。
 
@@ -35,7 +35,7 @@ export const KIND_LABELS = {
   workflow: 'workflow の起動',
   message: '人への連絡や共有',
   instructions: '指示ファイル(AGENTS.md、CLAUDE.md)の書き換え',
-  policy: '確かめる線(プロジェクトの宣言)の書き換え',
+  policy: '確かめる線(dotagents.json)の書き換え',
 };
 const PACED = new Set(['builder', 'reviewer']);
 // 任せられない種類。線そのものを動かすか、保護を外す操作である。
@@ -82,10 +82,10 @@ export function delegated(entries, finding) {
 // ---------------------------------------------------------------- git と gh
 
 // main と master は、デフォルトブランチでなくても共有のブランチとして扱う。デフォルトが develop のプロジェクトでは、
-// 本番のブランチがこの名前で残っていることが多く、宣言を書くまで、そこへの push が確かめなしで通っていた。
+// 本番のブランチがこの名前で残っていることが多く、`dotagents.json` を書くまで、そこへの push が確かめなしで通っていた。
 const CONVENTIONAL = ['main', 'master'];
 
-// 選んだ流の値。流ごとの共有のブランチの既定を、流の部品(styles/)から読む。
+// 選んだスタイルの値。スタイルごとの共有のブランチの既定を、スタイルの部品(styles/)から読む。
 function styleValues(declaration) {
   const { chosen } = chosenStyles(declaration);
   const values = Object.assign({}, ...chosen.map((style) => style.values));
@@ -93,7 +93,7 @@ function styleValues(declaration) {
   return { flow, shared: list(values.shared) };
 }
 
-// 共有のブランチ。リモートの既定のブランチ、main と master、選んだ流の既定、宣言の protected を合わせる。
+// 共有のブランチ。リモートの既定のブランチ、main と master、選んだスタイルの既定、`dotagents.json` の protected を合わせる。
 // ask は、git にそのリポジトリーについて尋ねる関数である。
 // リモートの既定が記録されていなければ、main と master を既定とみなす。git が答えなければ、どのブランチも既定かも
 // しれないので、すべてを共有のブランチとして扱う(外へ届く側に倒す)。
@@ -301,12 +301,12 @@ function editFinding(request) {
 // ---------------------------------------------------------------- 止める手順
 //
 // 外へ届く操作の確かめとは別に、外すと費用が大きく、見分けが確かな手順だけを止めて、理由を返す。任せることはできない。
-// 追従の merge と PR の base は、利用者が明示して求めたときに、進める役が了承の印を付けて実行し直せる。
-// CI の待ちは、利用者に確かめない。待つか、要らない実行を止めるかは、役が決められるからである。
+// 追従の merge と PR の base は、利用者が明示して求めたときに、オーケストレーターが了承の印を付けて実行し直せる。
+// CI の待ちは、利用者に確かめない。待つか、要らない実行を止めるかは、エージェントが決められるからである。
 
 export const PROCEDURE_LABELS = {
   follow: '追従の merge',
-  base: '既定のブランチでも流が共有するブランチでもない PR の base',
+  base: '既定のブランチでもスタイルが共有するブランチでもない PR の base',
   ci: 'CI が走っている間の push',
 };
 
@@ -419,7 +419,7 @@ function prBase(command, declaration, gh) {
   if (words[0] !== 'gh' || words[1] !== 'pr') return null;
   const rest = words.slice(2);
   if (positional(rest, new Set(['-R', '--repo']))[0] !== 'create' || rest.includes('--help') || rest.includes('-h')) return null;
-  // どの流も、作業は既定のブランチへ統合する。ほかに base にしてよいのは、流が共有するブランチ(release/*)だけである。
+  // どのスタイルも、作業は既定のブランチへ統合する。ほかに base にしてよいのは、スタイルが共有するブランチ(release/*)だけである。
   const { flow, shared } = styleValues(declaration);
   if (!flow) return null;
   // 既定のブランチは、GitHub に尋ねる。手元の origin/HEAD は、既定のブランチを変えたあとも古いまま残る。
@@ -476,13 +476,13 @@ function ciRunning(request, declaration, tools) {
   return null;
 }
 
-// 単純なコマンドごとに check で止める手順を探す。進める役は、そのコマンドに了承の印があれば通す。
+// 単純なコマンドごとに check で止める手順を探す。オーケストレーターは、そのコマンドに了承の印があれば通す。
 function stopIn(request, check) {
   for (const command of simpleCommands(request.command, request.cwd)) {
     if (!command.words.length) continue;
     const stop = check(command);
     if (!stop) continue;
-    if (request.role === 'lead') {
+    if (request.role === 'orchestrator') {
       if (command.assignments[CONFIRMED] === '1') continue;
       return { ...stop, reason: `${stop.reason} 利用者が明示して求めたときだけ、先頭に ${CONFIRMED}=1 を付けて実行し直してください。` };
     }
@@ -530,12 +530,12 @@ export function findings(request, declaration, tools) {
 const describe = (finding) => `${KIND_LABELS[finding.kind]}${finding.target && finding.target !== '*' ? `(${finding.target})` : ''}`;
 const entryOf = (finding) => `"${finding.kind}${finding.target && finding.target !== '*' ? `:${finding.target}` : ''}"`;
 
-// 作る役と確かめる役が回さない検査。push と版の段は、進める役が束ごとに 1 回回す。
-// 時間では切らない。止めるのは、プロジェクトがその段に置いたコマンドそのものだけで、引数を足して絞った実行は通す。
-// 同じコマンドを編集やコミットの段にも置いているなら、この役の持ち場なので止めない。
+// ビルダーとレビュアーが回さない検査。push と release の段階は、オーケストレーターがバッチごとに 1 回回す。
+// 時間では切らない。止めるのは、プロジェクトがその段階に置いたコマンドそのものだけで、引数を足して絞った実行は通す。
+// 同じコマンドを edit や commit の段階にも置いているなら、このエージェントの持ち場なので止めない。
 const HEAVY_TIERS = [
-  ['release', '版の段'],
-  ['push', 'push の段'],
+  ['release', 'release の段階'],
+  ['push', 'push の段階'],
 ];
 const commandLines = (text, cwd) => simpleCommands(text, cwd).map(({ words }) => words.join(' ')).filter(Boolean);
 
@@ -549,29 +549,29 @@ function heavyChecks(declaration, cwd) {
   return heavy;
 }
 
-// 掛けるのは、作る役と確かめる役にだけである。長い確かめを任された別の役までは縛らない。
+// 掛けるのは、ビルダーとレビュアーにだけである。長い確かめを任されたほかのサブエージェントまでは縛らない。
 function pace(request, declaration) {
   if (request.tool !== 'shell' || !PACED.has(request.role)) return null;
   const heavy = heavyChecks(declaration, request.cwd);
   const hit = heavy.size ? commandLines(request.command, request.cwd).find((line) => heavy.has(line)) : undefined;
   if (hit) {
-    return `\`${hit}\` は、このプロジェクトが ${heavy.get(hit)}に置いた検査です。進める役が束ごとに 1 回回すので、この役は回しません。変更したファイルと、それに依存するテストに絞って実行してください。この検査を回していないことは、報告に書いてください。`;
+    return `\`${hit}\` は、このプロジェクトが ${heavy.get(hit)}に置いた検査です。オーケストレーターがバッチごとに 1 回回すので、このエージェントは回しません。変更したファイルと、それに依存するテストに絞って実行してください。この検査を回していないことは、報告に書いてください。`;
   }
-  // バックグラウンドで始めると、完了を受け取れずに待つことになる。検査かどうかは、宣言の検査のコマンドで見分ける。
-  // 絞った実行も同じである。編集の段の {file} から後ろは、ファイルごとに変わるので比べない。
+  // バックグラウンドで始めると、完了を受け取れずに待つことになる。検査かどうかは、`dotagents.json` の checks のコマンドで見分ける。
+  // 絞った実行も同じである。edit の段階の {file} から後ろは、ファイルごとに変わるので比べない。
   if (request.background) {
     const declared = ['edit', 'commit', 'push', 'release'].flatMap((key) => tierLines(declaration, key, request.cwd)).map((line) => line.split('{file}')[0].trim()).filter(Boolean);
     const started = commandLines(request.command, request.cwd);
     if (started.some((line) => declared.some((check) => line === check || line.startsWith(`${check} `)))) {
-      return 'この役は、バックグラウンドで始めた処理の完了を受け取れません。検査は、フォアグラウンドで実行してください。';
+      return 'このエージェントは、バックグラウンドで始めた処理の完了を受け取れません。検査は、フォアグラウンドで実行してください。';
     }
   }
   return null;
 }
 
-// ホストが渡す役の名前を、判定で使う役に直す。サブエージェントでなければ進める役である。
+// ホストが渡すエージェントの名前を、判定で使うロールに直す。サブエージェントでなければオーケストレーターである。
 export function roleOf({ agentId, agentType } = {}) {
-  if (!agentId && !agentType) return 'lead';
+  if (!agentId && !agentType) return 'orchestrator';
   const name = String(agentType ?? '').split(/[:/]/).pop().replace(/^dotagents-/, '');
   return PACED.has(name) ? name : 'worker';
 }
@@ -586,13 +586,13 @@ function remembered(tools) {
   }]));
 }
 
-// request: { tool: 'shell' | 'edit' | 'connector', cwd, role: 'lead' | 'builder' | 'reviewer' | 'worker', canAsk,
+// request: { tool: 'shell' | 'edit' | 'connector', cwd, role: 'orchestrator' | 'builder' | 'reviewer' | 'worker', canAsk,
 //            command, background,              … shell
 //            file, after,                      … edit(after は書き換えたあとの全文。分からなければ省く)
 //            name }                            … connector(道具の名前)
 // 判定は 2 つに分かれる。
 //
-// - 手元の判定(外へ届く操作、追従の merge、署名、検査の段): 手元の git に、手元の時間の内で尋ねる。要る答えが
+// - 手元の判定(外へ届く操作、追従の merge、署名、チェックの段階): 手元の git に、手元の時間の内で尋ねる。要る答えが
 //   得られなければ、外へ届くものとして扱う(閉じる側)。gh pr merge の対象(base)だけは GitHub に尋ね、答えが無ければ
 //   対象を決めず、任せた種類に当てない。
 // - GitHub に尋ねる判定(CI の待ち、PR の base): 手元の判定の結果に関わらず、GitHub の時間の内で尋ねる。答えが無ければ
@@ -618,16 +618,16 @@ export function decide(request, given) {
 
 function outward(request, open) {
   // 確かめる手段の無いホストでは、モデルが会話で確かめ、了承の印を付けて実行し直す。印は、その操作を行うコマンドに付いているときだけ効く。
-  const waiting = request.role === 'lead' && !request.canAsk && request.tool === 'shell' ? open.filter((finding) => !finding.confirmed) : open;
+  const waiting = request.role === 'orchestrator' && !request.canAsk && request.tool === 'shell' ? open.filter((finding) => !finding.confirmed) : open;
   if (!waiting.length) return null;
   const unique = [...new Map(waiting.map(({ kind, target }) => [`${kind}:${target}`, { kind, target }])).values()];
   const what = unique.map(describe).join('、');
   const base = { kind: unique[0].kind, findings: unique };
-  if (request.role !== 'lead') {
-    return { ...base, decision: 'deny', reason: `手元の外へ届く操作です: ${what}。この役は行いません。進める役が行うので、行わずに報告へ書いてください。` };
+  if (request.role !== 'orchestrator') {
+    return { ...base, decision: 'deny', reason: `手元の外へ届く操作です: ${what}。このエージェントは行いません。オーケストレーターが行うので、行わずに報告へ書いてください。` };
   }
   const entries = unique.filter((finding) => !NEVER_DELEGATED.has(finding.kind)).map(entryOf);
-  const how = entries.length ? ` 毎回の確認を省くには、プロジェクトの宣言(${DECLARATION_PATH})の delegated に ${entries.join('、')} を足します。` : '';
+  const how = entries.length ? ` 毎回の確認を省くには、プロジェクトの ${DECLARATION_PATH} の delegated に ${entries.join('、')} を足します。` : '';
   if (request.canAsk) return { ...base, decision: 'ask', reason: `手元の外へ届く操作です: ${what}。${how}` };
   return { ...base, decision: 'deny', reason: `手元の外へ届く操作です: ${what}。利用者に確かめ、了承を得てから、先頭に ${CONFIRMED}=1 を付けたシェルのコマンドで実行し直してください。${how}` };
 }

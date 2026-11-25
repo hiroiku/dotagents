@@ -20,7 +20,7 @@ const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
 
 const roleFrom = (input) => roleOf({ agentId: input.agent_id, agentType: input.agent_id ? input.agent_type : undefined });
 
-// 書き換えたあとの全文。宣言の書き換えが、確かめる線を動かすかどうかを見るために使う。
+// 書き換えたあとの全文。`dotagents.json` の書き換えが、確かめる線を動かすかどうかを見るために使う。
 function afterOf(name, toolInput, file) {
   if (name === 'Write') return typeof toolInput.content === 'string' ? toolInput.content : undefined;
   if (name !== 'Edit' || typeof toolInput.old_string !== 'string' || typeof toolInput.new_string !== 'string') return undefined;
@@ -32,8 +32,8 @@ function afterOf(name, toolInput, file) {
   }
 }
 
-// Codex は plugin で役を運べない。役の定義から導いた TOML を、利用者の設定に置き、版が変わったら置き直す。
-// 手で置く手順にすると、plugin の版と役の定義がずれる。
+// Codex は plugin でエージェントを運べない。エージェントの定義から導いた TOML を、利用者の設定に置き、版が変わったら置き直す。
+// 手で置く手順にすると、plugin の版とエージェントの定義がずれる。
 export function syncCodexAgents(home = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')) {
   const dir = path.join(home, 'agents');
   for (const role of roles()) {
@@ -75,15 +75,15 @@ export function handle(host, event, input) {
   if (event === 'session' || event === 'subagent') {
     if (host === 'codex' && event === 'session') syncCodexAgents();
     // Claude Code は、サブエージェントの文脈を作り直したときにも、そのサブエージェントの中でセッションの開始を知らせる。
-    // その知らせには役の ID が付く。ID が付いた知らせに進める役の文を返すと、作り直しのあと、役が進める役として振る舞う。
-    const role = event === 'session' && !input.agent_id ? 'lead' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
+    // その知らせにはエージェントの ID が付く。ID が付いた知らせにオーケストレーターの文を返すと、作り直しのあと、サブエージェントがオーケストレーターとして振る舞う。
+    const role = event === 'session' && !input.agent_id ? 'orchestrator' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
     const text = contextFor({ role, cwd });
     record({ host, event: 'context', project, role, agentType: input.agent_type, chars: text.length });
     const output = { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: text } };
     // 利用者の画面への知らせは、Claude Code で、開いたとき(startup と resume)だけにする。Codex の受け口が
     // systemMessage を受けるかは確かめていない。
     const opened = input.source === undefined || input.source === 'startup' || input.source === 'resume';
-    if (host === 'claude' && role === 'lead' && opened && declarationMissing(cwd)) output.systemMessage = NOT_INSTALLED_NOTICE;
+    if (host === 'claude' && role === 'orchestrator' && opened && declarationMissing(cwd)) output.systemMessage = NOT_INSTALLED_NOTICE;
     return output;
   }
   if (event === 'tool') {
@@ -101,7 +101,7 @@ export function handle(host, event, input) {
     return null;
   }
   if (event === 'stopped') {
-    // 役が使った時間とトークンを数えて残す。何も返さないので、役の終わり方は変わらない。
+    // エージェントが使った時間とトークンを数えて残す。何も返さないので、終わり方は変わらない。
     // 名前の無いものは、ホストが自分の機能のために走らせたエージェントなので数えない。
     if (!input.agent_type || typeof input.agent_transcript_path !== 'string') return null;
     const run = claudeRun(input.agent_transcript_path);

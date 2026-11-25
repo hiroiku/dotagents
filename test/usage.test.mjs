@@ -33,7 +33,7 @@ test('1 つの応答が複数の行に分かれていても、1 回だけ数え�
   assert.deepEqual(run, { model: 'model-x', seconds: 45, out: 50, in: 101, cached: 1900, tools: 2 });
 });
 
-test('続けて頼まれた役は、最後の依頼の分だけを数える', () => {
+test('続けて頼まれたエージェントは、最後の依頼の分だけを数える', () => {
   const run = claudeRun(transcript([
     ask(0),
     reply(10, 'm1', usage(100)),

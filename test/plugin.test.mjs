@@ -50,11 +50,11 @@ test('セッションの開始の知らせは、始まり方を選ばずに受�
 });
 
 // Codex は、hook が返した文がこの値(バイト数を 4 で割って切り上げた数)を超えると、先頭と末尾の抜粋だけを渡す。
-// 日本語は 1 字 3 バイトなので、どの流を選んだときの文も、字数の 3/4 で収まることを確かめる。
-test('Codex の hook は、どの流を選んだときの文も切らずに渡す', () => {
+// 日本語は 1 字 3 バイトなので、どのスタイルを選んだときの文も、字数の 3/4 で収まることを確かめる。
+test('Codex の hook は、どのスタイルを選んだときの文も切らずに渡す', () => {
   for (const event of ['SessionStart', 'SubagentStart']) {
     for (const hook of json(PLUGIN, 'hosts', 'codex', 'hooks.json').hooks[event].flatMap((group) => group.hooks)) {
-      const role = event === 'SessionStart' ? 'lead' : 'reviewer';
+      const role = event === 'SessionStart' ? 'orchestrator' : 'reviewer';
       assert.ok(Math.ceil((largestSize(role) * 3) / 4) < hook.additionalContextLimit / 2, `${event}: ${largestSize(role)} 字`);
     }
   }
@@ -74,7 +74,7 @@ test('編集のたびに検査を回す hook は無い', () => {
   assert.equal(fs.existsSync(path.join(PLUGIN, 'src', 'check.mjs')), false);
 });
 
-test('スキルと役の定義は、どのホストでも読める形をしている', () => {
+test('スキルとエージェントの定義は、どのホストでも読める形をしている', () => {
   for (const name of fs.readdirSync(path.join(PLUGIN, 'skills'))) {
     const text = fs.readFileSync(path.join(PLUGIN, 'skills', name, 'SKILL.md'), 'utf8');
     const front = text.match(/^---\n([\s\S]*?)\n---\n/)[1];
@@ -90,7 +90,7 @@ test('スキルと役の定義は、どのホストでも読める形をして�
   assert.match(agent.content, /^name = "dotagents-builder"\ndescription = ".+"\ndeveloper_instructions = ".+"\n$/);
 });
 
-test('役の文、流、スキルが「〇〇のスキル」と名指すスキルは、すべて配っている', () => {
+test('エージェントの文、スタイル、スキルが「〇〇のスキル」と名指すスキルは、すべて配っている', () => {
   const dirs = ['core', 'agents', 'styles/git', 'styles/architecture', ...fs.readdirSync(path.join(PLUGIN, 'skills')).map((name) => `skills/${name}`)];
   const skills = new Set(fs.readdirSync(path.join(PLUGIN, 'skills')));
   const named = new Set();

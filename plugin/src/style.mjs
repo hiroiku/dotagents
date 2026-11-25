@@ -1,11 +1,11 @@
-// プロジェクトが選ぶ流(style)。軸ごとに 1 つを、宣言の style で選ぶ。どの軸も省ける。
+// プロジェクトが選ぶスタイル(style)。軸ごとに 1 つを、`dotagents.json` の style で選ぶ。どの軸も省ける。
 //
 //   styles/<軸>/<名前>.md
 //
-// frontmatter に、文を入れる役(roles: lead か all)と、仕組みが読む値を持つ。値は JSON で書き、読めなければ文字列とする。
-// 本文は、選んだプロジェクトの、その役の文脈にだけ入る。流の文と値の正は、このファイルの 1 か所にする。
+// frontmatter に、文を入れるロール(roles: orchestrator か all)と、仕組みが読む値を持つ。値は JSON で書き、読めなければ文字列とする。
+// 本文は、選んだプロジェクトの、そのロールの文脈にだけ入る。スタイルの文と値の正は、このファイルの 1 か所にする。
 //
-// 流ごとにハーネスを分けない。核、役、外へ届く操作の確かめ、テストの基準を、流の数だけ持つことになるからである。
+// スタイルごとにハーネスを分けない。共通ルール、エージェント、外へ届く操作の確かめ、テストの基準を、スタイルの数だけ持つことになるからである。
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,9 +32,9 @@ export function readStyle(axis, name, root = STYLE_ROOT) {
     return null;
   }
   const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
-  if (!match) throw new Error(`流の部品に frontmatter が無い: ${file}`);
+  if (!match) throw new Error(`スタイルの部品に frontmatter が無い: ${file}`);
   const values = Object.fromEntries([...match[1].matchAll(/^([A-Za-z]+): *(.+)$/gm)].map(([, key, value]) => [key, parseValue(value.trim())]));
-  if (values.roles !== 'lead' && values.roles !== 'all') throw new Error(`流の部品の roles は lead か all: ${file}`);
+  if (values.roles !== 'orchestrator' && values.roles !== 'all') throw new Error(`スタイルの部品の roles は orchestrator か all: ${file}`);
   return { axis, name, dir: path.join(root, axis), values, body: match[2].trim() };
 }
 
@@ -48,7 +48,7 @@ export function catalog(root = STYLE_ROOT) {
   return result;
 }
 
-// 宣言の style から、選んだ部品と、読めなかった選び方を返す。知らない名前は無いものとして扱う。
+// `dotagents.json` の style から、選んだ部品と、読めなかった選び方を返す。知らない名前は無いものとして扱う。
 export function chosenStyles(declaration, root = STYLE_ROOT) {
   const chosen = [];
   const unknown = [];
@@ -63,4 +63,4 @@ export function chosenStyles(declaration, root = STYLE_ROOT) {
   return { chosen, unknown };
 }
 
-export const appliesTo = (style, role) => style.values.roles === 'all' || role === 'lead';
+export const appliesTo = (style, role) => style.values.roles === 'all' || role === 'orchestrator';

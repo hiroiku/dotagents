@@ -1,14 +1,14 @@
-// プロジェクトの宣言。プロジェクトが自分で書き、仕組み(hook)が読む。どの項目も省ける。
+// プロジェクトの `dotagents.json`。プロジェクトが自分で書き、仕組み(hook)が読む。どの項目も省ける。
 //
 //   protected  共有のブランチとして扱う名前。リモートのデフォルトブランチと main、master は、書かなくても含まれる。
 //              `*` が使える。
 //   delegated  確かめずに進めてよいと、プロジェクトが任せた種類。`種類` か `種類:対象`。
-//   checks     検査の段ごとのコマンド(edit、commit、push、release)。役の文脈に検査の入口として入る。hook は検査を
-//              実行しない。push と release に置いたコマンドは、作る役と確かめる役が実行すると止まり、どの段のコマンドも、
-//              作る役と確かめる役がバックグラウンドで始めると止まる。
-//   style      選んだ流。軸ごとに名前を 1 つ(git、architecture)。部品は styles/ にあり、git の流によって、共有のブランチの
-//              既定と、PR の base にしてよいブランチが決まる(style.mjs)。
-//   decisions  どの役も読む、続いている決定。
+//   checks     チェックの段階ごとのコマンド(edit、commit、push、release)。エージェントの文脈に検査の入口として入る。
+//              hook は検査を実行しない。push と release に置いたコマンドは、ビルダーとレビュアーが実行すると止まり、
+//              どの段階のコマンドも、ビルダーとレビュアーがバックグラウンドで始めると止まる。
+//   style      選んだスタイル。軸ごとに名前を 1 つ(git、architecture)。部品は styles/ にあり、git のスタイルによって、
+//              共有のブランチの既定と、PR の base にしてよいブランチが決まる(style.mjs)。
+//   decisions  どのエージェントも読む、続いている決定。
 //
 // decisions のほかは、確かめる線を動かすか、hook が実行するコマンドを決める。書き換えは、それ自体を確かめる
 // (guard.mjs の policy)。
@@ -24,11 +24,11 @@ const POLICY_KEYS = ['protected', 'delegated', 'checks', 'style'];
 
 export function parseDeclaration(text) {
   const value = JSON.parse(text);
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('宣言はオブジェクトで書く');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('dotagents.json はオブジェクトで書く');
   return value;
 }
 
-// cwd から上へたどり、最初に見つかった宣言を読む。worktree の中では、その worktree の宣言が先に見つかる。
+// cwd から上へたどり、最初に見つかった `dotagents.json` を読む。worktree の中では、その worktree のものが先に見つかる。
 export function findDeclaration(cwd) {
   let dir = path.resolve(cwd);
   for (;;) {
