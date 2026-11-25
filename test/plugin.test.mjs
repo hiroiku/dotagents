@@ -90,6 +90,20 @@ test('スキルと役の定義は、どのホストでも読める形をして�
   assert.match(agent.content, /^name = "dotagents-builder"\ndescription = ".+"\ndeveloper_instructions = ".+"\n$/);
 });
 
+test('役の文、流、スキルが「〇〇のスキル」と名指すスキルは、すべて配っている', () => {
+  const dirs = ['core', 'agents', 'styles/git', 'styles/architecture', ...fs.readdirSync(path.join(PLUGIN, 'skills')).map((name) => `skills/${name}`)];
+  const skills = new Set(fs.readdirSync(path.join(PLUGIN, 'skills')));
+  const named = new Set();
+  for (const dir of dirs) {
+    for (const file of fs.readdirSync(path.join(PLUGIN, dir)).filter((name) => name.endsWith('.md'))) {
+      const text = fs.readFileSync(path.join(PLUGIN, dir, file), 'utf8');
+      for (const [, name] of text.matchAll(/([a-z][a-z0-9-]*) のスキル/g)) named.add(name);
+    }
+  }
+  assert.ok(named.has('architecture'), [...named].join(','));
+  for (const name of named) assert.ok(skills.has(name), name);
+});
+
 test('プロジェクトに入れる、外す、点検するコマンドは配らない。手順は setup スキルにある', () => {
   for (const file of ['scripts', 'src/install.mjs', 'src/jsontext.mjs']) assert.equal(fs.existsSync(path.join(PLUGIN, file)), false, file);
 });

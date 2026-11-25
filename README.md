@@ -74,7 +74,7 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 | `plugin/core/` | The page every role reads (`core.md`) and the lead's page (`lead.md`). A test enforces their size. |
 | `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents and Codex agent TOML. |
 | `plugin/styles/` | Git flows and design shapes. Front matter says which roles read the text and which values the hooks use. |
-| `plugin/skills/` | `setup`, `prompting`, `releases`, `triage`. |
+| `plugin/skills/` | `setup`, `architecture`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, `style.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code hooks and Codex hooks. |
 | `tools/stats.mjs` | Totals of the harness's log. Not delivered by the marketplace, which ships `./plugin` only. |

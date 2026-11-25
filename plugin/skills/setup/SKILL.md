@@ -42,9 +42,10 @@ description: このハーネスをプロジェクトに入れるとき、外す�
    enabled = true
    ```
 
-7. 8.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
-8. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
-9. 各人がすることを、利用者に伝える。
+7. 根に `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
+8. 8.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
+9. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
+10. 各人がすることを、利用者に伝える。
    - Claude Code: フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。
    - Codex: プロジェクトを信頼し(`trust_level = "trusted"`)、`/hooks` で dotagents の hook を承認する。plugin の中身が変わるたびに、承認し直す。
 
@@ -76,6 +77,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 - どのホストの設定にも、参照が無い(`.claude/settings.json` の `enabledPlugins` に `dotagents@dotagents` が true で無く、`.codex/config.toml` に `[plugins."dotagents@dotagents"]` が無い): 各人が自分の環境に入れていなければ、このプロジェクトでは働かない。片方だけ無いときは、そのホストを知らせる。
 - この環境の Claude Code に入っていない: `~/.claude/plugins/installed_plugins.json`(`CLAUDE_CONFIG_DIR` があればその下)の `plugins["dotagents@dotagents"]` に、`scope` が `user` の記録か、`projectPath` がこのプロジェクトで `scope` が `project` か `local` の記録が無い。
 - 共有のブランチが GitHub で守られていない: リモートのデフォルトブランチ、選んだ流の共有のブランチ、`protected` の名前(`*` を含むものは除く)ごとに、`gh api repos/{owner}/{repo}/rules/branches/<ブランチ> --jq length` が 1 以上か、`gh api repos/{owner}/{repo}/branches/<ブランチ>/protection` が答えれば守られている。どちらも答えなければ、確かめられなかったと伝える。守られていなければ、ハーネスを入れていない人と道具は、確かめなしで push できる。
+- 根に `ARCHITECTURE.md` が無い: 役は作りの地図を持たずに作る。あれば、書いた不変条件と置き場を落とす lint か検査が、検査の段にあるか。
 - 8.x と 7.x の残りが、上の「8.x と 7.x から移るとき」のどれかに当てはまる。
 
 ## プロジェクトの宣言
