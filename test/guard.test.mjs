@@ -178,7 +178,7 @@ test('ビルダーとレビュアーは、プロジェクトが push と release
   const cwd = project({ checks: { edit: 'biome check {file}', commit: 'npm run check:changed', push: 'npm run check', release: 'npm test && npm run e2e' } });
   const heavy = decide({ tool: 'shell', command: 'npm run check', cwd, role: 'builder' }, tools);
   assert.equal(heavy.kind, 'pace');
-  assert.match(heavy.reason, /`npm run check` は、push 時のチェックとして、このプロジェクトの checks に書かれたコマンド/);
+  assert.match(heavy.reason, /`npm run check` は、push 時のチェックとして、このプロジェクトの \.agents\/dotagents\.jsonc の checks に書かれたコマンド/);
   const nested = decide({ tool: 'shell', command: 'cd packages/app && CI=1 npm run e2e 2>&1 | tail -20', cwd, role: 'reviewer' }, tools);
   assert.equal(nested.kind, 'pace');
   assert.match(nested.reason, /リリース前のチェック/);

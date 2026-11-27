@@ -507,7 +507,7 @@ function pace(request, declaration) {
   const hit = heavy.size ? commandLines(request.command, request.cwd).find((line) => heavy.has(line)) : undefined;
   if (hit) {
     const { label, when } = heavy.get(hit);
-    return `\`${hit}\` は、${label}として、このプロジェクトの checks に書かれたコマンドなので、ブロックしました。このチェックは、${when}に、メインのセッションで 1 回だけ実行します。変更したファイルと、それに依存するテストに絞って実行してください。このチェックを実行していないことは、報告に書いてください。`;
+    return `\`${hit}\` は、${label}として、このプロジェクトの ${DECLARATION_PATH} の checks に書かれたコマンドなので、ブロックしました。このチェックは、${when}に、メインのセッションで 1 回だけ実行します。変更したファイルと、それに依存するテストに絞って実行してください。このチェックを実行していないことは、報告に書いてください。`;
   }
   return null;
 }

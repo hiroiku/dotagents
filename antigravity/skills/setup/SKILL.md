@@ -17,7 +17,7 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
    - Codex: `codex plugin marketplace add hiroiku/dotagents` のあと、`codex plugin add dotagents@dotagents`。プロジェクトを信頼し(`trust_level = "trusted"`)、`/hooks` で dotagents の hook を承認する。plugin の中身が変わるたびに、承認し直す。
    - Antigravity: このリポジトリーをローカルに clone し、`agy plugin install <clone>/antigravity`。バージョンを上げたら、`git pull` のあと同じコマンドでインストールし直す(資料による。実機では未検証)。プロジェクトで共有する参照の書き方は無い。`.agents/plugins/` に置くとコピーになるので置かない。Antigravity で守れない決まりは README にあり、インストールの前に利用者に伝える。
 2. 設定ファイルが要るかを、利用者に確認する。要るのは、チェックのコマンドを渡したいとき、委任する操作を決めたいとき、共有ブランチを追加したいとき、続いている決定を残したいときである。
-   - `checks` は、プロジェクトの script と workflow から当てはめる。CI が呼んでいるコマンドを、`push` に置く。無いチェックは、作ることを提案する。
+   - `.agents/dotagents.jsonc` の `checks` は、プロジェクトにある既存のコマンド(タスクランナーの定義、CI の workflow)から選ぶ。CI が実行しているコマンドがあれば、`push` に置く。無いチェックは、作ることを利用者に提案する。
    - レイヤー構成(layered)は、すべてのプロジェクトで読み込まれる。依存の向き、ファイルの配置、命名の違反を検出する lint がプロジェクトにあるかを調べる(下の「診断」の該当項目)。
    - `decisions` と `delegated` は、「dotagents.jsonc の書き方」に沿って、利用者の言葉から書く。
    - 書くときは、先頭に `$schema` の行を置く例(下の「dotagents.jsonc の項目」)に沿う。書くものが無ければ、ファイルは置かない。

@@ -23,17 +23,17 @@ function projectFacts({ role, value, error }) {
   const parts = [];
   if (role === 'orchestrator' && error) parts.push(`dotagents.jsonc を読めなかったので、無いものとして動いている。次のエラーを利用者に伝える。\n\nエラー: ${error}`);
   const decisions = list(value.decisions);
-  if (decisions.length) parts.push(['# プロジェクトの決定事項', ...decisions.map((line) => `- ${line}`)].join('\n'));
+  if (decisions.length) parts.push(['# プロジェクトの決定事項', '', '`.agents/dotagents.jsonc` の `decisions` に書かれた決定である。', '', ...decisions.map((line) => `- ${line}`)].join('\n'));
   const checks = CHECK_STAGES.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
   if (checks.length) {
-    const lines = ['# チェックのコマンド', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
+    const lines = ['# チェックのコマンド', '', '`.agents/dotagents.jsonc` の `checks` に書かれたコマンドである。', '', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
     const heavy = checks.filter((key) => key in HEAVY).map((key) => HEAVY[key]);
     if (heavy.length && (role === 'builder' || role === 'reviewer')) lines.push('', `${heavy.map(([label]) => label).join('と')}のチェックのコマンドは、${heavy.map(([, when]) => when).join('と')}に、メインのセッションで 1 回だけ実行する。このエージェントがそのまま実行すると、hook がブロックする。対象を絞った実行はブロックしない。`);
     parts.push(lines.join('\n'));
   }
   if (role === 'orchestrator') {
     const delegated = list(value.delegated);
-    if (delegated.length) parts.push(`# 委任された操作\n\n次の種類は、利用者に確認せずに進める: ${delegated.join('、')}`);
+    if (delegated.length) parts.push(`# 委任された操作\n\n\`.agents/dotagents.jsonc\` の \`delegated\` に書かれた次の種類は、利用者に確認せずに進める: ${delegated.join('、')}`);
   }
   return parts.join('\n\n');
 }
