@@ -88,7 +88,8 @@ test('スキルとエージェントの定義は、どのホストでも読め�
   assert.deepEqual(roles().map((role) => role.name), ['builder', 'reviewer']);
   const agent = codexAgent(roles()[0]);
   assert.equal(agent.file, 'dotagents-builder.toml');
-  assert.match(agent.content, /^name = "dotagents-builder"\ndescription = ".+"\ndeveloper_instructions = ".+"\n$/);
+  assert.match(agent.content, /^# dotagents が生成したファイル。[^\n]*\nname = "dotagents-builder"\ndescription = ".+"\ndeveloper_instructions = ".+"\n$/);
+  assert.doesNotMatch(agent.content, /^model/m, 'モデルは利用者の Codex の設定に従う');
 });
 
 test('常設の文、エージェントの文、スキルが「〇〇のスキル」と名指すスキルは、すべて配っている', () => {

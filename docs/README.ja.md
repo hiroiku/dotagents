@@ -86,7 +86,7 @@ plugin は、各ツールの通常の手順でインストールします。設�
 | 場所 | 内容 |
 |---|---|
 | `plugin/core/` | どのロールも読む共通ルール(`core.md`)とレイヤー構成(`layered.md`)、trunk の運用を含むオーケストレーターの 1 枚(`orchestrator.md`)。 |
-| `plugin/agents/` | `builder`(ビルダー)と `reviewer`(レビュアー)。Claude Code のエージェント、Codex の TOML、Antigravity のエージェントは、ここから生成します。 |
+| `plugin/agents/` | `builder`(ビルダー)と `reviewer`(レビュアー)。Claude Code のエージェント、Codex の TOML、Antigravity のエージェントは、ここから生成します。どれもモデルを指定せず、呼び出す側と利用者の設定に従います。Codex の TOML は、先頭に dotagents が生成した印の行を持ち、印の無い同じ名前のファイルは上書きしません。 |
 | `schema/` | `.agents/dotagents.jsonc` の JSON Schema。エディターのためのもので、hook は使いません。marketplace では配布しません。 |
 | `plugin/skills/` | `setup`、`architecture`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(どのツールからも呼ぶ 1 つの判定)、`context.mjs` など。 |

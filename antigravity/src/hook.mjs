@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { contextFor } from './context.mjs';
 import { decide, roleOf } from './guard.mjs';
 import { record } from './log.mjs';
-import { codexAgent, roles } from './roles.mjs';
+import { CODEX_MARK, codexAgent, roles } from './roles.mjs';
 import { claudeRun } from './usage.mjs';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -33,18 +33,20 @@ function afterOf(name, toolInput, file) {
   }
 }
 
-// Codex は plugin でエージェントを運べない。エージェントの定義から導いた TOML を、利用者の設定に置き、版が変わったら置き直す。
-// 手で置く手順にすると、plugin の版とエージェントの定義がずれる。
+// Codex は plugin でエージェントを運べない。エージェントの定義から導いた TOML を、利用者の設定に置き、バージョンが変わったら置き直す。
+// 手で置く手順にすると、plugin のバージョンとエージェントの定義がずれる。書き換えるのは、無いファイル、印のあるファイル、
+// 印を入れる前のバージョンが書いた中身と一致するファイルだけである。同じ名前で利用者が置いたファイルは上書きしない。
 export function syncCodexAgents(home = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')) {
   const dir = path.join(home, 'agents');
   for (const role of roles()) {
-    const { file, content } = codexAgent(role);
+    const { file, content, legacy } = codexAgent(role);
     const target = path.join(dir, file);
     let current = null;
     try {
       current = fs.readFileSync(target, 'utf8');
     } catch {}
     if (current === content) continue;
+    if (current !== null && !current.startsWith(`${CODEX_MARK}\n`) && current !== legacy) continue;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(target, content);
   }

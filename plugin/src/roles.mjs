@@ -17,10 +17,15 @@ export function roles(root = PLUGIN_ROOT) {
   return fs.readdirSync(dir).filter((name) => name.endsWith('.md')).sort().map((name) => readRole(path.join(dir, name)));
 }
 
-// Codex は plugin でエージェントを運べないので、エージェントごとの TOML を置く。モデルの名前はホストごとに違うので、写さない。
+// Codex の利用者の設定に置く TOML の先頭の行。この行があるファイルだけを、dotagents が書いたものとして書き換える。
+export const CODEX_MARK = '# dotagents が生成したファイル。dotagents の更新で書き換わるので、手で編集しない。';
+
+// Codex は plugin でエージェントを運べないので、エージェントごとの TOML を置く。モデルは書かず、利用者の Codex の設定に従わせる。
+// legacy は、印を入れる前のバージョンが同じ定義から書いた中身である。
 export function codexAgent(role, prefix = 'dotagents') {
   const fields = { name: `${prefix}-${role.name}`, description: role.description, developer_instructions: role.body };
-  return { file: `${fields.name}.toml`, content: `${Object.entries(fields).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n')}\n` };
+  const body = `${Object.entries(fields).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n')}\n`;
+  return { file: `${fields.name}.toml`, content: `${CODEX_MARK}\n${body}`, legacy: body };
 }
 
 // Antigravity のツールの名前(資料による、実機で未確認)。資料は、知らない名前を許可の並びに書くと、サブエージェントが止まったまま

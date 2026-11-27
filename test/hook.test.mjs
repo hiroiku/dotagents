@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { codexAgent, roles } from '../plugin/src/roles.mjs';
 
 const HOOK = fileURLToPath(new URL('../plugin/src/hook.mjs', import.meta.url));
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
@@ -48,10 +49,17 @@ test('セッションの開始ではオーケストレーターの文を、サ�
   assert.match(run('codex', 'session', { cwd }).additionalContext, /# 共通ルール/);
   // Codex は plugin でエージェントを運べないので、セッションの開始でエージェントの定義を置く。
   const agent = path.join(codexHome, 'agents', 'dotagents-builder.toml');
-  assert.match(fs.readFileSync(agent, 'utf8'), /^name = "dotagents-builder"/);
-  fs.writeFileSync(agent, 'stale');
+  assert.match(fs.readFileSync(agent, 'utf8'), /^name = "dotagents-builder"/m);
+  // dotagents が書いたファイル(印がある、または印を入れる前の中身と一致する)は書き換え、利用者が置いたファイルは残す。
+  const { content, legacy } = codexAgent(roles().find((role) => role.name === 'builder'));
+  for (const old of [`${content.split('\n')[0]}\nstale\n`, legacy]) {
+    fs.writeFileSync(agent, old);
+    run('codex', 'session', { cwd });
+    assert.equal(fs.readFileSync(agent, 'utf8'), content);
+  }
+  fs.writeFileSync(agent, 'name = "dotagents-builder"\n# 利用者が書いた定義\n');
   run('codex', 'session', { cwd });
-  assert.match(fs.readFileSync(agent, 'utf8'), /^name = "dotagents-builder"/);
+  assert.equal(fs.readFileSync(agent, 'utf8'), 'name = "dotagents-builder"\n# 利用者が書いた定義\n');
 });
 
 test('サブエージェントの文脈が作り直されたときは、オーケストレーターの文ではなく、そのサブエージェントの文を返す', () => {
