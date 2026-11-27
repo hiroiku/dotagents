@@ -113,6 +113,8 @@ node tools/stats.mjs --days 7  # what the harness did on this machine, from ~/.d
 node tools/antigravity.mjs     # generate antigravity/ from plugin/
 ```
 
+The always-loaded default rules are `plugin/core/*.md`. Put a text there only when every run needs it, after the placement order in the `prompting` skill. Choose the field (H2) and the topic (H3), then decide which roles read it (every role, or the main session only) in the list in `plugin/src/context.mjs`. The headings keep their shape: two H1 (the default rules, and the project's settings), H2 for a field, H3 for a topic, and no H4.
+
 When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together, then run `node tools/antigravity.mjs`; a test keeps them equal. Run it after any change under `plugin/` as well.
 
 ## License
