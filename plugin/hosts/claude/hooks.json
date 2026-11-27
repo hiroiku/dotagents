@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude session",
+            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/dotagents.mjs\" claude session",
             "timeout": 10
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude subagent",
+            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/dotagents.mjs\" claude subagent",
             "timeout": 10
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude tool",
+            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/dotagents.mjs\" claude tool",
             "timeout": 10
           }
         ]

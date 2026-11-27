@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "type": "command",
-        "command": "node ./src/hook.mjs antigravity session",
+        "command": "node ./dotagents.mjs antigravity session",
         "timeout": 10
       }
     ],
@@ -13,7 +13,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./src/hook.mjs antigravity tool",
+            "command": "node ./dotagents.mjs antigravity tool",
             "timeout": 10
           }
         ]

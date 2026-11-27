@@ -7,13 +7,15 @@
 //
 // plugin/ をそのまま Antigravity の plugin にはできない。Antigravity は plugin の agents/ を読むが、そこにある Claude Code の
 // 定義(モデルとツールの名前)を読めないからである。hook は plugin の根を作業ディレクトリーとして動き、${PLUGIN_ROOT} を
-// 使えないので(資料による)、hook の部品(src/、core/)も置き場に入れる。エージェントに示す schema のパスが置き場の中で正しくなるよう、schema/ も入れる。
+// 使えないので(資料による)、hook の入口(src/ と core/ をまとめた dotagents.mjs)も置き場に入れる。エージェントに示す schema のパスが
+// 置き場の中で正しくなるよう、schema/ も入れる。
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sharedText } from '../plugin/src/context.mjs';
 import { antigravityAgent, roles } from '../plugin/src/roles.mjs';
+import { BUNDLE_FILE } from '../plugin/src/root.mjs';
 import { nameSkills, namingFor } from '../plugin/src/skills.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,8 +73,7 @@ export function build() {
   }
   copyTree(files, 'skills', 'skills', (text) => nameSkills(text, NAMING));
   copyTree(files, 'schema', 'schema');
-  copyTree(files, 'core', 'core');
-  copyTree(files, 'src', 'src');
+  files.set(BUNDLE_FILE, fs.readFileSync(path.join(PLUGIN, BUNDLE_FILE), 'utf8'));
   return files;
 }
 

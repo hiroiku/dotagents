@@ -40,20 +40,21 @@ npx @hiroiku/dotagents@latest sync
 
 | 場所 | 内容 |
 |---|---|
-| `.agents/dotagents/` | 本体。`plugin/` と同じ中身に、Claude Code の marketplace の定義(`.claude-plugin/marketplace.json`)と、置いたファイルのハッシュとバージョンの記録(`placed.json`)を足したものです。 |
+| `.agents/dotagents/` | 本体。`plugin/` のうち、Claude Code が plugin として読むもの(manifest、エージェント、スキル、hook の定義)、hook の入口(`dotagents.mjs`。ルールの文と判定のスクリプトを 1 つにまとめたファイル)、schema です。これに、Claude Code の marketplace の定義(`.claude-plugin/marketplace.json`)と、置いたファイルのハッシュとバージョンの記録(`placed.json`)を足します。 |
 | `.claude/settings.json` | `extraKnownMarketplaces` の `dotagents-project`(本体を指す相対パスの `directory`)と、`enabledPlugins` の `dotagents@dotagents-project`。 |
 | `.codex/hooks.json`、`.codex/agents/dotagents-*.toml` | Codex の hook とエージェントの定義。hook は、`git rev-parse --show-toplevel` で求めたルートから本体を呼びます。 |
 | `.agents/hooks.json`、`.agents/agents/dotagents-*.md`、`.agents/rules/dotagents.md` | Antigravity の hook、エージェントの定義、常に読み込まれるルール。 |
 | `.agents/dotagents.jsonc` | 無ければ、`$schema`(`./dotagents/schema/dotagents.schema.json`)の行だけを持つファイルを作ります。あれば、`$schema` の行だけを書き換えます(下の「dotagents.jsonc」を参照)。 |
 | `.agents/skills/dotagents-*/` | Codex と Antigravity が読むスキル。プロジェクトのスキルと重ならないよう、名前に `dotagents-` を付けています。Claude Code は、スキルを本体の plugin から読みます。 |
+| `.gitattributes` | 置いたファイル(本体と、上の dotagents のファイル)に `linguist-generated=true` を付ける行。GitHub は、これらを生成物として扱い、PR の差分で畳みます。行は `# dotagents: ここから` から `# dotagents: ここまで` の区画にまとめ、ほかの行は変えません。ファイルが無ければ作ります。 |
 
-設定ファイル(`.claude/settings.json`、`.codex/hooks.json`、`.agents/hooks.json`)は、dotagents の項目だけを追加または置き換え、ほかの項目と書式(順序、インデント)は変えません。JSON として読めないファイルがあると、何も変えずにエラーになります。
+設定ファイル(`.claude/settings.json`、`.codex/hooks.json`、`.agents/hooks.json`)と `.gitattributes` は、dotagents の項目だけを追加または置き換え、ほかの項目と書式(順序、インデント)は変えません。JSON として読めないファイルがあると、何も変えずにエラーになります。
 
 プロジェクトの設定に、GitHub の `hiroiku/dotagents` を marketplace として入れる参照(`.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins`、`.codex/config.toml` の `[marketplaces.<名前>]` と `[plugins."dotagents@<名前>"]` の表)が残っていると、リポジトリーに置いたものと両方が有効になります。`sync` はこの参照を外し、外したものを表示します。`remove` は、外した参照を元に戻しません。
 
 #### 更新
 
-同じコマンドを実行し、変わったファイルをコミットして PR にします。本体は丸ごと置き換え、新しいバージョンに無いファイルは削除します。置いたファイルが手で書き換えられていると、どのファイルかを示して何も変えずに止まります。書き換えを捨ててよければ、`--force` を付けて実行し直します。
+同じコマンドを実行し、変わったファイルをコミットして PR にします。本体は丸ごと置き換え、新しいバージョンに無いファイルは削除します。9.1.0 までを置いたリポジトリーでは、本体の `src/`、`core/` など、もう置かないファイルを削除します。置いたファイルが手で書き換えられていると、どのファイルかを示して何も変えずに止まります。書き換えを捨ててよければ、`--force` を付けて実行し直します。
 
 ```sh
 npx @hiroiku/dotagents@latest sync          # 初回も更新も同じコマンドです
@@ -72,7 +73,7 @@ npx @hiroiku/dotagents@latest sync --force  # 手で書き換えたファイル�
 
 #### アンインストール
 
-次のコマンドを実行し、変わったファイルをコミットして PR にします。置いたファイルと、設定ファイルの dotagents の項目だけを削除します。`.agents/dotagents.jsonc` は、`sync` が作ったまま(`$schema` だけ)なら削除し、項目を書いてあれば `$schema` の行だけを外して残します。
+次のコマンドを実行し、変わったファイルをコミットして PR にします。置いたファイルと、設定ファイルと `.gitattributes` の dotagents の項目だけを削除します。`.gitattributes` が dotagents の区画だけなら、ファイルごと削除します。`.agents/dotagents.jsonc` は、`sync` が作ったまま(`$schema` だけ)なら削除し、項目を書いてあれば `$schema` の行だけを外して残します。
 
 ```sh
 npx @hiroiku/dotagents@latest remove
@@ -153,7 +154,8 @@ Antigravity で守れない決まり:
 | `plugin/schema/` | `.agents/dotagents.jsonc` の JSON Schema。各項目の説明を書く 1 か所です。エディターが補完に使い、エージェントにはパスを伝えます。hook は読みません。 |
 | `plugin/skills/` | `architecture`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(どのツールからも呼ぶ 1 つの判定)、`context.mjs` など。 |
-| `plugin/hosts/` | Claude Code、Codex、Antigravity の hook の薄い入口。 |
+| `plugin/dotagents.mjs` | hook の入口。`plugin/src/` のモジュールと `plugin/core/` の文を 1 つにまとめたもので、ファイルを読まずに文を組み立てます。`tools/bundle.mjs` が生成するもので、手で編集しません。古いとテストが失敗します。 |
+| `plugin/hosts/` | Claude Code、Codex、Antigravity の hook の定義。どれも `plugin/dotagents.mjs` を呼びます。 |
 | `cli/` | リポジトリーに置く CLI(`npx @hiroiku/dotagents@latest sync`)。npm のパッケージ `@hiroiku/dotagents` には、`cli/` と `plugin/` だけを含めます。 |
 | `antigravity/` | Antigravity の plugin。`tools/antigravity.mjs` が `plugin/` から生成するもので、手で編集しません。古いとテストが失敗します。 |
 
@@ -170,8 +172,11 @@ Antigravity で守れない決まり:
 
 ```sh
 npm test                       # node --test。依存はありません
+node tools/bundle.mjs          # plugin/src/ と plugin/core/ から plugin/dotagents.mjs を生成します
 node tools/antigravity.mjs     # plugin/ から antigravity/ を生成します
 ```
+
+`plugin/src/` か `plugin/core/` を変えたら、`node tools/bundle.mjs` を実行してから `node tools/antigravity.mjs` を実行してください。`tools/bundle.mjs` は、モジュールを依存の順につなぐだけの小さなスクリプトで、道具やパッケージの依存を使いません。そのため `plugin/src/` のモジュールは、決まった形の import だけを使い、一番外側の名前をモジュールをまたいで重ねません(外れると、生成が理由を示して止まります)。
 
 常時読み込まれる既定のルールは、`plugin/core/*.md` です。毎回の実行に必要な文だけを、`prompting` スキルの記述場所の順序に沿って置いてください。分野(H2)と話題(H3)を選び、どのロール(すべてのロール、またはメインのセッションだけ)が読むかは、`plugin/src/context.mjs` の一覧で決めます。見出しの構成は崩しません。H1 は 2 つ(既定のルールと、プロジェクトの設定)、H2 は分野、H3 は話題で、H4 は使いません。
 

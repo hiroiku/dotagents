@@ -36,20 +36,21 @@ It places these files. The CLI builds all of them from `plugin/`; do not edit th
 
 | Path | What |
 |---|---|
-| `.agents/dotagents/` | The harness itself: the contents of `plugin/`, plus a Claude Code marketplace definition (`.claude-plugin/marketplace.json`) and a record of the placed files' hashes and version (`placed.json`). |
+| `.agents/dotagents/` | The harness itself: the parts of `plugin/` that Claude Code reads as a plugin (manifest, agents, skills, hook definition), the hook entry point (`dotagents.mjs`, the rule texts and the guard scripts bundled into one file), and the schema. Added to them are a Claude Code marketplace definition (`.claude-plugin/marketplace.json`) and a record of the placed files' hashes and version (`placed.json`). |
 | `.claude/settings.json` | `dotagents-project` under `extraKnownMarketplaces` (a relative-path `directory` source pointing at the harness) and `dotagents@dotagents-project` under `enabledPlugins`. |
 | `.codex/hooks.json`, `.codex/agents/dotagents-*.toml` | Codex hooks and agent definitions. The hooks call the harness from the root that `git rev-parse --show-toplevel` finds. |
 | `.agents/hooks.json`, `.agents/agents/dotagents-*.md`, `.agents/rules/dotagents.md` | Antigravity hooks, agent definitions, and the always-on rule. |
 | `.agents/dotagents.jsonc` | Created with only the `$schema` line (`./dotagents/schema/dotagents.schema.json`) when missing; otherwise only its `$schema` line is rewritten (see "The project declaration" below). |
 | `.agents/skills/dotagents-*/` | Skills for Codex and Antigravity, prefixed with `dotagents-` so they do not collide with the project's own. Claude Code reads the skills from the harness's plugin. |
+| `.gitattributes` | Lines that mark the placed files (the harness and the dotagents files above) `linguist-generated=true`, so GitHub treats them as generated and collapses them in pull-request diffs. The lines sit in one block from `# dotagents: ここから` to `# dotagents: ここまで`; other lines are left as they are. The file is created when missing. |
 
-In the settings files (`.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json`) only dotagents' entries are added or replaced; other entries and the formatting (order, indentation) stay as they are. If one of them is not valid JSON, the command stops with an error and changes nothing.
+In the settings files (`.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json`) and `.gitattributes` only dotagents' entries are added or replaced; other entries and the formatting (order, indentation) stay as they are. If one of them is not valid JSON, the command stops with an error and changes nothing.
 
 A reference that installs `hiroiku/dotagents` from GitHub as a marketplace in the project's settings (`extraKnownMarketplaces` and `enabledPlugins` in `.claude/settings.json`, the `[marketplaces.<name>]` and `[plugins."dotagents@<name>"]` tables in `.codex/config.toml`) would stay enabled alongside the placed harness. `sync` removes such references and lists what it removed; `remove` does not restore them.
 
 #### Update
 
-Run the same command, then commit the changed files and open a pull request. The harness is replaced as a whole, and files the new version no longer has are deleted. If a placed file was edited by hand, the command names it and stops without changing anything; add `--force` to overwrite the edits.
+Run the same command, then commit the changed files and open a pull request. The harness is replaced as a whole, and files the new version no longer has are deleted. In a repository placed with 9.1.0 or earlier, this deletes the files no longer placed, such as the harness's `src/` and `core/`. If a placed file was edited by hand, the command names it and stops without changing anything; add `--force` to overwrite the edits.
 
 ```sh
 npx @hiroiku/dotagents@latest sync          # the same command installs and updates
@@ -68,7 +69,7 @@ If you also installed dotagents for yourself, leave it as it is: inside a reposi
 
 #### Uninstall
 
-Run this, then commit the changed files and open a pull request. It deletes the placed files and dotagents' entries in the settings files. `.agents/dotagents.jsonc` is deleted if it is still as `sync` created it (only `$schema`); otherwise only its `$schema` line is removed.
+Run this, then commit the changed files and open a pull request. It deletes the placed files and dotagents' entries in the settings files and `.gitattributes`; `.gitattributes` is deleted if only dotagents' block was in it. `.agents/dotagents.jsonc` is deleted if it is still as `sync` created it (only `$schema`); otherwise only its `$schema` line is removed.
 
 ```sh
 npx @hiroiku/dotagents@latest remove
@@ -149,7 +150,8 @@ The declaration's `decisions` array is deprecated. 9.x still reads it and gives 
 | `plugin/schema/` | JSON Schema of `.agents/dotagents.jsonc`: the one place that explains every key. Editors use it for completion, and agents are told its path. Hooks do not read it. |
 | `plugin/skills/` | `architecture`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, and the host adapters' shared code. |
-| `plugin/hosts/` | Thin adapters: Claude Code, Codex, and Antigravity hooks. |
+| `plugin/dotagents.mjs` | The hook entry point: the modules in `plugin/src/` and the texts in `plugin/core/` bundled into one file, which builds the context without reading files. Generated by `tools/bundle.mjs`; do not edit it. A test fails when it is stale. |
+| `plugin/hosts/` | Hook definitions for Claude Code, Codex, and Antigravity. All of them call `plugin/dotagents.mjs`. |
 | `cli/` | The CLI that places the harness in a repository (`npx @hiroiku/dotagents@latest sync`). The npm package `@hiroiku/dotagents` contains only `cli/` and `plugin/`. |
 | `antigravity/` | The Antigravity plugin, generated from `plugin/` by `tools/antigravity.mjs`. Do not edit it; a test fails when it is stale. |
 
@@ -166,8 +168,11 @@ How the hooks relate to the host's own permissions:
 
 ```sh
 npm test                       # node --test, no dependencies
+node tools/bundle.mjs          # generate plugin/dotagents.mjs from plugin/src/ and plugin/core/
 node tools/antigravity.mjs     # generate antigravity/ from plugin/
 ```
+
+After changing `plugin/src/` or `plugin/core/`, run `node tools/bundle.mjs`, then `node tools/antigravity.mjs`. `tools/bundle.mjs` is a small script that joins the modules in dependency order, with no tool or package dependency. So the modules in `plugin/src/` use only the plain import forms it accepts and never declare the same top-level name in two modules; otherwise it stops and says why.
 
 The always-loaded default rules are `plugin/core/*.md`. Put a text there only when every run needs it, after the placement order in the `prompting` skill. Choose the field (H2) and the topic (H3), then decide which roles read it (every role, or the main session only) in the list in `plugin/src/context.mjs`. The headings keep their shape: two H1 (the default rules, and the project's settings), H2 for a field, H3 for a topic, and no H4.
 

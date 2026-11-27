@@ -10,6 +10,10 @@ export const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.u
 export const PLACED_DIR = '.agents/dotagents';
 export const PLACED_RECORD = 'placed.json';
 
+// hook の入口。src/ のモジュールと core/ の文を 1 つにまとめたファイルで、plugin の根に置く(tools/bundle.mjs が作る)。
+// ホストの hook の定義は、このファイルを呼ぶ。
+export const BUNDLE_FILE = 'dotagents.mjs';
+
 // この plugin が、プロジェクトのリポジトリーに置いたものかどうか。個人の環境にインストールした plugin には、記録が無い。
 export const PLACED = fs.existsSync(path.join(PLUGIN_ROOT, PLACED_RECORD));
 

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/src/hook.mjs\" codex session",
+            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/dotagents.mjs\" codex session",
             "timeout": 10,
             "additionalContextLimit": 20000
           }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/src/hook.mjs\" codex subagent",
+            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/dotagents.mjs\" codex subagent",
             "timeout": 10,
             "additionalContextLimit": 20000
           }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/src/hook.mjs\" codex tool",
+            "command": "\"$(command -v bun || command -v node)\" \"${PLUGIN_ROOT}/dotagents.mjs\" codex tool",
             "timeout": 10
           }
         ]

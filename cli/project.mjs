@@ -1,10 +1,11 @@
 // プロジェクトのリポジトリーに dotagents を置く、置き直す、外す。
 //
 // 置くものは 2 種類ある。
-// - ファイルごと置くもの: 本体(.agents/dotagents/、plugin/ と同じ中身に Claude Code の marketplace の定義を足したもの)と、
-//   Codex と Antigravity が読む場所に置くエージェント、スキル、ルール。中身は plugin/ から導き、手で直さない。
-//   置いたファイルのハッシュとバージョンを、本体の中の記録(placed.json)に持ち、手で書き換えられたことを見つける。
-// - 項目だけを足すもの: 入口の設定ファイル(.claude/settings.json、.codex/hooks.json、.agents/hooks.json)。
+// - ファイルごと置くもの: 本体(.agents/dotagents/、plugin/ のうち Claude Code が plugin として探すものと、hook の入口、schema に、
+//   Claude Code の marketplace の定義を足したもの)と、Codex と Antigravity が読む場所に置くエージェント、スキル、ルール。
+//   中身は plugin/ から導き、手で直さない。置いたファイルのハッシュとバージョンを、本体の中の記録(placed.json)に持ち、
+//   手で書き換えられたことを見つける。
+// - 項目だけを足すもの: 入口の設定ファイル(.claude/settings.json、.codex/hooks.json、.agents/hooks.json)と、.gitattributes。
 //   dotagents の項目だけを足し引きし、ほかの項目と書式は変えない。
 //
 // 読むことと組み立てをすべて済ませてから書く。読めない設定や、手で書き換えられたファイルが 1 つでもあれば、何も変えずに止める。
@@ -16,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { sharedText } from '../plugin/src/context.mjs';
 import { antigravityAgent, codexAgent, roles } from '../plugin/src/roles.mjs';
-import { PLACED_DIR, PLACED_RECORD, PLUGIN_ROOT } from '../plugin/src/root.mjs';
+import { BUNDLE_FILE, PLACED_DIR, PLACED_RECORD, PLUGIN_ROOT } from '../plugin/src/root.mjs';
 import { nameSkills } from '../plugin/src/skills.mjs';
 import { list } from '../plugin/src/declaration.mjs';
 import { parseJsonc } from '../plugin/src/jsonc.mjs';
@@ -80,8 +81,10 @@ const readFile = (root, rel) => {
 
 // hook のコマンドが本体を呼ぶ場所。Codex はサブディレクトリーから始まることがあり、Antigravity は hook の cwd が資料に無いので、
 // ルートは git に求める。
-const HOOK_SCRIPT = `$(git rev-parse --show-toplevel)/${PLACED_DIR}/src/hook.mjs`;
-const isOurCommand = (command) => typeof command === 'string' && command.includes(`/${PLACED_DIR}/src/hook.mjs`);
+const HOOK_SCRIPT = `$(git rev-parse --show-toplevel)/${PLACED_DIR}/${BUNDLE_FILE}`;
+const callsHook = (command, script) => typeof command === 'string' && command.includes(`/${PLACED_DIR}/${script}`);
+// 9.1.0 までは、本体の src/hook.mjs を呼んでいた。置き直すときに、その組も dotagents の組として置き換える。
+const isOurCommand = (command) => callsHook(command, BUNDLE_FILE) || callsHook(command, 'src/hook.mjs');
 
 // plugin/hosts/ の hook の定義から、コマンドの本体の場所だけを書き換えて導く。
 function hostHooks(host, from, to) {
@@ -91,22 +94,20 @@ function hostHooks(host, from, to) {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => {
       if (key !== 'command') return [key, rewrite(item)];
       const command = item.replace(from, to);
-      if (!isOurCommand(command)) throw new Error(`${host} の hook のコマンドを書き換えられない: ${item}`);
+      if (!callsHook(command, BUNDLE_FILE)) throw new Error(`${host} の hook のコマンドを書き換えられない: ${item}`);
       return [key, command];
     }));
   };
   return rewrite(JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'hosts', host, 'hooks.json'), 'utf8')));
 }
-export const codexHooks = () => hostHooks('codex', '${PLUGIN_ROOT}/src/hook.mjs', HOOK_SCRIPT).hooks;
-export const antigravityHooks = () => hostHooks('antigravity', './src/hook.mjs', `"${HOOK_SCRIPT}"`)[ANTIGRAVITY_SET];
+export const codexHooks = () => hostHooks('codex', `\${PLUGIN_ROOT}/${BUNDLE_FILE}`, HOOK_SCRIPT).hooks;
+export const antigravityHooks = () => hostHooks('antigravity', `./${BUNDLE_FILE}`, `"${HOOK_SCRIPT}"`)[ANTIGRAVITY_SET];
 
-const BODY_README = `# dotagents
-
-このディレクトリーは、\`npx @hiroiku/dotagents@latest sync\` が置いた dotagents ${VERSION} の本体です。手で編集しないでください。
-更新するときは、リポジトリーのルートで同じコマンドを実行します。手で書き換えたファイルがあると、sync はどのファイルかを示して止まります。
-
-This directory was placed by \`npx @hiroiku/dotagents@latest sync\`. Do not edit it; run the same command to update it.
-`;
+// 本体として置く、plugin/ の中のもの。リポジトリーでは、Claude Code だけが本体を plugin として読む。Codex と Antigravity の
+// hook の定義は、CLI がプロジェクトの設定ファイルに書くので、本体には要らない(.codex-plugin/、hosts/codex/、hosts/antigravity/)。
+// - Claude Code が plugin として探すもの: manifest、エージェント、スキル、manifest が指す hook の定義。
+// - hook の入口(src/ と core/ をまとめたもの)と、エージェントに示す schema。
+export const BODY = ['.claude-plugin/plugin.json', 'agents', 'skills', path.posix.normalize(MANIFEST.hooks), BUNDLE_FILE, 'schema'];
 
 const RULE_FRONT = ['---', 'trigger: always_on', 'description: dotagents の既定のルール(どのエージェントにも入る部分)', '---'].join('\n');
 
@@ -114,8 +115,11 @@ const RULE_FRONT = ['---', 'trigger: always_on', 'description: dotagents の既�
 export function layout() {
   const files = new Map();
   const put = (rel, content) => files.set(rel, Buffer.isBuffer(content) ? content : Buffer.from(content));
-  for (const rel of walk(PLUGIN_ROOT)) {
-    if (rel !== PLACED_RECORD) put(`${PLACED_DIR}/${rel}`, fs.readFileSync(path.join(PLUGIN_ROOT, rel)));
+  for (const part of BODY) {
+    const source = path.join(PLUGIN_ROOT, part);
+    if (!fs.existsSync(source)) throw new Error(`本体として置くものが plugin/ に無い: ${part}`);
+    const rels = fs.statSync(source).isDirectory() ? walk(source).map((rel) => `${part}/${rel}`) : [part];
+    for (const rel of rels) put(`${PLACED_DIR}/${rel}`, fs.readFileSync(path.join(PLUGIN_ROOT, rel)));
   }
   // Claude Code は、本体を相対パスの directory の marketplace として読む。plugin はその根にある。
   put(`${PLACED_DIR}/.claude-plugin/marketplace.json`, json({
@@ -124,7 +128,6 @@ export function layout() {
     description: MANIFEST.description,
     plugins: [{ name: MANIFEST.name, source: './', description: MANIFEST.description }],
   }));
-  put(`${PLACED_DIR}/README.md`, BODY_README);
   // Antigravity のワークスペースのルールは、trigger の無いファイルを読まない(資料による)。
   put('.agents/rules/dotagents.md', `${RULE_FRONT}\n\n${sharedText('placed')}\n`);
   for (const role of roles()) {
@@ -203,6 +206,52 @@ export const ENTRIES = {
     else delete data[ANTIGRAVITY_SET];
   },
 };
+
+// ---------------------------------------------------------------- .gitattributes
+//
+// 置いたファイルを、GitHub が生成物として扱う(差分を畳み、言語の集計から外す)ように、.gitattributes に linguist-generated の行を書く。
+// dotagents の行は、始まりと終わりの印の行で囲んだ 1 つの区画にまとめ、ほかの行には触れない。
+// - sync: 区画が無ければ末尾に足し、あれば中身だけを置き換える。ファイルが無ければ作る。
+// - remove: 区画を外す。残りが空なら、ファイルごと消す。
+// 印の文は、外すときの目印なので、バージョンをまたいで変えない。印の対がそろっていなければ、どこまでが dotagents の行か分からないので、止める。
+
+export const GITATTRIBUTES = '.gitattributes';
+export const ATTRIBUTES_BEGIN = '# dotagents: ここから(sync が書き、remove が外します。手で編集しないでください)';
+export const ATTRIBUTES_END = '# dotagents: ここまで';
+
+// 本体は丸ごと、ほかの置いたファイルは 1 つずつ挙げる。プロジェクトが自分で置いた、似た名前のファイルを生成物にしない。
+function attributeLines(files) {
+  const rels = [`${PLACED_DIR}/**`, ...[...files.keys()].filter((rel) => !rel.startsWith(`${PLACED_DIR}/`)).sort()];
+  return [ATTRIBUTES_BEGIN, ...rels.map((rel) => `${rel} linguist-generated=true`), ATTRIBUTES_END];
+}
+
+function attributesChange(root, files, changes) {
+  const now = readFile(root, GITATTRIBUTES)?.toString('utf8') ?? null;
+  if (now === null && !files) return;
+  const eol = now?.includes('\r\n') ? '\r\n' : '\n';
+  const lines = now === null || now === '' ? [] : now.split(/\r?\n/);
+  // 末尾の改行で分けた、最後の空の要素は、行ではない。
+  if (lines.at(-1) === '') lines.pop();
+  const begins = lines.flatMap((line, index) => (line.trim() === ATTRIBUTES_BEGIN ? [index] : []));
+  const ends = lines.flatMap((line, index) => (line.trim() === ATTRIBUTES_END ? [index] : []));
+  if (begins.length > 1 || begins.length !== ends.length || (begins.length && ends[0] < begins[0])) {
+    throw new StopError(`${GITATTRIBUTES} の dotagents の区画(「${ATTRIBUTES_BEGIN}」の行から「${ATTRIBUTES_END}」の行まで)の、始まりと終わりの行がそろっていません。区画を手で消すか直してから、実行し直してください。何も変えていません。`);
+  }
+  const ours = files ? attributeLines(files) : [];
+  let next;
+  if (begins.length) {
+    const before = lines.slice(0, begins[0]);
+    const after = lines.slice(ends[0] + 1);
+    // 末尾の区画を外すときは、足すときに入れた区切りの空行も外す。
+    if (!files && !after.length) while (before.length && before.at(-1).trim() === '') before.pop();
+    next = [...before, ...ours, ...after];
+  } else {
+    if (!files) return;
+    next = [...lines, ...(lines.length && lines.at(-1).trim() !== '' ? [''] : []), ...ours];
+  }
+  const text = next.some((line) => line.trim() !== '') ? `${next.join(eol)}${eol}` : null;
+  if (text !== now) changes.set(GITATTRIBUTES, text === null ? null : Buffer.from(text));
+}
 
 // ---------------------------------------------------------------- 古い参照
 //
@@ -445,6 +494,7 @@ export function sync(dir, { force = false } = {}) {
   for (const rel of stale) if (!next.has(rel)) changes.set(rel, null);
   const old = entryChanges(root, true, changes);
   declarationChange(root, true, changes);
+  attributesChange(root, next, changes);
   const recordText = recordOf(next);
   if (readFile(root, RECORD)?.toString('utf8') !== recordText) changes.set(RECORD, Buffer.from(recordText));
   const applied = apply(root, changes);
@@ -458,6 +508,7 @@ export function remove(dir) {
   for (const rel of Object.keys(record?.files ?? {})) changes.set(rel, null);
   entryChanges(root, false, changes);
   declarationChange(root, false, changes);
+  attributesChange(root, null, changes);
   if (record) changes.set(RECORD, null);
   const summary = apply(root, changes);
   // 記録に無いファイル(手で足したもの)は消さずに残し、知らせる。

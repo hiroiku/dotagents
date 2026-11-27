@@ -7,7 +7,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { main } from '../cli/dotagents.mjs';
-import { layout, RECORD } from '../cli/project.mjs';
+import { ATTRIBUTES_BEGIN, ATTRIBUTES_END, BODY, codexHooks, GITATTRIBUTES, layout, RECORD } from '../cli/project.mjs';
 
 const CLI = fileURLToPath(new URL('../cli/dotagents.mjs', import.meta.url));
 
@@ -60,7 +60,7 @@ test('sync は、無ければ置き、入口の設定に dotagents の項目だ�
   assert.equal(result.status, 0, result.err);
   assert.match(result.out, /\/hooks/);
   const placed = [...layout().keys()];
-  assert.deepEqual(files(root), [...new Set([...placed, RECORD, ...Object.keys(OWN)])].sort());
+  assert.deepEqual(files(root), [...new Set([...placed, RECORD, GITATTRIBUTES, ...Object.keys(OWN)])].sort());
   for (const rel of placed) assert.ok(result.out.includes(rel), rel);
   assert.equal(JSON.parse(read(root, RECORD)).version, JSON.parse(read(root, '.agents/dotagents/.claude-plugin/plugin.json')).version);
 
@@ -107,17 +107,17 @@ test('sync は、前のバージョンで置いたものを置き直し、新し
   assert.equal(cli('sync', root).status, 0);
   // 前のバージョンが置いた状態を作る。記録には、前のバージョンの中身のハッシュが入っている。
   const old = { version: '8.9.0', files: { ...JSON.parse(read(root, RECORD)).files } };
-  write(root, '.agents/dotagents/core/design.md', '前のバージョンの文\n');
+  write(root, '.agents/dotagents/agents/builder.md', '前のバージョンの文\n');
   write(root, '.agents/skills/dotagents-old/SKILL.md', '---\nname: dotagents-old\n---\n');
   write(root, '.agents/dotagents/src/old.mjs', 'export {};\n');
-  for (const rel of ['.agents/dotagents/core/design.md', '.agents/skills/dotagents-old/SKILL.md', '.agents/dotagents/src/old.mjs']) {
+  for (const rel of ['.agents/dotagents/agents/builder.md', '.agents/skills/dotagents-old/SKILL.md', '.agents/dotagents/src/old.mjs']) {
     old.files[rel] = crypto.createHash('sha256').update(read(root, rel)).digest('hex');
   }
   write(root, RECORD, JSON.stringify(old));
   const result = cli('sync', root);
   assert.equal(result.status, 0, result.err);
   assert.match(result.out, /8\.9\.0/);
-  assert.equal(read(root, '.agents/dotagents/core/design.md'), layout().get('.agents/dotagents/core/design.md').toString());
+  assert.equal(read(root, '.agents/dotagents/agents/builder.md'), layout().get('.agents/dotagents/agents/builder.md').toString());
   assert.equal(exists(root, '.agents/skills/dotagents-old'), false);
   assert.equal(exists(root, '.agents/dotagents/src/old.mjs'), false);
   assert.notEqual(JSON.parse(read(root, RECORD)).version, '8.9.0');
@@ -126,22 +126,115 @@ test('sync は、前のバージョンで置いたものを置き直し、新し
 test('sync は、置いたファイルが手で書き換えられていれば、どのファイルかを示して何も変えずに止まり、--force で上書きする', () => {
   const root = repo();
   assert.equal(cli('sync', root).status, 0);
-  write(root, '.agents/dotagents/core/design.md', '手で直した\n');
-  write(root, '.agents/dotagents/core/extra.md', '手で足した\n');
+  write(root, '.agents/dotagents/agents/builder.md', '手で直した\n');
+  write(root, '.agents/dotagents/agents/extra.md', '手で足した\n');
   fs.rmSync(path.join(root, '.codex/agents/dotagents-builder.toml'));
   fs.rmSync(path.join(root, '.claude/settings.json'));
   const before = files(root).map((rel) => [rel, read(root, rel)]);
   const stopped = cli('sync', root);
   assert.equal(stopped.status, 1);
-  for (const rel of ['.agents/dotagents/core/design.md', '.agents/dotagents/core/extra.md', '.codex/agents/dotagents-builder.toml']) assert.ok(stopped.err.includes(rel), rel);
+  for (const rel of ['.agents/dotagents/agents/builder.md', '.agents/dotagents/agents/extra.md', '.codex/agents/dotagents-builder.toml']) assert.ok(stopped.err.includes(rel), rel);
   assert.ok(stopped.err.includes('--force'));
   assert.deepEqual(files(root).map((rel) => [rel, read(root, rel)]), before);
 
   const forced = cli('sync', root, '--force');
   assert.equal(forced.status, 0, forced.err);
-  assert.equal(read(root, '.agents/dotagents/core/design.md'), layout().get('.agents/dotagents/core/design.md').toString());
-  assert.equal(exists(root, '.agents/dotagents/core/extra.md'), false);
+  assert.equal(read(root, '.agents/dotagents/agents/builder.md'), layout().get('.agents/dotagents/agents/builder.md').toString());
+  assert.equal(exists(root, '.agents/dotagents/agents/extra.md'), false);
   assert.ok(exists(root, '.codex/agents/dotagents-builder.toml') && exists(root, '.claude/settings.json'));
+});
+
+// 9.1.0 までは、本体に plugin/ の中身をすべて置き(src/ のモジュールと core/ の文も)、hook は本体の src/hook.mjs を呼んでいた。
+test('9.1.0 までを置いたリポジトリーで sync すると、もう置かないファイルを消し、hook の組を入口のファイルを呼ぶものに置き換える', () => {
+  const root = repo();
+  assert.equal(cli('sync', root).status, 0);
+  const old = { version: '9.1.0', files: { ...JSON.parse(read(root, RECORD)).files } };
+  const legacy = ['.agents/dotagents/src/hook.mjs', '.agents/dotagents/core/design.md', '.agents/dotagents/.codex-plugin/plugin.json', '.agents/dotagents/hosts/codex/hooks.json', '.agents/dotagents/package.json', '.agents/dotagents/README.md'];
+  for (const rel of legacy) {
+    write(root, rel, `${rel}\n`);
+    old.files[rel] = crypto.createHash('sha256').update(read(root, rel)).digest('hex');
+  }
+  write(root, RECORD, JSON.stringify(old));
+  const oldCommand = (event) => `"$(command -v bun || command -v node)" "$(git rev-parse --show-toplevel)/.agents/dotagents/src/hook.mjs" codex ${event}`;
+  write(root, '.codex/hooks.json', JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: oldCommand('session') }] }], PreToolUse: [{ matcher: '^Bash$', hooks: [{ type: 'command', command: './lint.sh' }] }, { matcher: '^(Bash|apply_patch)$', hooks: [{ type: 'command', command: oldCommand('tool') }] }] } }, null, 2));
+  const result = cli('sync', root);
+  assert.equal(result.status, 0, result.err);
+  for (const rel of legacy) assert.equal(exists(root, rel), false, rel);
+  for (const dir of ['src', 'core', '.codex-plugin', 'hosts/codex']) assert.equal(exists(root, `.agents/dotagents/${dir}`), false, dir);
+  const codex = JSON.parse(read(root, '.codex/hooks.json')).hooks;
+  assert.deepEqual(codex.SessionStart, codexHooks().SessionStart);
+  assert.deepEqual(codex.PreToolUse, [{ matcher: '^Bash$', hooks: [{ type: 'command', command: './lint.sh' }] }, ...codexHooks().PreToolUse]);
+  assert.ok(!read(root, '.codex/hooks.json').includes('src/hook.mjs'));
+});
+
+// リポジトリーの本体には、Claude Code が plugin として探すものと、hook の入口と schema だけを置く。
+test('本体に置くのは、Claude Code が plugin として探すファイルと、hook の入口、schema、記録だけである', () => {
+  const root = repo();
+  assert.equal(cli('sync', root).status, 0);
+  const body = files(root).filter((rel) => rel.startsWith('.agents/dotagents/')).map((rel) => rel.slice('.agents/dotagents/'.length));
+  const skills = fs.readdirSync(fileURLToPath(new URL('../plugin/skills', import.meta.url))).filter((name) => !name.startsWith('.')).sort();
+  assert.deepEqual(body, [
+    '.claude-plugin/marketplace.json',
+    '.claude-plugin/plugin.json',
+    'agents/builder.md',
+    'agents/reviewer.md',
+    'dotagents.mjs',
+    'hosts/claude/hooks.json',
+    'placed.json',
+    'schema/dotagents.schema.json',
+    ...skills.map((name) => `skills/${name}/SKILL.md`),
+  ].sort());
+  assert.ok(BODY.includes('dotagents.mjs'));
+});
+
+// 置いたファイルは、GitHub で生成物として扱う。.gitattributes のほかの行には触れない。
+test('sync は .gitattributes に、置いたファイルを生成物とする行を区画にまとめて書き、remove はその区画だけを外す', () => {
+  const generated = (text) => text.split('\n').filter((line) => line.endsWith(' linguist-generated=true')).map((line) => line.slice(0, -' linguist-generated=true'.length));
+  // 無いリポジトリーでは作り、remove で消す。
+  const none = repo();
+  assert.equal(cli('sync', none).status, 0);
+  const created = read(none, GITATTRIBUTES);
+  assert.ok(created.startsWith(`${ATTRIBUTES_BEGIN}\n`) && created.endsWith(`\n${ATTRIBUTES_END}\n`), created);
+  const outside = [...layout().keys()].filter((rel) => !rel.startsWith('.agents/dotagents/'));
+  assert.deepEqual(generated(created), ['.agents/dotagents/**', ...outside.sort()]);
+  for (const rel of ['.codex/agents/dotagents-builder.toml', '.agents/skills/dotagents-triage/SKILL.md', '.agents/agents/dotagents-reviewer.md', '.agents/rules/dotagents.md']) assert.ok(generated(created).includes(rel), rel);
+  assert.ok(!cli('sync', none).out.includes(GITATTRIBUTES), '2 回目は変えない');
+  assert.equal(cli('remove', none).status, 0);
+  assert.equal(exists(none, GITATTRIBUTES), false);
+
+  // あるリポジトリーでは、ほかの行を保って末尾に足し、remove で元の字のとおりに戻す。改行の形も保つ。
+  for (const own of ['*.png binary\ndocs/** linguist-documentation\n', '* text=auto eol=lf\r\n*.sh text eol=lf\r\n']) {
+    const root = repo();
+    write(root, GITATTRIBUTES, own);
+    const result = cli('sync', root);
+    assert.equal(result.status, 0, result.err);
+    assert.ok(result.out.includes(GITATTRIBUTES));
+    const text = read(root, GITATTRIBUTES);
+    const eol = own.includes('\r\n') ? '\r\n' : '\n';
+    assert.ok(text.startsWith(`${own}${eol}${ATTRIBUTES_BEGIN}${eol}`), JSON.stringify(text));
+    assert.ok(text.endsWith(`${ATTRIBUTES_END}${eol}`));
+    // 区画の後ろに利用者が足した行も、置き直しと remove のあとに残る。
+    write(root, GITATTRIBUTES, `${text}*.lock -diff${eol}`);
+    assert.equal(cli('sync', root).status, 0);
+    assert.equal(read(root, GITATTRIBUTES), `${text}*.lock -diff${eol}`);
+    assert.equal(cli('remove', root).status, 0);
+    assert.equal(read(root, GITATTRIBUTES), `${own}${eol}*.lock -diff${eol}`);
+  }
+  const plain = repo();
+  write(plain, GITATTRIBUTES, '*.png binary\n');
+  assert.equal(cli('sync', plain).status, 0);
+  assert.equal(cli('remove', plain).status, 0);
+  assert.equal(read(plain, GITATTRIBUTES), '*.png binary\n');
+
+  // 区画の始まりと終わりがそろっていなければ、どこまでが dotagents の行か分からないので、何も変えずに止まる。
+  for (const broken of [`${ATTRIBUTES_BEGIN}\n*.png binary\n`, `*.png binary\n${ATTRIBUTES_END}\n`, `${ATTRIBUTES_BEGIN}\n${ATTRIBUTES_END}\n${ATTRIBUTES_BEGIN}\n${ATTRIBUTES_END}\n`]) {
+    const root = repo();
+    write(root, GITATTRIBUTES, broken);
+    const result = cli('sync', root);
+    assert.equal(result.status, 1, broken);
+    assert.ok(result.err.includes(GITATTRIBUTES));
+    assert.deepEqual(files(root), [GITATTRIBUTES]);
+  }
 });
 
 test('sync は、入口の設定ファイルが JSON として読めなければ、何も変えずに止まる', () => {

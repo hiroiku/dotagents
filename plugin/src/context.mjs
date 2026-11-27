@@ -6,16 +6,14 @@
 // プロジェクトの決めごと(AGENTS.md)が優先する。サブエージェントの仕事の中身は、エージェントの定義(agents/)が持ち、
 // ホストがサブエージェントのコンテキストに読み込ませる。利用者が頼んだ場面の手順は、スキルが持つ。
 
-import fs from 'node:fs';
 import path from 'node:path';
+import { coreText } from './core.mjs';
 import { CHECK_STAGES, list, readDeclaration } from './declaration.mjs';
 import { roles } from './roles.mjs';
 import { PLUGIN_ROOT } from './root.mjs';
 import { nameSkills, namingFor } from './skills.mjs';
 
-export { PLUGIN_ROOT };
-
-export const coreText = (name) => fs.readFileSync(path.join(PLUGIN_ROOT, 'core', `${name}.md`), 'utf8').trim();
+export { coreText, PLUGIN_ROOT };
 
 export const RULES_TITLE = 'dotagents の既定のルール';
 export const SETTINGS_TITLE = 'このプロジェクトの設定(.agents/dotagents.jsonc)';
