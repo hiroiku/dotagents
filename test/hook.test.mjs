@@ -6,6 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
+import { PLACED_DIR, PLACED_RECORD } from '../plugin/src/root.mjs';
 
 const HOOK = fileURLToPath(new URL('../plugin/src/hook.mjs', import.meta.url));
 const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-codex-'));
@@ -133,4 +134,31 @@ test('プロジェクトに 8.x の写しが残っていても、受け口は譲
       assert.notEqual(run(host, 'tool', { cwd: dir, tool_name: 'Bash', tool_input: { command: 'gh release create v1' } }), null);
     }
   }
+});
+
+// リポジトリーに置いたもの(CLI が書いた記録がある)は、チームがそろえたバージョンなので、個人の環境の plugin が譲る。
+test('dotagents を置いたリポジトリーの中では、個人の環境にインストールした plugin の hook は何もしない', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-codex-'));
+  const cwd = project();
+  fs.mkdirSync(path.join(cwd, '.git'));
+  fs.mkdirSync(path.join(cwd, PLACED_DIR), { recursive: true });
+  fs.writeFileSync(path.join(cwd, PLACED_DIR, PLACED_RECORD), '{}');
+  const nested = path.join(cwd, 'packages', 'app');
+  fs.mkdirSync(nested, { recursive: true });
+  const raw = (host, event, input) => {
+    const result = spawnSync(process.execPath, [HOOK, host, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CODEX_HOME: home } });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout ? JSON.parse(result.stdout) : null;
+  };
+  const release = 'gh release create v1';
+  for (const host of ['claude', 'codex']) {
+    assert.equal(raw(host, 'session', { cwd: nested, hook_event_name: 'SessionStart' }), null, host);
+    assert.equal(raw(host, 'subagent', { cwd: nested, agent_id: 'a1', agent_type: 'dotagents:builder' }), null, host);
+    assert.equal(raw(host, 'tool', { cwd: nested, tool_name: 'Bash', tool_input: { command: release } }), null, host);
+  }
+  assert.deepEqual(fs.readdirSync(home), [], '個人の環境の Codex の設定にも書かない');
+  assert.equal(raw('antigravity', 'session', { workspacePaths: [nested] }), null);
+  assert.deepEqual(raw('antigravity', 'tool', { workspacePaths: [nested], toolCall: { name: 'run_command', args: { CommandLine: release, Cwd: nested } } }), { decision: 'allow' });
+  // 置いていないリポジトリーでは、これまでどおり動く。
+  assert.equal(raw('claude', 'tool', { cwd: project(), tool_name: 'Bash', tool_input: { command: release } }).hookSpecificOutput.permissionDecision, 'ask');
 });

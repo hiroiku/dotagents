@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { contextFor } from './context.mjs';
 import { decide, roleOf } from './guard.mjs';
 import { CODEX_MARK, codexAgent, roles } from './roles.mjs';
+import { PLACED, placedProject } from './root.mjs';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
@@ -31,7 +32,8 @@ function afterOf(name, toolInput, file) {
   }
 }
 
-// Codex は plugin でエージェントを運べない。エージェントの定義から導いた TOML を、利用者の設定に置き、バージョンが変わったら置き直す。
+// Codex は plugin でエージェントを運べない。個人の環境にインストールしたときは、エージェントの定義から導いた TOML を、
+// 利用者の設定に置き、バージョンが変わったら置き直す。リポジトリーに置いたときは、CLI が .codex/agents/ に置くので、ここは動かさない。
 // 手で置く手順にすると、plugin のバージョンとエージェントの定義がずれる。書き換えるのは、無いファイル、印のあるファイル、
 // 印を入れる前のバージョンが書いた中身と一致するファイルだけである。同じ名前で利用者が置いたファイルは上書きしない。
 export function syncCodexAgents(home = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')) {
@@ -128,6 +130,7 @@ export const ANTIGRAVITY_PASS = { decision: 'allow' };
 
 function antigravity(event, input) {
   const cwd = antigravityCwd(input);
+  if (yields(cwd)) return event === 'tool' ? ANTIGRAVITY_PASS : null;
   if (event === 'session') return { injectSteps: [{ systemMessage: { systemMessage: contextFor({ role: 'orchestrator', cwd, shared: false }) } }] };
   if (event !== 'tool') return null;
   for (const request of antigravityRequests(input)) {
@@ -138,11 +141,18 @@ function antigravity(event, input) {
   return ANTIGRAVITY_PASS;
 }
 
+// 個人の環境にインストールした plugin は、dotagents を置いたリポジトリーの中では何もしない。両方が動くと、同じ文を 2 回読み込ませ、
+// 同じ操作を 2 回確かめる。リポジトリーに置いたものは、チームがそろえたバージョンなので、そちらに譲る。
+// 譲るかは、置いたファイルの記録の有無だけで決める。リポジトリーに置いたものが動かない間(Codex で /hooks の承認の前など)は、
+// どちらも動かない。README と CLI の表示が、承認の手順を伝える。
+const yields = (cwd) => !PLACED && placedProject(cwd) !== null;
+
 export function handle(host, event, input) {
   if (host === 'antigravity') return antigravity(event, input);
   const cwd = input.cwd ?? process.cwd();
+  if (yields(cwd)) return null;
   if (event === 'session' || event === 'subagent') {
-    if (host === 'codex' && event === 'session') syncCodexAgents();
+    if (host === 'codex' && event === 'session' && !PLACED) syncCodexAgents();
     // Claude Code は、サブエージェントのコンテキストを作り直したときにも、そのサブエージェントの中でセッションの開始を知らせる。
     // その知らせにはエージェントの ID が付く。ID が付いた知らせにメインのセッションだけの部分を返すと、作り直しのあと、サブエージェントがオーケストレーターとして振る舞う。
     const role = event === 'session' && !input.agent_id ? 'orchestrator' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
