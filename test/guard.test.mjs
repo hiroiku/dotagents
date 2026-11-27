@@ -215,19 +215,19 @@ test('時間や数の上限では止めない', () => {
   }
 });
 
-test('ビルダーとレビュアーは、dotagents.jsonc のチェックをバックグラウンドで始めない。チェックかどうかはdotagents.jsonc のコマンドで見分ける', () => {
+test('バックグラウンドで始めたコマンドも、フォアグラウンドと同じに判定する', () => {
   const cwd = project({ checks: { edit: 'biome check {file}', commit: 'pnpm verify:changed', push: 'make ci' } });
-  const background = (command, role = 'builder', at = cwd) => decide({ tool: 'shell', command, cwd: at, role, background: true }, tools)?.kind ?? null;
-  for (const command of ['pnpm verify:changed', 'pnpm verify:changed -- src/a.ts', 'biome check src/a.ts', 'cd app && make ci']) assert.equal(background(command), 'pace', command);
-  assert.equal(background('pnpm verify:changed', 'reviewer'), 'pace');
-  // dotagents.jsonc に無いコマンドは、チェックらしい名前でも見ない。dotagents.jsonc が無ければ見ない。
-  for (const command of ['npm run dev', 'npm test', 'npx vitest run', 'pytest -q']) assert.equal(background(command), null, command);
-  assert.equal(background('npm test', 'builder', project()), null);
-  for (const role of ['orchestrator', 'worker']) assert.equal(background('pnpm verify:changed', role), null, role);
+  const background = (command, role = 'builder') => decide({ tool: 'shell', command, cwd, role, background: true }, tools)?.kind ?? null;
+  for (const command of ['pnpm verify:changed', 'biome check src/a.ts', 'npm test']) assert.equal(background(command), null, command);
+  assert.equal(background('make ci'), 'pace');
 });
 
-test('AI の関与を示す記述は、任せていても止める', () => {
-  const cwd = project({ delegated: ['push'] });
+test('AI の関与を示す記述は、プロジェクトが attribution を false にしたときだけ、委任していてもブロックする', () => {
+  for (const declaration of [{}, { attribution: true }]) {
+    const open = project(declaration);
+    assert.equal(decide({ tool: 'shell', command: 'git commit -m "a\n\nCo-Authored-By: Claude <noreply@anthropic.com>"', cwd: open, role: 'orchestrator' }, tools), null, JSON.stringify(declaration));
+  }
+  const cwd = project({ delegated: ['push'], attribution: false });
   const body = path.join(cwd, 'body.md');
   fs.writeFileSync(body, 'x\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n');
   assert.equal(decide({ tool: 'shell', command: 'git commit -m "a\n\nCo-Authored-By: Claude <noreply@anthropic.com>"', cwd, role: 'orchestrator' }, tools).kind, 'attribution');
@@ -242,6 +242,8 @@ test('dotagents.jsonc の書き換えは、線が動くときだけ確かめる'
   const wider = JSON.stringify({ delegated: ['push'], decisions: ['a'] });
   assert.equal(decide({ tool: 'edit', file, after: same, cwd, role: 'orchestrator', canAsk: true }, tools), null);
   assert.equal(decide({ tool: 'edit', file, after: wider, cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
+  // AI の署名のブロックを切り替える attribution も、hook の判定を変えるので確認する。
+  assert.equal(decide({ tool: 'edit', file, after: JSON.stringify({ delegated: ['push:develop'], decisions: ['a'], attribution: false }), cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
   assert.equal(decide({ tool: 'edit', file, cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
   assert.equal(decide({ tool: 'edit', file, after: '{ broken', cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
   assert.equal(decide({ tool: 'edit', file, after: wider, cwd, role: 'builder', canAsk: true }, tools).decision, 'deny');

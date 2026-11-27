@@ -64,7 +64,7 @@ export function requests(host, input) {
     return [...String(toolInput.command ?? '').matchAll(PATCH_FILE)].map(([, file]) => ({ ...base, tool: 'edit', file: file.trim() }));
   }
   if (name === 'Bash' && typeof toolInput.command === 'string') {
-    return [{ ...base, tool: 'shell', command: toolInput.command, background: toolInput.run_in_background === true }];
+    return [{ ...base, tool: 'shell', command: toolInput.command }];
   }
   const file = toolInput.file_path ?? toolInput.notebook_path;
   if (EDIT_TOOLS.has(name) && typeof file === 'string') return [{ ...base, tool: 'edit', file, after: afterOf(name, toolInput, path.resolve(cwd, file)) }];
@@ -116,7 +116,7 @@ export function antigravityRequests(input) {
   const cwd = antigravityCwd(input);
   // 確かめる画面は、Antigravity が出す(資料による)。
   const base = { cwd, role: 'orchestrator', canAsk: true };
-  if (name === 'run_command' && typeof args.CommandLine === 'string') return [{ ...base, tool: 'shell', command: args.CommandLine, background: false }];
+  if (name === 'run_command' && typeof args.CommandLine === 'string') return [{ ...base, tool: 'shell', command: args.CommandLine }];
   if (ANTIGRAVITY_EDITS.has(name) && typeof args.TargetFile === 'string') {
     return [{ ...base, tool: 'edit', file: args.TargetFile, after: antigravityAfter(name, args, path.resolve(cwd, args.TargetFile)) }];
   }

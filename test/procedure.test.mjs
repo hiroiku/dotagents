@@ -17,8 +17,8 @@ function project(declaration = {}) {
 const asBool = (value) => (/^(?:true|yes|on|1)$/i.test(value) ? 'true' : /^(?:false|no|off|0)$/i.test(value) ? 'false' : null);
 
 // git と gh の答えを差し替える。branch は今いるブランチ、remoteHead は手元に残っている origin/HEAD、config は git config の値。
-// repo は GitHub が答えるリポジトリーとデフォルトブランチ、prs は push するブランチごとの開いている PR。
-function tools({ branch = 'work/x', remoteHead = 'origin/main', upstream = null, config = {}, repo = { nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }, prs = {} } = {}) {
+// repo は GitHub が答えるリポジトリーとデフォルトブランチ。
+function tools({ branch = 'work/x', remoteHead = 'origin/main', upstream = null, config = {}, repo = { nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } } } = {}) {
   const asked = [];
   return {
     asked,
@@ -46,11 +46,6 @@ function tools({ branch = 'work/x', remoteHead = 'origin/main', upstream = null,
     gh: (cwd, ...args) => {
       asked.push(args.slice(0, 2).join(' '));
       if (args[0] === 'repo' && args[1] === 'view') return repo === null ? null : JSON.stringify(repo);
-      if (args[0] === 'api' && args[1] === 'graphql') {
-        if (prs === null) return null;
-        const branches = args.flatMap((arg, index) => (args[index - 1] === '-f' && /^b\d+=/.test(arg) ? [arg.split('=')] : []));
-        return JSON.stringify({ data: { repository: Object.fromEntries(branches.map(([alias, ...name]) => [alias, { nodes: prs[name.join('=')] ? [prs[name.join('=')]] : [] }])) } });
-      }
       return null;
     },
   };
@@ -205,54 +200,6 @@ test('pull.rebase が利用者全体とリポジトリーで違っても、git �
     if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
     else process.env.GIT_CONFIG_GLOBAL = previous;
   }
-});
-
-const pr = (...runs) => ({ number: 12, commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: runs } } } }] } });
-const run_ = (status, id = 777, name = 'test') => ({ __typename: 'CheckRun', status, checkSuite: { workflowRun: { databaseId: id, workflow: { name } } } });
-
-test('push するブランチの PR で workflow が走っている間は、push を止め、待つか止めるかを案内する', () => {
-  const stopped = run('git push origin work/x', { prs: { 'work/x': pr(run_('IN_PROGRESS')) } });
-  assert.equal(stopped.decision, 'deny');
-  assert.equal(stopped.kind, 'ci');
-  assert.match(stopped.reason, /PR #12/);
-  assert.match(stopped.reason, /gh run cancel 777/);
-  assert.equal(kind('git push', { prs: { 'work/x': pr(run_('QUEUED')) }, upstream: 'origin/work/x' }), 'ci');
-  assert.equal(kind('git push -u origin HEAD', { prs: { 'work/x': pr(run_('QUEUED')) } }), 'ci');
-  // 利用者に確かめる操作ではないので、確認済みフラグでも通さない。
-  assert.equal(kind(`${CONFIRMED}=1 git push origin work/x`, { prs: { 'work/x': pr(run_('IN_PROGRESS')) } }), 'ci');
-  assert.equal(kind('git push origin work/x', { role: 'builder', prs: { 'work/x': pr(run_('IN_PROGRESS')) } }), 'ci');
-});
-
-test('workflow が終わっている、PR が無い、gh の答えが読めないときは、push を止めない', () => {
-  for (const prs of [{ 'work/x': pr(run_('COMPLETED')) }, { 'work/x': pr({ __typename: 'StatusContext', context: 'ci/x', state: 'PENDING' }) }, { 'work/x': { number: 1, commits: { nodes: [{ commit: { statusCheckRollup: null } }] } } }, {}, null]) {
-    assert.equal(kind('git push origin work/x', { prs }), null, JSON.stringify(prs));
-  }
-  const running = { 'work/x': pr(run_('IN_PROGRESS')) };
-  for (const command of ['git push --dry-run origin work/x', 'git push origin v1.2.3', 'git push origin --delete work/x', 'git push origin :work/x']) assert.notEqual(kind(command, { prs: running }), 'ci', command);
-});
-
-test('push するブランチがいくつあっても、GitHub へは 1 回だけ尋ねる', () => {
-  const probe = tools({ prs: { 'work/b': pr(run_('IN_PROGRESS', 778, 'e2e')) } });
-  const stopped = decide({ tool: 'shell', command: 'git push origin work/a work/b', cwd: project(), role: 'orchestrator', canAsk: true }, probe);
-  assert.equal(stopped.kind, 'ci');
-  assert.match(stopped.reason, /work\/b.*e2e.*gh run cancel 778/);
-  assert.deepEqual(probe.asked, ['api graphql']);
-});
-
-// CI の待ちは、確認済みフラグでも、利用者の受け入れでも通らない。確かめの要る push でも、まず待つよう返す。
-test('同じコマンドに外部に影響する操作があっても、CI が走っている間の push は、ほかの判定より先に止める', () => {
-  const running = { prs: { 'work/x': pr(run_('IN_PROGRESS')), main: pr(run_('QUEUED')) } };
-  for (const command of ['git push origin work/x v1.2.3', 'git push origin work/x main', 'git push origin main', `${CONFIRMED}=1 git push origin main`, 'git commit -m x && git push origin work/x']) {
-    for (const canAsk of [true, false]) {
-      const stopped = decide({ tool: 'shell', command, cwd: project(), role: 'orchestrator', canAsk }, tools(running));
-      assert.equal(stopped?.kind, 'ci', `${command} (canAsk: ${canAsk})`);
-      assert.equal(stopped.decision, 'deny');
-    }
-  }
-  // 任せた push でも同じである。
-  assert.equal(decide({ tool: 'shell', command: 'git push origin main', cwd: project({ delegated: ['push:main'] }), role: 'orchestrator', canAsk: true }, tools(running)).kind, 'ci');
-  // 走っていなければ、外部に影響する操作の確かめに戻る。
-  assert.equal(decide({ tool: 'shell', command: 'git push origin work/x main', cwd: project(), role: 'orchestrator', canAsk: true }, tools()).decision, 'ask');
 });
 
 test('今いるブランチが分からないときは、行き先を書かない push を外部に影響するものとして扱う', () => {

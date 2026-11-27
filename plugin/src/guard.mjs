@@ -129,10 +129,10 @@ function gitCommand(words, cwd, git) {
 
 const isLocalRemote = (ask, remote) => /^(?:\/|\.{1,2}\/|file:)/.test(ask('remote', 'get-url', remote) ?? remote);
 
-// push を読み、外部に影響する操作(found)と、書き換えて残すブランチ(updated)を返す。
+// push を読み、外部に影響する操作を返す。
 function parsePush(words, cwd, declaration, git) {
-  const none = { found: [], updated: [] };
-  const { dir, sub, rest, ask } = gitCommand(words, cwd, git);
+  const none = [];
+  const { sub, rest, ask } = gitCommand(words, cwd, git);
   if (sub !== 'push') return none;
   const args = [];
   const flags = new Set();
@@ -151,14 +151,12 @@ function parsePush(words, cwd, declaration, git) {
   const { defaults, guarded } = guardedBranches(ask, remote, declaration);
   const current = () => ask('symbolic-ref', '-q', '--short', 'HEAD');
   const found = [];
-  const updated = [];
   // 行き先が今いるブランチで、それが分からないとき(git が答えないとき)は、共有ブランチかもしれないものとして扱う。
   const branch = (name, rewrites, removes = false) => {
     if (!name) {
       found.push({ kind: rewrites || removes ? 'rewrite' : 'push', target: 'HEAD' });
       return;
     }
-    if (!removes) updated.push(name);
     if (matches(guarded, name)) found.push({ kind: rewrites || removes ? 'rewrite' : 'push', target: name });
   };
   if (flags.has('--all') || flags.has('--mirror') || flags.has('--branches')) {
@@ -197,10 +195,10 @@ function parsePush(words, cwd, declaration, git) {
     if (named && !ask('rev-parse', '-q', '--verify', `refs/heads/${target}`)) found.push({ kind: 'tag', target });
     else branch(target, forced, remove || (at >= 0 && source === ''));
   }
-  return { found, updated, dir };
+  return found;
 }
 
-const gitPush = (words, cwd, declaration, git) => parsePush(words, cwd, declaration, git).found;
+const gitPush = parsePush;
 
 const API_KINDS = [
   [/\/pulls\/\d+\/merge$|\/merges$/, 'merge'],
@@ -295,12 +293,10 @@ function editFinding(request) {
 //
 // 外部に影響する操作の確かめとは別に、外すと費用が大きく、見分けが確かな手順だけを止めて、理由を返す。任せることはできない。
 // 追従の merge と PR の base は、利用者が明示して求めたときに、オーケストレーターが確認済みフラグを付けて実行し直せる。
-// CI の待ちは、利用者に確かめない。待つか、要らない実行を止めるかは、エージェントが決められるからである。
 
 export const PROCEDURE_LABELS = {
   follow: '追従のための merge',
   base: 'デフォルトブランチ以外を base にする PR',
-  ci: 'CI の実行中の push',
 };
 
 // merge と pull で、値を 1 つ取る指定。
@@ -431,41 +427,6 @@ function prBase(command, gh) {
   return { kind: 'base', reason: `このハーネスの git の運用(trunk)では、PR の base は ${target}(デフォルトブランチ)にしてください。base を ${base} にする PR の作成はブロックします。` };
 }
 
-// push するブランチの、開いている PR と、その最新のコミットの workflow の実行。ブランチの名前は変数で渡す。
-const CHECK_RUNS = 'commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ...on CheckRun{status checkSuite{workflowRun{databaseId workflow{name}}}}}}}}}}';
-
-// 1 回の問い合わせで、push するブランチすべての PR を尋ねる。ブランチごとに尋ねると、数だけ待つ。
-function ciRunning(request, declaration, tools) {
-  const pushed = new Map();
-  for (const command of simpleCommands(request.command, request.cwd)) {
-    if (command.words[0] !== 'git') continue;
-    const { updated, dir } = parsePush(command.words, command.cwd, declaration, tools.git);
-    if (updated.length) pushed.set(dir, [...new Set([...(pushed.get(dir) ?? []), ...updated])]);
-  }
-  for (const [dir, branches] of pushed) {
-    const names = branches.map((_, index) => `b${index}`);
-    const query = `query($owner:String!,$repo:String!${names.map((name) => `,$${name}:String!`).join('')}){repository(owner:$owner,name:$repo){${names.map((name) => `${name}:pullRequests(headRefName:$${name},states:OPEN,first:1){nodes{number ${CHECK_RUNS}}}`).join(' ')}}}`;
-    let found;
-    try {
-      found = JSON.parse(tools.gh(dir, 'api', 'graphql', '-F', 'owner={owner}', '-F', 'repo={repo}', ...branches.flatMap((branch, index) => ['-f', `${names[index]}=${branch}`]), '-f', `query=${query}`) ?? '')?.data?.repository;
-    } catch {
-      continue;
-    }
-    for (const [index, branch] of branches.entries()) {
-      const pr = found?.[names[index]]?.nodes?.[0];
-      const contexts = pr?.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes;
-      if (!Array.isArray(contexts)) continue;
-      const running = contexts.filter((check) => check?.__typename === 'CheckRun' && check.checkSuite?.workflowRun && check.status && check.status !== 'COMPLETED');
-      if (!running.length) continue;
-      const workflows = [...new Set(running.map((check) => check.checkSuite.workflowRun.workflow?.name).filter(Boolean))].join('、');
-      const runs = [...new Set(running.map((check) => check.checkSuite.workflowRun.databaseId).filter(Boolean))];
-      const cancel = runs.length ? `\`${runs.map((id) => `gh run cancel ${id}`).join(' && ')}\`` : '`gh run cancel`';
-      return { kind: 'ci', reason: `${branch} の PR #${pr.number} で、workflow(${workflows})がまだ実行中です。完了を待ってから push してください。不要な実行なら、${cancel} で停止してから push してください。実行中に push すると、同じチェックに 2 回分の費用がかかります。` };
-    }
-  }
-  return null;
-}
-
 // 単純なコマンドごとに check で止める手順を探す。オーケストレーターは、そのコマンドに確認済みフラグがあれば通す。
 function stopIn(request, check) {
   for (const command of simpleCommands(request.command, request.cwd)) {
@@ -520,12 +481,12 @@ export function findings(request, declaration, tools) {
 const describe = (finding) => `${KIND_LABELS[finding.kind]}${finding.target && finding.target !== '*' ? `(${finding.target})` : ''}`;
 const entryOf = (finding) => `"${finding.kind}${finding.target && finding.target !== '*' ? `:${finding.target}` : ''}"`;
 
-// ビルダーとレビュアーが実行しないチェック。push 時とリリース前のチェックは、オーケストレーターがバッチごとに 1 回実行する。
+// ビルダーとレビュアーが実行しないチェック。push 時とリリース前のチェックは、バッチを push する前とリリースの前に、メインのセッションで 1 回だけ実行する。
 // 時間では切らない。止めるのは、プロジェクトがその段階に置いたコマンドそのものだけで、引数を足して絞った実行は通す。
 // 同じコマンドを edit や commit のチェックにも置いているなら、このエージェントの持ち場なので止めない。
 const HEAVY_TIERS = [
-  ['release', 'リリース前のチェック'],
-  ['push', 'push 時のチェック'],
+  ['release', { label: 'リリース前のチェック', when: 'リリースの前' }],
+  ['push', { label: 'push 時のチェック', when: 'バッチを push する前' }],
 ];
 const commandLines = (text, cwd) => simpleCommands(text, cwd).map(({ words }) => words.join(' ')).filter(Boolean);
 
@@ -545,16 +506,8 @@ function pace(request, declaration) {
   const heavy = heavyChecks(declaration, request.cwd);
   const hit = heavy.size ? commandLines(request.command, request.cwd).find((line) => heavy.has(line)) : undefined;
   if (hit) {
-    return `\`${hit}\` は、${heavy.get(hit)}として、このプロジェクトの checks に書かれたコマンドなので、ブロックしました。このチェックはオーケストレーターが実行します。変更したファイルと、それに依存するテストに絞って実行してください。このチェックを実行していないことは、報告に書いてください。`;
-  }
-  // バックグラウンドで始めると、完了を受け取れずに待つことになる。チェックかどうかは、`dotagents.jsonc` の checks のコマンドで見分ける。
-  // 絞った実行も同じである。edit のチェックの {file} から後ろは、ファイルごとに変わるので比べない。
-  if (request.background) {
-    const declared = ['edit', 'commit', 'push', 'release'].flatMap((key) => tierLines(declaration, key, request.cwd)).map((line) => line.split('{file}')[0].trim()).filter(Boolean);
-    const started = commandLines(request.command, request.cwd);
-    if (started.some((line) => declared.some((check) => line === check || line.startsWith(`${check} `)))) {
-      return 'このエージェントは、バックグラウンドで始めた処理の完了を受け取れません。チェックは、フォアグラウンドで実行してください。';
-    }
+    const { label, when } = heavy.get(hit);
+    return `\`${hit}\` は、${label}として、このプロジェクトの checks に書かれたコマンドなので、ブロックしました。このチェックは、${when}に、メインのセッションで 1 回だけ実行します。変更したファイルと、それに依存するテストに絞って実行してください。このチェックを実行していないことは、報告に書いてください。`;
   }
   return null;
 }
@@ -577,7 +530,7 @@ function remembered(tools) {
 }
 
 // request: { tool: 'shell' | 'edit' | 'connector', cwd, role: 'orchestrator' | 'builder' | 'reviewer' | 'worker', canAsk,
-//            command, background,              … shell
+//            command,                          … shell
 //            file, after,                      … edit(after は書き換えたあとの全文。分からなければ省く)
 //            name }                            … connector(ツールの名前)
 // 判定は 2 つに分かれる。
@@ -585,17 +538,14 @@ function remembered(tools) {
 // - 手元の判定(外部に影響する操作、追従の merge、署名、チェック): 手元の git に、手元の時間の内で尋ねる。要る答えが
 //   得られなければ、外部に影響するものとして扱う(閉じる側)。gh pr merge の対象(base)だけは GitHub に尋ね、答えが無ければ
 //   対象を決めず、任せた種類に当てない。
-// - GitHub に尋ねる判定(CI の待ち、PR の base): 手元の判定の結果に関わらず、GitHub の時間の内で尋ねる。答えが無ければ
+// - GitHub に尋ねる判定(PR の base): 手元の判定の結果に関わらず、GitHub の時間の内で尋ねる。答えが無ければ
 //   止めない(開く側)。
-//
-// CI の待ちは、ほかのどの判定より先に返す。確認済みフラグでも、利用者の承認でも通らないからである。
 export function decide(request, given) {
   const tools = remembered(given ?? runners());
   const { value: declaration } = readDeclaration(request.cwd);
   if (request.tool === 'shell') {
-    const ci = ciRunning(request, declaration, tools);
-    if (ci) return { decision: 'deny', kind: ci.kind, reason: ci.reason };
-    const stamp = attribution(request.command, request.cwd);
+    // AI の関与を示す記述は、プロジェクトが `"attribution": false` と書いたときだけブロックする。
+    const stamp = declaration.attribution === false ? attribution(request.command, request.cwd) : null;
     if (stamp) return { decision: 'deny', kind: 'attribution', reason: stamp };
     const slow = pace(request, declaration);
     if (slow) return { decision: 'deny', kind: 'pace', reason: slow };

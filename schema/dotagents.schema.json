@@ -41,13 +41,17 @@
         },
         "push": {
           "type": "string",
-          "description": "push の前に、オーケストレーターが実行する重いチェックです。ビルダーとレビュアーがそのまま実行すると、hook がブロックします。"
+          "description": "バッチを push する前に、メインのセッションで 1 回だけ実行する重いチェックです。ビルダーとレビュアーがそのまま実行すると、hook がブロックします。"
         },
         "release": {
           "type": "string",
-          "description": "リリースの前に、オーケストレーターが実行するチェック(全体のテスト、E2E)です。ビルダーとレビュアーがそのまま実行すると、hook がブロックします。"
+          "description": "リリースの前に、メインのセッションで 1 回だけ実行するチェック(全体のテスト、E2E)です。ビルダーとレビュアーがそのまま実行すると、hook がブロックします。"
         }
       }
+    },
+    "attribution": {
+      "type": "boolean",
+      "description": "false にすると、コミットメッセージ、PR、issue、リリースに AI の関与を示す記述(Co-Authored-By の行、Generated with の行など)を書くコマンドを、hook がブロックします。書かないか true にすると、ブロックしません。"
     },
     "decisions": {
       "type": "array",

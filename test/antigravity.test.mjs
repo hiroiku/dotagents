@@ -96,7 +96,7 @@ test('Antigravity では、外部に影響する操作を毎回確かめ、止�
   const push = shell(cwd, 'git push origin main');
   assert.equal(push.decision, 'force_ask');
   assert.match(push.reason, /共有ブランチへの push/);
-  const signed = shell(cwd, 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"');
+  const signed = shell(project({ attribution: false }), 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"');
   assert.equal(signed.decision, 'deny');
   assert.match(signed.reason, /AI の関与/);
   // allow は、ほかの hook と既定の許可の流れに任せる。auto_approve は確かめを飛ばすので返さない(資料による)。

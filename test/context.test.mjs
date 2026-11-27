@@ -33,12 +33,12 @@ test('プロジェクトの決定とチェックの入口は、どのロール�
   }
   assert.match(contextFor({ role: 'orchestrator', cwd }), /確認せずに進める: push:develop/);
   assert.doesNotMatch(contextFor({ role: 'builder', cwd }), /確認せずに進める/);
-  // オーケストレーターが回す段階は、ビルダーとレビュアーにだけ、止まることを知らせる。
-  for (const role of ['builder', 'reviewer']) assert.match(contextFor({ role, cwd }), /push 時のチェックのコマンドは、オーケストレーターが実行する。このエージェントがそのまま実行すると、hook がブロックする。対象を絞った実行はブロックしない。/, role);
+  // push 時とリリース前のチェックは、ビルダーとレビュアーにだけ、ブロックされることを伝える。
+  for (const role of ['builder', 'reviewer']) assert.match(contextFor({ role, cwd }), /push 時のチェックのコマンドは、バッチを push する前に、メインのセッションで 1 回だけ実行する。このエージェントがそのまま実行すると、hook がブロックする。対象を絞った実行はブロックしない。/, role);
   for (const role of ['orchestrator', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /hook がブロックする/, role);
   const both = project({ checks: { push: 'npm run check', release: 'npm run e2e' } });
-  assert.match(contextFor({ role: 'builder', cwd: both }), /push 時とリリース前のチェックのコマンドは、オーケストレーターが実行する。/);
-  assert.doesNotMatch(contextFor({ role: 'builder', cwd: project({ checks: { edit: 'biome check {file}' } }) }), /オーケストレーターが実行する/);
+  assert.match(contextFor({ role: 'builder', cwd: both }), /push 時とリリース前のチェックのコマンドは、バッチを push する前とリリースの前に、メインのセッションで 1 回だけ実行する。/);
+  assert.doesNotMatch(contextFor({ role: 'builder', cwd: project({ checks: { edit: 'biome check {file}' } }) }), /メインのセッションで 1 回だけ実行する/);
 });
 
 // 数値は決まりとして読まれ、状況に合わなくても守られる。進め方は、理由と引き換えで書く。

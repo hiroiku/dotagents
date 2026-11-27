@@ -17,7 +17,7 @@ export { PLUGIN_ROOT };
 export const coreText = (name) => fs.readFileSync(path.join(PLUGIN_ROOT, 'core', `${name}.md`), 'utf8').trim();
 
 // ビルダーとレビュアーが実行しないチェック。
-const HEAVY = { push: 'push 時', release: 'リリース前' };
+const HEAVY = { push: ['push 時', 'バッチを push する前'], release: ['リリース前', 'リリースの前'] };
 
 function projectFacts({ role, value, error }) {
   const parts = [];
@@ -28,7 +28,7 @@ function projectFacts({ role, value, error }) {
   if (checks.length) {
     const lines = ['# チェックのコマンド', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
     const heavy = checks.filter((key) => key in HEAVY).map((key) => HEAVY[key]);
-    if (heavy.length && (role === 'builder' || role === 'reviewer')) lines.push('', `${heavy.join('と')}のチェックのコマンドは、オーケストレーターが実行する。このエージェントがそのまま実行すると、hook がブロックする。対象を絞った実行はブロックしない。`);
+    if (heavy.length && (role === 'builder' || role === 'reviewer')) lines.push('', `${heavy.map(([label]) => label).join('と')}のチェックのコマンドは、${heavy.map(([, when]) => when).join('と')}に、メインのセッションで 1 回だけ実行する。このエージェントがそのまま実行すると、hook がブロックする。対象を絞った実行はブロックしない。`);
     parts.push(lines.join('\n'));
   }
   if (role === 'orchestrator') {
