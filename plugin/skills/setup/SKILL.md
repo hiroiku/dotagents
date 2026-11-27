@@ -18,7 +18,7 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
    - Antigravity: このリポジトリーをローカルに clone し、`agy plugin install <clone>/antigravity`。バージョンを上げたら、`git pull` のあと同じコマンドでインストールし直す(資料による。実機では未検証)。プロジェクトで共有する参照の書き方は無い。`.agents/plugins/` に置くとコピーになるので置かない。Antigravity で守れない決まりは README にあり、インストールの前に利用者に伝える。
 2. 設定ファイルが要るかを、利用者に確認する。要るのは、チェックのコマンドを渡したいとき、委任する操作を決めたいとき、共有ブランチを追加したいとき、続いている決定を残したいときである。
    - `checks` は、プロジェクトの script と workflow から当てはめる。CI が呼んでいるコマンドを、`push` に置く。無いチェックは、作ることを提案する。
-   - レイヤー構成(layered)は、すべてのプロジェクトで読み込まれる。層の依存の向きの違反を検出する lint かチェックがプロジェクトにあるかを調べる。ハーネスは決まりを読み込ませるだけで、チェックツールは提供しない。無ければ、作ることを利用者に提案し、作ったら `checks` に置く。
+   - レイヤー構成(layered)は、すべてのプロジェクトで読み込まれる。依存の向き、ファイルの配置、命名の違反を検出する lint がプロジェクトにあるかを調べる(下の「診断」の該当項目)。
    - `decisions` と `delegated` は、「dotagents.jsonc の書き方」に沿って、利用者の言葉から書く。
    - 書くときは、先頭に `$schema` の行を置く例(下の「dotagents.jsonc の項目」)に沿う。書くものが無ければ、ファイルは置かない。
 3. ルートに `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
@@ -54,6 +54,7 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
 - この環境の Claude Code にインストールされていない: `~/.claude/plugins/installed_plugins.json`(`CLAUDE_CONFIG_DIR` があればその下)の `plugins["dotagents@dotagents"]` に、`scope` が `user` の記録か、`projectPath` がこのプロジェクトで `scope` が `project` か `local` の記録が無い。
 - Antigravity を使う利用者の `agy plugin list` に、dotagents が enabled で出ない: Antigravity では働かない。バージョンが Claude Code の plugin と違えば、インストールし直すよう伝える。
 - 共有ブランチが GitHub で保護されていない: 共有ブランチ(リモートのデフォルトブランチ、`main`、`master`、`protected` の名前。`*` を含むものは除く)ごとに、`gh api repos/{owner}/{repo}/rules/branches/<ブランチ> --jq length` が 1 以上か、`gh api repos/{owner}/{repo}/branches/<ブランチ>/protection` が応答すれば、保護されている。どちらも応答しなければ、検証できなかったと伝える。保護されていなければ、ハーネスをインストールしていない人やツールは、確認なしで push できる。
+- レイヤー構成の依存の向き、ファイルの配置、命名を検出する lint がプロジェクトに無い(`domain` と `application` で許す純粋な計算のパッケージの許可リストを含む): 決まりが文だけになり、違反がレビューまで残る。作ることを利用者に提案し、作ったら `checks` に置く。ハーネスは決まりを読み込ませるだけで、lint のツールは提供しない。
 - ルートに `ARCHITECTURE.md` が無い: エージェントは構成を知らないまま実装する。あれば、書いた不変条件と配置場所の違反を検出する lint かチェックが、`checks` にあるか。
 - 8.x と 7.x の残りが、上の「8.x と 7.x からの移行」に当てはまる。
 
