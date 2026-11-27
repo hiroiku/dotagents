@@ -5,7 +5,7 @@
 //   { decision: 'deny', … }      止めて、理由をモデルへ返す
 //   { decision: 'ask', … }       利用者に確かめる(確かめる手段のあるホストでだけ返す)
 //
-// 確かめるのは、手元の外へ届く操作と、確かめる線そのものを動かす操作だけにする。プロジェクトが `dotagents.json` で
+// 確かめるのは、手元の外へ届く操作と、確かめる線そのものを動かす操作だけにする。プロジェクトが `dotagents.jsonc` で
 // 任せた種類は通す。読めない形は通す。判定の誤りで、作業そのものを止めないためである。
 // これは誤りを防ぐ仕掛けで、隔離ではない。スクリプトの中に隠した操作までは読まない。
 
@@ -34,7 +34,7 @@ export const KIND_LABELS = {
   workflow: 'workflow の起動',
   message: '人への連絡や共有',
   instructions: '指示ファイル(AGENTS.md、CLAUDE.md)の書き換え',
-  policy: '確かめる線(dotagents.json)の書き換え',
+  policy: '確かめる線(dotagents.jsonc)の書き換え',
 };
 const PACED = new Set(['builder', 'reviewer']);
 // 任せられない種類。線そのものを動かすか、保護を外す操作である。
@@ -81,10 +81,10 @@ export function delegated(entries, finding) {
 // ---------------------------------------------------------------- git と gh
 
 // main と master は、デフォルトブランチでなくても共有のブランチとして扱う。デフォルトが develop のプロジェクトでは、
-// 本番のブランチがこの名前で残っていることが多く、`dotagents.json` を書くまで、そこへの push が確かめなしで通っていた。
+// 本番のブランチがこの名前で残っていることが多く、`dotagents.jsonc` を書くまで、そこへの push が確かめなしで通っていた。
 const CONVENTIONAL = ['main', 'master'];
 
-// 共有のブランチ。リモートの既定のブランチ、main と master、`dotagents.json` の protected を合わせる。
+// 共有のブランチ。リモートの既定のブランチ、main と master、`dotagents.jsonc` の protected を合わせる。
 // ask は、git にそのリポジトリーについて尋ねる関数である。
 // リモートの既定が記録されていなければ、main と master を既定とみなす。git が答えなければ、どのブランチも既定かも
 // しれないので、すべてを共有のブランチとして扱う(外へ届く側に倒す)。
@@ -545,7 +545,7 @@ function pace(request, declaration) {
   if (hit) {
     return `\`${hit}\` は、このプロジェクトが ${heavy.get(hit)}に置いたチェックです。オーケストレーターがバッチごとに 1 回回すので、このエージェントは回しません。変更したファイルと、それに依存するテストに絞って実行してください。このチェックを回していないことは、報告に書いてください。`;
   }
-  // バックグラウンドで始めると、完了を受け取れずに待つことになる。チェックかどうかは、`dotagents.json` の checks のコマンドで見分ける。
+  // バックグラウンドで始めると、完了を受け取れずに待つことになる。チェックかどうかは、`dotagents.jsonc` の checks のコマンドで見分ける。
   // 絞った実行も同じである。edit の段階の {file} から後ろは、ファイルごとに変わるので比べない。
   if (request.background) {
     const declared = ['edit', 'commit', 'push', 'release'].flatMap((key) => tierLines(declaration, key, request.cwd)).map((line) => line.split('{file}')[0].trim()).filter(Boolean);

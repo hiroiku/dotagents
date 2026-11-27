@@ -20,7 +20,7 @@ const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
 
 const roleFrom = (input) => roleOf({ agentId: input.agent_id, agentType: input.agent_id ? input.agent_type : undefined });
 
-// 書き換えたあとの全文。`dotagents.json` の書き換えが、確かめる線を動かすかどうかを見るために使う。
+// 書き換えたあとの全文。`dotagents.jsonc` の書き換えが、確かめる線を動かすかどうかを見るために使う。
 function afterOf(name, toolInput, file) {
   if (name === 'Write') return typeof toolInput.content === 'string' ? toolInput.content : undefined;
   if (name !== 'Edit' || typeof toolInput.old_string !== 'string' || typeof toolInput.new_string !== 'string') return undefined;

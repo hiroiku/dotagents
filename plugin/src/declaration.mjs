@@ -1,4 +1,5 @@
-// プロジェクトの `dotagents.json`。プロジェクトが自分で書き、仕組み(hook)が読む。どの項目も省ける。
+// プロジェクトの `.agents/dotagents.jsonc`。プロジェクトが自分で書き、仕組み(hook)が読む。どの項目も省ける。
+// 注釈(`//`、`/* */`)と末尾のカンマを書ける(jsonc.mjs)。古い名前の `dotagents.json` は読まない。
 //
 //   protected  共有のブランチとして扱う名前。リモートのデフォルトブランチと main、master は、書かなくても含まれる。
 //              `*` が使える。
@@ -18,17 +19,19 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseJsonc } from './jsonc.mjs';
 
-export const DECLARATION = path.join('.agents', 'dotagents.json');
+export const DECLARATION = path.join('.agents', 'dotagents.jsonc');
 const POLICY_KEYS = ['protected', 'delegated', 'checks'];
 
+// 注釈と末尾のカンマを許す。読めなければ、行と列を添えて投げる。
 export function parseDeclaration(text) {
-  const value = JSON.parse(text);
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('dotagents.json はオブジェクトで書く');
+  const value = parseJsonc(text);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('dotagents.jsonc はオブジェクトで書く');
   return value;
 }
 
-// cwd から上へたどり、最初に見つかった `dotagents.json` を読む。worktree の中では、その worktree のものが先に見つかる。
+// cwd から上へたどり、最初に見つかった `dotagents.jsonc` を読む。worktree の中では、その worktree のものが先に見つかる。
 export function findDeclaration(cwd) {
   let dir = path.resolve(cwd);
   for (;;) {

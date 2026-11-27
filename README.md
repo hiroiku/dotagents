@@ -42,14 +42,15 @@ The plugin is installed with each host's ordinary steps, and it works with no co
 
 If you installed the harness yourself and the project also references it, it is the same plugin, so nothing is injected twice. Only a **reference** to this repository is written, never a copy, so upgrading the harness creates no commits in your project.
 
-To change something, write `.agents/dotagents.json` by hand (below). You can also ask the agent to do the install and the file for you (the `setup` skill): it also removes what 8.x and 7.x left behind, proposes an `ARCHITECTURE.md`, and checks a project (declaration, references, and whether GitHub protects the shared branches).
+To change something, write `.agents/dotagents.jsonc` by hand (below). You can also ask the agent to do the install and the file for you (the `setup` skill): it also removes what 8.x and 7.x left behind, proposes an `ARCHITECTURE.md`, and checks a project (declaration, references, and whether GitHub protects the shared branches).
 
 ## The project declaration
 
-Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks and every role's context read it. All keys are optional.
+Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks and every role's context read it. All keys are optional. Comments (`//`, `/* */`) and trailing commas are allowed, hence the `.jsonc` name. An older `.agents/dotagents.json` is not read: rename it. If the file cannot be read, the orchestrator is told where (line and column) and the harness runs as if it were absent.
 
-```json
+```jsonc
 {
+  // Branches to treat as shared, in addition to the defaults
   "protected": ["staging"],
   "delegated": ["merge:main", "tag", "release:v1"],
   "checks": { "edit": "biome check {file}", "commit": "npm run check:changed", "push": "npm run check", "release": "npm run e2e" },
@@ -57,7 +58,7 @@ Facts that differ per project live in one file, `.agents/dotagents.json`. Hooks 
 }
 ```
 
-Shared branches are the remote's default branch, `main`, `master`, and the names in `protected`. The layered design states which layer may import which; the harness ships rules, not checking tools, so enforce the direction with the project's own lint or check. A `style` key left in an older declaration is no longer read and may be deleted.
+Shared branches are the remote's default branch, `main`, `master`, and the names in `protected`. The layered design states which layer may import which; the harness ships rules, not checking tools, so enforce the direction with the project's own lint or check. `style` and `outward` keys left in an older declaration are no longer read and may be deleted.
 
 `protected` adds to the shared branches. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
 

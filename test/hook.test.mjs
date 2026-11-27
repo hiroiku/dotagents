@@ -14,7 +14,7 @@ function project(declaration) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-hook-'));
   if (declaration) {
     fs.mkdirSync(path.join(dir, '.agents'));
-    fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), JSON.stringify(declaration));
+    fs.writeFileSync(path.join(dir, '.agents', 'dotagents.jsonc'), JSON.stringify(declaration));
   }
   return dir;
 }
@@ -26,7 +26,7 @@ function run(host, event, input) {
   return result.stdout ? JSON.parse(result.stdout).hookSpecificOutput : null;
 }
 
-test('dotagents.json の無いリポジトリーでも、Claude Code のどの開始でも、利用者の画面への知らせを返さない', () => {
+test('dotagents.jsonc の無いリポジトリーでも、Claude Code のどの開始でも、利用者の画面への知らせを返さない', () => {
   const raw = (host, event, input) => JSON.parse(spawnSync(process.execPath, [HOOK, host, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, DOTAGENTS_HOME: home, CODEX_HOME: codexHome } }).stdout);
   const repo = project();
   fs.mkdirSync(path.join(repo, '.git'));
@@ -121,9 +121,9 @@ test('サブエージェントが止まったときに、使った時間とト�
   assert.deepEqual(entry, { host: 'claude', event: 'role', project: path.basename(cwd), role: 'builder', agentType: 'dotagents:builder', model: 'model-x', seconds: 60, out: 100, in: 200, cached: 2000, tools: 1 });
 });
 
-test('編集の道具は、dotagents.json と指示ファイルのときだけ確かめる', () => {
+test('編集の道具は、dotagents.jsonc と指示ファイルのときだけ確かめる', () => {
   const cwd = project({ delegated: ['push:develop'], decisions: ['a'] });
-  const file = path.join(cwd, '.agents', 'dotagents.json');
+  const file = path.join(cwd, '.agents', 'dotagents.jsonc');
   assert.equal(run('claude', 'tool', { cwd, tool_name: 'Edit', tool_input: { file_path: file, old_string: '"a"', new_string: '"a","b"' } }), null);
   assert.equal(run('claude', 'tool', { cwd, tool_name: 'Edit', tool_input: { file_path: file, old_string: 'push:develop', new_string: 'push' } }).permissionDecision, 'ask');
   assert.equal(run('claude', 'tool', { cwd, tool_name: 'Write', tool_input: { file_path: file, content: '{}' } }).permissionDecision, 'ask');

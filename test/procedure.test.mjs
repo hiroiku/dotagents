@@ -9,7 +9,7 @@ import { CONFIRMED, command, decide, GITHUB_MS, LOCAL_MS, runners } from '../plu
 function project(declaration = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-procedure-'));
   fs.mkdirSync(path.join(dir, '.agents'));
-  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), JSON.stringify(declaration));
+  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.jsonc'), JSON.stringify(declaration));
   return dir;
 }
 
@@ -67,7 +67,7 @@ test('作業ブランチの上で、共有のブランチを merge する追従�
   for (const command of ['git merge main', 'git -C sub merge --no-edit origin/main', 'rtk git merge upstream/main', 'git fetch && git merge -m "x" origin/main']) assert.equal(kind(command), 'follow', command);
   assert.equal(kind('git merge', { upstream: 'origin/main' }), 'follow');
   assert.equal(kind('git merge @{u}', { upstream: 'origin/main' }), 'follow');
-  // dotagents.json の protected も見る。style は読まないので、release/ は共有のブランチにならない。
+  // dotagents.jsonc の protected も見る。style は読まないので、release/ は共有のブランチにならない。
   assert.equal(kind('git merge origin/release/drive-web/v1.73', { declaration: { protected: ['release/*'] } }), 'follow');
   assert.equal(kind('git merge origin/release/drive-web/v1.73', { declaration: { style: { git: 'release-branches' } } }), null);
   assert.equal(kind('git merge origin/staging', { declaration: { protected: ['staging'] } }), 'follow');

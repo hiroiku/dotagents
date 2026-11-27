@@ -8,7 +8,7 @@ import { PLUGIN_ROOT, contextFor, coreText } from '../plugin/src/context.mjs';
 function project(declaration) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
   fs.mkdirSync(path.join(dir, '.agents'));
-  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), typeof declaration === 'string' ? declaration : JSON.stringify(declaration));
+  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.jsonc'), typeof declaration === 'string' ? declaration : JSON.stringify(declaration));
   return dir;
 }
 
@@ -67,7 +67,7 @@ test('進め方は既定で、利用者とプロジェクトの決めごとが�
   }
 });
 
-test('dotagents.json の無いリポジトリーでも、入れる提案は入らず、空の dotagents.json と同じ文脈で動く', () => {
+test('dotagents.jsonc の無いリポジトリーでも、入れる提案は入らず、空の dotagents.jsonc と同じ文脈で動く', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
   fs.mkdirSync(path.join(repo, '.git'));
   fs.mkdirSync(path.join(repo, 'src'));
@@ -78,8 +78,25 @@ test('dotagents.json の無いリポジトリーでも、入れる提案は入�
   }
 });
 
-test('読めない dotagents.json は、オーケストレーターに知らせる', () => {
-  const cwd = project('{ broken');
-  assert.match(contextFor({ role: 'orchestrator', cwd }), /dotagents.json が読めない/);
-  assert.doesNotMatch(contextFor({ role: 'builder', cwd }), /dotagents.json が読めない/);
+test('読めない dotagents.jsonc は、行と列を添えて、オーケストレーターに知らせる', () => {
+  const cwd = project('{\n  "decisions": ["a"],\n  "checks": ,\n}');
+  assert.match(contextFor({ role: 'orchestrator', cwd }), /dotagents\.jsonc が読めない\(3 行 13 列: /);
+  assert.doesNotMatch(contextFor({ role: 'builder', cwd }), /dotagents.jsonc が読めない/);
+  assert.equal(contextFor({ role: 'builder', cwd }), contextFor({ role: 'builder', cwd: project({}) }));
+});
+
+test('dotagents.jsonc は注釈と末尾のカンマを許し、古い dotagents.json は読まない', () => {
+  const cwd = project('// このプロジェクトの決めごと\n{\n  "decisions": ["コントラストは指摘しない", /* 理由はデザイナーの指示 */],\n  "checks": { "push": "npm run check", },\n}\n');
+  for (const role of ['orchestrator', 'builder', 'reviewer', 'worker']) {
+    assert.match(contextFor({ role, cwd }), /コントラストは指摘しない/, role);
+    assert.match(contextFor({ role, cwd }), /push: `npm run check`/, role);
+  }
+  // 名前が .json のままのファイルは、読まない。知らせもしない。
+  const old = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
+  fs.mkdirSync(path.join(old, '.agents'));
+  fs.writeFileSync(path.join(old, '.agents', 'dotagents.json'), JSON.stringify({ decisions: ['古い名前の決定'], checks: { push: 'make' } }));
+  for (const role of ['orchestrator', 'builder', 'reviewer', 'worker']) {
+    assert.doesNotMatch(contextFor({ role, cwd: old }), /古い名前の決定|push: `make`/, role);
+    assert.equal(contextFor({ role, cwd: old }), contextFor({ role, cwd: project({}) }), role);
+  }
 });

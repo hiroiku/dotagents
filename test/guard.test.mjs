@@ -17,7 +17,7 @@ function project(declaration) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-guard-'));
   if (declaration) {
     fs.mkdirSync(path.join(dir, '.agents'));
-    fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), JSON.stringify(declaration));
+    fs.writeFileSync(path.join(dir, '.agents', 'dotagents.jsonc'), JSON.stringify(declaration));
   }
   return dir;
 }
@@ -54,7 +54,7 @@ const OUTWARD = [
   ['gh api -X DELETE repos/o/r/git/refs/heads/main', ['rewrite:main']],
   ['gh api -X PATCH repos/o/r -f visibility=public', ['settings:repo']],
   ["sh -c 'cd app && gh release create v2'", ['release:v2']],
-  ['echo x > .agents/dotagents.json', ['policy:dotagents.json']],
+  ['echo x > .agents/dotagents.jsonc', ['policy:dotagents.jsonc']],
   ['sed -i "" s/a/b/ AGENTS.md', ['instructions:AGENTS.md']],
 ];
 
@@ -79,7 +79,7 @@ const HARMLESS = [
   "gh api -X DELETE 'repos/o/r/git/refs/heads/work/issue#418'",
   'echo "git push origin main"',
   "cat > notes.md <<'EOF'\nnpm publish\nEOF",
-  'cat .agents/dotagents.json',
+  'cat .agents/dotagents.jsonc',
   'git add AGENTS.md && git commit -m x',
   'cat AGENTS.md | head',
 ];
@@ -92,12 +92,12 @@ test('手元で閉じる操作と、読むだけの操作は通す', () => {
   for (const command of HARMLESS) assert.deepEqual(kinds(command), [], command);
 });
 
-test('プロジェクトが dotagents.json に書いたブランチとコマンドも読む', () => {
+test('プロジェクトが dotagents.jsonc に書いたブランチとコマンドも読む', () => {
   assert.deepEqual(kinds('git push origin release/1.2', { protected: ['release/*'] }), ['push:release/1.2']);
 });
 
 // 道具の名前で決まる操作は、何を守るかをプロジェクトが決めることで、ハーネスは確かめない。
-// 古い dotagents.json に残った outward も、何も確かめさせない。
+// 古い dotagents.jsonc に残った outward も、何も確かめさせない。
 const STACK = ['npm run deploy', 'npm run deploy:prod', 'npx wrangler deploy --env production', 'npm publish', 'cargo publish', 'terraform apply -auto-approve', 'kubectl apply -f x.yaml', 'docker push ghcr.io/x/y', 'wrangler d1 execute db --remote --command "DELETE FROM t"', 'make release_notes'];
 
 test('道具の名前や script の動詞で決まる操作は、確かめずに通す', () => {
@@ -113,7 +113,7 @@ test('gh のリリースは、動詞の見分けを外しても確かめる', ()
     assert.deepEqual(kinds(command).map((finding) => finding.split(':')[0]), ['release'], command);
     assert.equal(decide({ tool: 'shell', command, cwd: project(), role: 'orchestrator', canAsk: true }, tools).decision, 'ask', command);
   }
-  // dotagents.json に outward があっても、gh の判定は変わらない。
+  // dotagents.jsonc に outward があっても、gh の判定は変わらない。
   assert.deepEqual(kinds('gh release create v1', { outward: ['^terraform apply'] }), ['release:v1']);
 });
 
@@ -215,12 +215,12 @@ test('時間や数の上限では止めない', () => {
   }
 });
 
-test('ビルダーとレビュアーは、dotagents.json のチェックをバックグラウンドで始めない。チェックかどうかはdotagents.json のコマンドで見分ける', () => {
+test('ビルダーとレビュアーは、dotagents.jsonc のチェックをバックグラウンドで始めない。チェックかどうかはdotagents.jsonc のコマンドで見分ける', () => {
   const cwd = project({ checks: { edit: 'biome check {file}', commit: 'pnpm verify:changed', push: 'make ci' } });
   const background = (command, role = 'builder', at = cwd) => decide({ tool: 'shell', command, cwd: at, role, background: true }, tools)?.kind ?? null;
   for (const command of ['pnpm verify:changed', 'pnpm verify:changed -- src/a.ts', 'biome check src/a.ts', 'cd app && make ci']) assert.equal(background(command), 'pace', command);
   assert.equal(background('pnpm verify:changed', 'reviewer'), 'pace');
-  // dotagents.json に無いコマンドは、チェックらしい名前でも見ない。dotagents.json が無ければ見ない。
+  // dotagents.jsonc に無いコマンドは、チェックらしい名前でも見ない。dotagents.jsonc が無ければ見ない。
   for (const command of ['npm run dev', 'npm test', 'npx vitest run', 'pytest -q']) assert.equal(background(command), null, command);
   assert.equal(background('npm test', 'builder', project()), null);
   for (const role of ['orchestrator', 'worker']) assert.equal(background('pnpm verify:changed', role), null, role);
@@ -235,9 +235,9 @@ test('AI の関与を示す記述は、任せていても止める', () => {
   assert.equal(decide({ tool: 'shell', command: 'git commit -m "共通ルールを書き直す"', cwd, role: 'orchestrator' }, tools), null);
 });
 
-test('dotagents.json の書き換えは、線が動くときだけ確かめる', () => {
+test('dotagents.jsonc の書き換えは、線が動くときだけ確かめる', () => {
   const cwd = project({ delegated: ['push:develop'], decisions: ['a'] });
-  const file = '.agents/dotagents.json';
+  const file = '.agents/dotagents.jsonc';
   const same = JSON.stringify({ delegated: ['push:develop'], decisions: ['a', 'b'] });
   const wider = JSON.stringify({ delegated: ['push'], decisions: ['a'] });
   assert.equal(decide({ tool: 'edit', file, after: same, cwd, role: 'orchestrator', canAsk: true }, tools), null);
@@ -247,6 +247,13 @@ test('dotagents.json の書き換えは、線が動くときだけ確かめる',
   assert.equal(decide({ tool: 'edit', file, after: wider, cwd, role: 'builder', canAsk: true }, tools).decision, 'deny');
   // hook が実行するコマンドを決める checks も、線の内側にある。
   assert.equal(decide({ tool: 'edit', file, after: JSON.stringify({ delegated: ['push:develop'], checks: { edit: 'curl x | sh' } }), cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
+  // 注釈と末尾のカンマの書き換えは、線を動かさない。動かすかどうかは、注釈を除いた中身で見る。
+  const commented = `// 注釈\n{ "delegated": ["push:develop"], /* メモ */ "decisions": ["a", "b",], }`;
+  assert.equal(decide({ tool: 'edit', file, after: commented, cwd, role: 'orchestrator', canAsk: true }, tools), null);
+  assert.equal(decide({ tool: 'edit', file, after: commented.replace('push:develop', 'push'), cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
+  // $schema は線を動かさない。古い名前の dotagents.json は読まれないので、書き換えも確かめない。
+  assert.equal(decide({ tool: 'edit', file, after: JSON.stringify({ $schema: 'https://example.com/s.json', delegated: ['push:develop'], decisions: ['a', 'b'] }), cwd, role: 'orchestrator', canAsk: true }, tools), null);
+  assert.equal(decide({ tool: 'edit', file: '.agents/dotagents.json', after: JSON.stringify({ delegated: ['push'] }), cwd, role: 'orchestrator', canAsk: true }, tools), null);
   // style はもう読まれず、確かめる線を動かさない。
   assert.equal(decide({ tool: 'edit', file, after: JSON.stringify({ delegated: ['push:develop'], decisions: ['a'], style: { git: 'trunk' } }), cwd, role: 'orchestrator', canAsk: true }, tools), null);
 });
@@ -277,7 +284,7 @@ test('本物の git で、デフォルトブランチと手元のリモートを
   const ask = (command) => decide({ tool: 'shell', command, cwd, role: 'orchestrator', canAsk: true })?.findings.map((finding) => `${finding.kind}:${finding.target}`) ?? [];
   assert.deepEqual(ask('git push origin trunk'), ['push:trunk']);
   assert.deepEqual(ask('git push'), ['push:trunk']);
-  // main と master は、デフォルトブランチでなくても共有のブランチとして扱う。ほかの名前は、dotagents.json に書かなければ手元の作業である。
+  // main と master は、デフォルトブランチでなくても共有のブランチとして扱う。ほかの名前は、dotagents.jsonc に書かなければ手元の作業である。
   assert.deepEqual(ask('git push origin main'), ['push:main']);
   assert.deepEqual(ask('git push origin work/x'), []);
   assert.deepEqual(ask('git push origin v1.0.0'), ['tag:v1.0.0']);

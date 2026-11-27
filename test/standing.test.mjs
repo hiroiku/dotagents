@@ -9,7 +9,7 @@ import { findings } from '../plugin/src/guard.mjs';
 function project(declaration) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-standing-'));
   fs.mkdirSync(path.join(dir, '.agents'));
-  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.json'), JSON.stringify(declaration));
+  fs.writeFileSync(path.join(dir, '.agents', 'dotagents.jsonc'), JSON.stringify(declaration));
   return dir;
 }
 
@@ -19,7 +19,7 @@ test('常設の文は、ロールごとの上限に収まる', () => {
   for (const role of ROLES) assert.ok(standingSize(role) <= budgetOf(role), `${role}: ${standingSize(role)} 字 > ${budgetOf(role)} 字`);
 });
 
-test('dotagents.json に何も書かなくても、git は trunk、設計は layered の文が入り、trunk の文はオーケストレーターにだけ入る', () => {
+test('dotagents.jsonc に何も書かなくても、git は trunk、設計は layered の文が入り、trunk の文はオーケストレーターにだけ入る', () => {
   const cwd = project({});
   const trunk = coreText('orchestrator');
   assert.match(trunk, /版は、既定のブランチのコミットに tag を付けて切る/);
@@ -29,7 +29,7 @@ test('dotagents.json に何も書かなくても、git は trunk、設計は lay
   assert.match(coreText('layered'), /app-kernel/);
 });
 
-test('古い dotagents.json に style が残っていても、読まず、知らせもせず、文も変えない', () => {
+test('古い dotagents.jsonc に style が残っていても、読まず、知らせもせず、文も変えない', () => {
   const plain = project({});
   for (const style of [{ git: 'release-branches', architecture: 'layered' }, { git: 'no-such-flow' }, ['git'], 'trunk']) {
     const cwd = project({ style });

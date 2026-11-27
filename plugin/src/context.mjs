@@ -1,7 +1,7 @@
 // ロールごとに、常に文脈へ入れる文を組み立てる。2 つのホストの受け口が、同じこの関数を呼ぶ。
 //
 // 入れるのは、共通ルールと設計の形(layered)(どのロールにも)、オーケストレーターの文(git の流れ(trunk)を含む。オーケストレーターにだけ)、
-// `dotagents.json` から導いた事実である。git は trunk、設計は layered に固定していて、プロジェクトは選べない。
+// `dotagents.jsonc` から導いた事実である。git は trunk、設計は layered に固定していて、プロジェクトは選べない。
 // 合わないプロジェクトは、共通ルールのとおり、プロジェクトの決めごと(`decisions`、AGENTS.md)が優先する。サブエージェントの仕事の中身は、エージェントの定義
 // (agents/)が持ち、ホストがサブエージェントの文脈に入れる。
 // 利用者が頼んだ場面の手順は、スキルが持つ。
@@ -15,7 +15,7 @@ import { PLUGIN_ROOT } from './root.mjs';
 export { PLUGIN_ROOT };
 
 // ロールが毎回読む文の上限(文字)。足すたびに、ほかの文が読まれる度合いが下がる。超えたらテストが落ちる。
-// 数えるのは、共通ルール、設計の形、オーケストレーターの文、エージェントの定義の本文である。`dotagents.json` から導いた事実(決定、チェックの入口)は、
+// 数えるのは、共通ルール、設計の形、オーケストレーターの文、エージェントの定義の本文である。`dotagents.jsonc` から導いた事実(決定、チェックの入口)は、
 // プロジェクトが持つものなので数えない。7.x では常設の文が 6,149 字になり、読まれない文が増えた。
 // これは、ハーネスが自分の大きさに掛ける上限である。エージェントの働き方に掛ける上限は、持たない。
 export const BUDGET = { orchestrator: 6000, subagent: 4000 };
@@ -26,7 +26,7 @@ export const coreText = (name) => fs.readFileSync(path.join(PLUGIN_ROOT, 'core',
 
 function projectFacts({ role, value, error }) {
   const parts = [];
-  if (role === 'orchestrator' && error) parts.push(`dotagents.json が読めない(${error})。無いものとして動いている。利用者に知らせる。`);
+  if (role === 'orchestrator' && error) parts.push(`dotagents.jsonc が読めない(${error})。無いものとして動いている。利用者に知らせる。`);
   const decisions = list(value.decisions);
   if (decisions.length) parts.push(['# このプロジェクトで続いている決定', ...decisions.map((line) => `- ${line}`)].join('\n'));
   const checks = TIERS.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
@@ -43,7 +43,7 @@ function projectFacts({ role, value, error }) {
   return parts.join('\n\n');
 }
 
-// `dotagents.json` から導かない文。共通ルールと設計の形はどのロールにも、オーケストレーターの文はオーケストレーターにだけ入る。
+// `dotagents.jsonc` から導かない文。共通ルールと設計の形はどのロールにも、オーケストレーターの文はオーケストレーターにだけ入る。
 function standing(role) {
   const parts = [coreText('core'), coreText('layered')];
   if (role === 'orchestrator') parts.push(coreText('orchestrator'));
