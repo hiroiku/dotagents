@@ -12,7 +12,7 @@ const KEYWORDS = new Set(['then', 'do', 'else', 'elif', 'if', 'while', 'until', 
 const HEADERS = new Set(['for', 'case', 'select', 'function']);
 const PREFIXES = new Set(['sudo', 'command', 'exec', 'nohup', 'builtin']);
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash']);
-// rtk(出力を縮めて別の道具を実行する道具)の、後ろのコマンドをそのまま実行する下位のコマンド。
+// rtk(出力を縮めて別のツールを実行するツール)の、後ろのコマンドをそのまま実行する下位のコマンド。
 const RTK_RUNNERS = new Set(['run', 'bypass', 'proxy', 'err', 'test', 'summary']);
 
 // 文字列を、連結の区切りで分けた語の並びにする。リダイレクトの先は語に入れず、並びの targets に集める。
@@ -128,7 +128,7 @@ function skipHeredoc(text, from, terminator, strip) {
   return Math.min(i, text.length);
 }
 
-// 前に付く語(代入、env、sudo、timeout、npx、rtk など)を外し、実行される道具を先頭にする。
+// 前に付く語(代入、env、sudo、timeout、npx、rtk など)を外し、実行されるツールを先頭にする。
 // 代入は assignments に集める。
 export function unwrap(input) {
   const words = input.slice();
@@ -163,7 +163,7 @@ export function unwrap(input) {
       dropFlags(['-s', '-k', '--signal', '--kill-after']);
       words.shift();
     } else if (head === 'rtk') {
-      // `rtk git push` は git push を実行する。rtk を外して、実行される道具を読む。
+      // `rtk git push` は git push を実行する。rtk を外して、実行されるツールを読む。
       // 文字列で渡す形(`rtk run -c '…'`、`rtk err --shell sh '…'`)は、シェルに渡す形へ直して、中身を読ませる。
       words.shift();
       dropFlags([]);

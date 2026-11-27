@@ -1,4 +1,4 @@
-// 注釈(`//` と `/* */`)と、末尾のカンマを許す JSON の読み取り。依存を持たない。
+// コメント(`//` と `/* */`)と、末尾のカンマを許す JSON の読み取り。依存を持たない。
 //
 // 文字列を読み分けるので、文字列の中の `//` やエスケープした引用符は壊さない。ほかは JSON と同じ文法で、読めないときは、
 // 読めなくなった文字の行と列(1 から数える。列は UTF-16 の単位)を添えて投げる。
@@ -19,7 +19,7 @@ export function parseJsonc(text) {
     throw new SyntaxError(`${line} 行 ${column} 列: ${message}`);
   }
 
-  // 空白と注釈を読み飛ばす。
+  // 空白とコメントを読み飛ばす。
   function skip() {
     for (;;) {
       const char = source[at];
@@ -29,7 +29,7 @@ export function parseJsonc(text) {
         at = end < 0 ? source.length : end + 1;
       } else if (char === '/' && source[at + 1] === '*') {
         const end = source.indexOf('*/', at + 2);
-        if (end < 0) fail('注釈が閉じていません', at);
+        if (end < 0) fail('コメントが閉じられていません', at);
         at = end + 2;
       } else return;
     }
@@ -40,7 +40,7 @@ export function parseJsonc(text) {
     let out = '';
     for (;;) {
       const char = source[at];
-      if (char === undefined || char === '\n' || char === '\r') fail('文字列が閉じていません');
+      if (char === undefined || char === '\n' || char === '\r') fail('文字列が閉じられていません');
       if (char === '"') {
         at += 1;
         return out;
@@ -54,27 +54,27 @@ export function parseJsonc(text) {
       const next = source[at + 1];
       if (next === 'u') {
         const hex = source.slice(at + 2, at + 6);
-        if (!/^[0-9a-fA-F]{4}$/.test(hex)) fail('\\u の後ろには 16 進数の 4 桁が要ります', at + 2);
+        if (!/^[0-9a-fA-F]{4}$/.test(hex)) fail('\\u の後ろには 16 進数 4 桁が必要です', at + 2);
         out += String.fromCharCode(Number.parseInt(hex, 16));
         at += 6;
       } else if (next !== undefined && Object.hasOwn(ESCAPES, next)) {
         out += ESCAPES[next];
         at += 2;
-      } else fail('書けないエスケープです', at + 1);
+      } else fail('使えないエスケープです', at + 1);
     }
   }
 
   function number() {
     NUMBER.lastIndex = at;
     const found = NUMBER.exec(source);
-    if (!found) fail('値が読めません');
+    if (!found) fail('値を読み取れません');
     at += found[0].length;
-    if (/[\w.+-]/.test(source[at] ?? '')) fail('数が読めません');
+    if (/[\w.+-]/.test(source[at] ?? '')) fail('数値を読み取れません');
     return Number(found[0]);
   }
 
   function literal(word, value) {
-    if (!source.startsWith(word, at) || /[\w$]/.test(source[at + word.length] ?? '')) fail('値が読めません');
+    if (!source.startsWith(word, at) || /[\w$]/.test(source[at + word.length] ?? '')) fail('値を読み取れません');
     at += word.length;
     return value;
   }
@@ -89,7 +89,7 @@ export function parseJsonc(text) {
       if (source[at] === ',') {
         at += 1;
         skip();
-      } else if (source[at] !== close) fail(`',' か '${close}' が要ります`);
+      } else if (source[at] !== close) fail(`',' か '${close}' が必要です`);
     }
     at += 1;
   }
@@ -101,12 +101,12 @@ export function parseJsonc(text) {
     if (char === '{') {
       const object = {};
       sequence('}', () => {
-        if (source[at] !== '"') fail('鍵は " で囲んだ文字列で書きます');
+        if (source[at] !== '"') fail('キーは " で囲んだ文字列で書いてください');
         const key = string();
         skip();
-        if (source[at] !== ':') fail("':' が要ります");
+        if (source[at] !== ':') fail("':' が必要です");
         at += 1;
-        // __proto__ も、ふつうの鍵として持つ。代入にすると、プロトタイプを書き換える。
+        // __proto__ も、ふつうのキーとして持つ。代入にすると、プロトタイプを書き換える。
         Object.defineProperty(object, key, { value: value(depth + 1), enumerable: true, writable: true, configurable: true });
       });
       return object;

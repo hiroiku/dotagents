@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ハーネスが何をしたかの記録を集計する。ハーネスを作る側が、このリポジトリーで使う道具なので、plugin には入れない。
+// ハーネスが何をしたかの記録を集計する。ハーネスを作る側が、このリポジトリーで使うツールなので、plugin には入れない。
 // 記録は、plugin の hook(src/log.mjs、src/usage.mjs)が、各人の ~/.dotagents/log に残す。
 // 古い記録のロール名 `lead` は、`orchestrator` として数える。
 //
@@ -32,7 +32,7 @@ export function stats({ days = 7, now = new Date() } = {}) {
       const bucket = entry.decision === 'ask' ? project.asks : project.denies;
       bucket[entry.kind] = (bucket[entry.kind] ?? 0) + 1;
     } else if (entry.event === 'role') {
-      // エージェントの名前とモデルごとに足す。同じエージェントでも、モデルが違えば費用が違う。
+      // エージェントの名前とモデルごとに合算する。同じエージェントでも、モデルが違えば費用が違う。
       const name = `${entry.agentType ?? entry.role ?? '(不明)'}${entry.model ? `(${entry.model})` : ''}`;
       const role = (project.roles[name] ??= { count: 0, seconds: 0, out: 0, in: 0, cached: 0 });
       role.count += 1;
@@ -54,8 +54,8 @@ const skillNames = () => fs.readdirSync(path.join(PLUGIN_ROOT, 'skills')).sort()
 // トークンの数を、桁が一目で分かる形にする。
 const amount = (value) => (value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1e3 ? `${Math.round(value / 1e3)}k` : String(value));
 
-// 止めた理由の名前。外へ届く操作の種類、止める手順、エージェントの持ち場、AI の署名。
-const LABELS = { ...KIND_LABELS, ...PROCEDURE_LABELS, pace: 'オーケストレーターが回すチェック', attribution: 'AI の関与を示す記述' };
+// 確認やブロックの理由の名前。外部に影響する操作の種類、ブロックする手順、エージェントの持ち場、AI の署名。
+const LABELS = { ...KIND_LABELS, ...PROCEDURE_LABELS, pace: 'オーケストレーターが実行するチェック', attribution: 'AI の関与を示す記述' };
 
 function printStats(result) {
   const sum = (bucket) => Object.values(bucket).reduce((total, count) => total + count, 0);
@@ -63,16 +63,16 @@ function printStats(result) {
   console.log(`直近 ${result.days} 日`);
   for (const [name, project] of Object.entries(result.projects)) {
     console.log(`\n${name}`);
-    console.log(`  確かめた: ${sum(project.asks)} 回(1 日 ${(sum(project.asks) / result.days).toFixed(1)} 回) ${each(project.asks)}`);
-    console.log(`  止めた: ${sum(project.denies)} 回 ${each(project.denies)}`);
+    console.log(`  確認した: ${sum(project.asks)} 回(1 日 ${(sum(project.asks) / result.days).toFixed(1)} 回) ${each(project.asks)}`);
+    console.log(`  ブロックした: ${sum(project.denies)} 回 ${each(project.denies)}`);
     for (const [role, used] of Object.entries(project.roles).sort((a, b) => b[1].out - a[1].out)) {
       console.log(`  エージェントが使った分: ${role} ${used.count} 回、${Math.round(used.seconds / 60)} 分、出力 ${amount(used.out)}、入力 ${amount(used.in)}、キャッシュから ${amount(used.cached)}`);
     }
     console.log(`  スキルの読み込み: ${skillNames().map((name) => `${name} ${project.skills[name] ?? 0}`).join('、')}`);
-    console.log(`  常設の文: ${Object.entries(project.contexts).map(([role, value]) => `${role} ${value.count} 回・${value.chars} 字`).join('、') || 'なし'}`);
-    if (project.errors) console.log(`  受け口の例外: ${project.errors} 回`);
+    console.log(`  常時読み込まれる文: ${Object.entries(project.contexts).map(([role, value]) => `${role} ${value.count} 回・${value.chars} 字`).join('、') || 'なし'}`);
+    if (project.errors) console.log(`  hook の例外: ${project.errors} 回`);
   }
-  if (!Object.keys(result.projects).length) console.log('記録が無い。');
+  if (!Object.keys(result.projects).length) console.log('記録がありません。');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

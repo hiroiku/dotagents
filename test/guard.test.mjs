@@ -136,7 +136,7 @@ test('オーケストレーターには確かめ、その他のサブエージ�
   const cwd = project();
   const orchestrator = decide({ tool: 'shell', command: 'git push origin main', cwd, role: 'orchestrator', canAsk: true }, tools);
   assert.equal(orchestrator.decision, 'ask');
-  assert.match(orchestrator.reason, /共有のブランチへの push\(main\)/);
+  assert.match(orchestrator.reason, /共有ブランチへの push\(main\)/);
   assert.match(orchestrator.reason, /"push:main"/);
   const worker = decide({ tool: 'shell', command: 'git push origin main', cwd, role: 'worker', canAsk: true }, tools);
   assert.equal(worker.decision, 'deny');
@@ -178,10 +178,10 @@ test('ビルダーとレビュアーは、プロジェクトが push と release
   const cwd = project({ checks: { edit: 'biome check {file}', commit: 'npm run check:changed', push: 'npm run check', release: 'npm test && npm run e2e' } });
   const heavy = decide({ tool: 'shell', command: 'npm run check', cwd, role: 'builder' }, tools);
   assert.equal(heavy.kind, 'pace');
-  assert.match(heavy.reason, /`npm run check` は、このプロジェクトが push の段階に置いたチェック/);
+  assert.match(heavy.reason, /`npm run check` は、push 時のチェックとして、このプロジェクトの checks に書かれたコマンド/);
   const nested = decide({ tool: 'shell', command: 'cd packages/app && CI=1 npm run e2e 2>&1 | tail -20', cwd, role: 'reviewer' }, tools);
   assert.equal(nested.kind, 'pace');
-  assert.match(nested.reason, /release の段階/);
+  assert.match(nested.reason, /リリース前のチェック/);
   assert.equal(decide({ tool: 'shell', command: 'rtk npm run check', cwd, role: 'builder' }, tools).kind, 'pace');
   // 引数を足して絞った実行と、このエージェントの段階のコマンドは通す。
   for (const command of ['npm run check -- src/a.ts', 'npm test -- auth.spec.ts', 'npm run check:changed', 'npx vitest run src/a.spec.ts', 'echo npm run check']) {

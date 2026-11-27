@@ -6,7 +6,7 @@
 // 生成し直して差分が出ないことを、テストが守る。
 //
 // plugin/ をそのまま Antigravity の plugin にはできない。Antigravity は plugin の agents/ を読むが、そこにある Claude Code の
-// 定義(モデルと道具の名前)を読めないからである。hook は plugin の根を作業ディレクトリーとして動き、${PLUGIN_ROOT} を
+// 定義(モデルとツールの名前)を読めないからである。hook は plugin の根を作業ディレクトリーとして動き、${PLUGIN_ROOT} を
 // 使えないので(資料による)、hook の部品(src/、core/)も置き場に入れる。
 
 import fs from 'node:fs';

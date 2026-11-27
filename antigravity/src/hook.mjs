@@ -21,7 +21,7 @@ const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
 
 const roleFrom = (input) => roleOf({ agentId: input.agent_id, agentType: input.agent_id ? input.agent_type : undefined });
 
-// 書き換えたあとの全文。`dotagents.jsonc` の書き換えが、確かめる線を動かすかどうかを見るために使う。
+// 書き換えたあとの全文。`dotagents.jsonc` の書き換えが、確認ルールを動かすかどうかを見るために使う。
 function afterOf(name, toolInput, file) {
   if (name === 'Write') return typeof toolInput.content === 'string' ? toolInput.content : undefined;
   if (name !== 'Edit' || typeof toolInput.old_string !== 'string' || typeof toolInput.new_string !== 'string') return undefined;
@@ -50,7 +50,7 @@ export function syncCodexAgents(home = process.env.CODEX_HOME ?? path.join(os.ho
   }
 }
 
-// 1 回の道具の呼び出しを、判定に掛ける要求の並びに直す。
+// 1 回のツールの呼び出しを、判定に掛ける要求の並びに直す。
 export function requests(host, input) {
   const name = input.tool_name;
   const toolInput = input.tool_input ?? {};
@@ -73,9 +73,9 @@ export function requests(host, input) {
 // ---------------------------------------------------------------- Antigravity
 //
 // 形は資料による(https://antigravity.google/docs/hooks/)。実機では確かめていない。
-// - cwd と、どのエージェントからの呼び出しかは来ない。シェルは道具の Cwd、ほかは最初のワークスペースで読む。hook そのものは
+// - cwd と、どのエージェントからの呼び出しかは来ない。シェルはツールの Cwd、ほかは最初のワークスペースで読む。hook そのものは
 //   plugin の根で動くので、process.cwd() は使わない。
-// - ロールは見分けられないので、常にオーケストレーターとして判定する。サブエージェントの外へ届く操作も、止めずに利用者に確かめる。
+// - ロールは見分けられないので、常にオーケストレーターとして判定する。サブエージェントの外部に影響する操作も、止めずに利用者に確かめる。
 // - 共通ルールと設計の形は、plugin のルール(rules/AGENTS.md)がどのエージェントにも入れる。hook が入れるのは残りである。
 
 const ANTIGRAVITY_EDITS = new Set(['write_to_file', 'replace_file_content', 'multi_replace_file_content']);
@@ -88,7 +88,7 @@ const antigravityCwd = (input) => {
 };
 
 // 書き換えたあとの全文。置き換える文字列が 1 か所に決まらないとき(行の範囲で選ぶとき)は、分からないものとして返す。
-// 分からなければ、判定は確かめる線が動くものとして扱う。ReplacementChunks の中の形は、資料に無いので、replace_file_content と同じ名前で読む。
+// 分からなければ、判定は確認ルールが動くものとして扱う。ReplacementChunks の中の形は、資料に無いので、replace_file_content と同じ名前で読む。
 function antigravityAfter(name, args, file) {
   if (name === 'write_to_file') return typeof args.CodeContent === 'string' ? args.CodeContent : undefined;
   const chunks = name === 'replace_file_content' ? [args] : Array.isArray(args.ReplacementChunks) ? args.ReplacementChunks : [];
@@ -150,7 +150,7 @@ export function handle(host, event, input) {
   const project = path.basename(cwd);
   if (event === 'session' || event === 'subagent') {
     if (host === 'codex' && event === 'session') syncCodexAgents();
-    // Claude Code は、サブエージェントの文脈を作り直したときにも、そのサブエージェントの中でセッションの開始を知らせる。
+    // Claude Code は、サブエージェントのコンテキストを作り直したときにも、そのサブエージェントの中でセッションの開始を知らせる。
     // その知らせにはエージェントの ID が付く。ID が付いた知らせにオーケストレーターの文を返すと、作り直しのあと、サブエージェントがオーケストレーターとして振る舞う。
     const role = event === 'session' && !input.agent_id ? 'orchestrator' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
     const text = contextFor({ role, cwd });

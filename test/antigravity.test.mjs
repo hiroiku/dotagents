@@ -83,19 +83,19 @@ test('Antigravity のセッションの開始では、オーケストレータ�
   assert.match(text, /# オーケストレーター/);
   assert.match(text, /決定 A/);
   assert.match(text, /push: `npm test`/);
-  assert.match(text, /確かめずに進める: tag/);
+  assert.match(text, /確認せずに進める: tag/);
   assert.ok(!text.includes(coreText('core')) && !text.includes(coreText('layered')));
   const broken = project();
   fs.mkdirSync(path.join(broken, '.agents'));
   fs.writeFileSync(path.join(broken, '.agents', 'dotagents.jsonc'), '{');
-  assert.match(run('SessionStart', common(broken)).injectSteps[0].systemMessage.systemMessage, /dotagents\.jsonc が読めない/);
+  assert.match(run('SessionStart', common(broken)).injectSteps[0].systemMessage.systemMessage, /dotagents\.jsonc を読めなかった/);
 });
 
 test('Antigravity では、外へ届く操作を毎回確かめ、止める手順は理由と一緒に止め、ほかは利用者の許可の流れに任せる', () => {
   const cwd = project();
   const push = shell(cwd, 'git push origin main');
   assert.equal(push.decision, 'force_ask');
-  assert.match(push.reason, /共有のブランチへの push/);
+  assert.match(push.reason, /共有ブランチへの push/);
   const signed = shell(cwd, 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"');
   assert.equal(signed.decision, 'deny');
   assert.match(signed.reason, /AI の関与/);
