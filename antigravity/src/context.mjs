@@ -1,6 +1,6 @@
 // ロールごとに、常にコンテキストに読み込ませる文を組み立てる。どのホストの受け口も、同じこの関数を呼ぶ。
 //
-// 入れるのは、共通ルールと設計の形(layered)(どのロールにも)、オーケストレーターの文(git の流れ(trunk)を含む。オーケストレーターにだけ)、
+// 入れるのは、共通ルールとレイヤー構成(layered)(どのロールにも)、オーケストレーターの文(git の流れ(trunk)を含む。オーケストレーターにだけ)、
 // `dotagents.jsonc` から導いた事実である。git は trunk、設計は layered に固定していて、プロジェクトは選べない。
 // 合わないプロジェクトは、共通ルールのとおり、プロジェクトの決めごと(`decisions`、AGENTS.md)が優先する。サブエージェントの仕事の中身は、エージェントの定義
 // (agents/)が持ち、ホストがサブエージェントのコンテキストに読み込ませる。
@@ -15,7 +15,7 @@ import { PLUGIN_ROOT } from './root.mjs';
 export { PLUGIN_ROOT };
 
 // ロールが毎回読む文の上限(文字)。文を追加するたびに、ほかの文が読まれる度合いが下がる。超えたらテストが落ちる。
-// 数えるのは、共通ルール、設計の形、オーケストレーターの文、エージェントの定義の本文である。`dotagents.jsonc` から導いた事実(決定、チェックのコマンド)は、
+// 数えるのは、共通ルール、レイヤー構成、オーケストレーターの文、エージェントの定義の本文である。`dotagents.jsonc` から導いた事実(決定、チェックのコマンド)は、
 // プロジェクトが持つものなので数えない。7.x では常設の文が 6,149 字になり、読まれない文が増えた。
 // これは、ハーネスが自分の大きさに掛ける上限である。エージェントの働き方に掛ける上限は、持たない。
 export const BUDGET = { orchestrator: 6000, subagent: 4000 };
@@ -29,7 +29,7 @@ function projectFacts({ role, value, error }) {
   const parts = [];
   if (role === 'orchestrator' && error) parts.push(`dotagents.jsonc を読めなかったので、無いものとして動いている。次のエラーを利用者に伝える。\n\nエラー: ${error}`);
   const decisions = list(value.decisions);
-  if (decisions.length) parts.push(['# このプロジェクトで続いている決定', ...decisions.map((line) => `- ${line}`)].join('\n'));
+  if (decisions.length) parts.push(['# プロジェクトの決定事項', ...decisions.map((line) => `- ${line}`)].join('\n'));
   const checks = CHECK_STAGES.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
   if (checks.length) {
     const lines = ['# チェックのコマンド', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
@@ -48,8 +48,8 @@ function projectFacts({ role, value, error }) {
 const SHARED = ['core', 'layered'];
 export const sharedText = () => SHARED.map(coreText).join('\n\n');
 
-// `dotagents.jsonc` から導かない文。共通ルールと設計の形はどのロールにも、オーケストレーターの文はオーケストレーターにだけ入る。
-// shared が偽のときは、ほかの経路で入る共通ルールと設計の形を外す。同じ文を 2 回入れないためである。
+// `dotagents.jsonc` から導かない文。共通ルールとレイヤー構成はどのロールにも、オーケストレーターの文はオーケストレーターにだけ入る。
+// shared が偽のときは、ほかの経路で入る共通ルールとレイヤー構成を外す。同じ文を 2 回入れないためである。
 function standing(role, shared = true) {
   const parts = shared ? SHARED.map(coreText) : [];
   if (role === 'orchestrator') parts.push(coreText('orchestrator'));

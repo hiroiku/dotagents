@@ -3,12 +3,12 @@
   "owner": {
     "name": "hiroiku"
   },
-  "description": "AI に仕事を任せるためのハーネスです。常時読み込まれる共通ルール、エージェントの定義、スキル、外部に影響する操作を確認する仕組みを、Claude Code、Codex、Antigravity に同じ中身で提供します。",
+  "description": "AI のコーディングエージェント向けのハーネスです。常時読み込まれる共通ルール、エージェントの定義、スキル、外部に影響する操作を確認する hook を、Claude Code、Codex、Antigravity に同じ内容で提供します。",
   "plugins": [
     {
       "name": "dotagents",
       "source": "./plugin",
-      "description": "AI に仕事を任せるためのハーネスです。常時読み込まれる共通ルール、エージェントの定義、スキル、外部に影響する操作を確認する仕組みを、Claude Code、Codex、Antigravity に同じ中身で提供します。"
+      "description": "AI のコーディングエージェント向けのハーネスです。常時読み込まれる共通ルール、エージェントの定義、スキル、外部に影響する操作を確認する hook を、Claude Code、Codex、Antigravity に同じ内容で提供します。"
     }
   ]
 }

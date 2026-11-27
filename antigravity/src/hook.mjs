@@ -76,7 +76,7 @@ export function requests(host, input) {
 // - cwd と、どのエージェントからの呼び出しかは来ない。シェルはツールの Cwd、ほかは最初のワークスペースで読む。hook そのものは
 //   plugin の根で動くので、process.cwd() は使わない。
 // - ロールは見分けられないので、常にオーケストレーターとして判定する。サブエージェントの外部に影響する操作も、止めずに利用者に確かめる。
-// - 共通ルールと設計の形は、plugin のルール(rules/AGENTS.md)がどのエージェントにも入れる。hook が入れるのは残りである。
+// - 共通ルールとレイヤー構成は、plugin のルール(rules/AGENTS.md)がどのエージェントにも入れる。hook が入れるのは残りである。
 
 const ANTIGRAVITY_EDITS = new Set(['write_to_file', 'replace_file_content', 'multi_replace_file_content']);
 

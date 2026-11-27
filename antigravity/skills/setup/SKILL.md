@@ -3,13 +3,13 @@ name: setup
 description: このハーネスをプロジェクトにインストールするとき、アンインストールするとき、8.x と 7.x から移行するとき、`dotagents.jsonc` を書くとき、診断するときに読む。
 ---
 
-# ハーネスを整える
+# セットアップ
 
 plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順でインストールする。インストールするだけで、設定ファイルが無くても既定の動作で動く。変えたいときだけ、`.agents/dotagents.jsonc` を手で書く。アンインストールや診断のためのコマンドは無い。下の手順に沿って、その場でファイルを読み、書き換える。
 
 ハーネスはリポジトリーにコピーせず、Claude Code や Codex の設定に plugin への参照を書くだけである。そのため、ハーネスのバージョンを上げても、プロジェクトにコミットする差分は出ない。これらの設定ファイルを書き換えるときは、dotagents の項目だけを追加または削除し、ほかの項目と書式(順序、インデント、コメント)は変えない。JSON として読めない設定は書き換えず、利用者に伝える。書き換えたものは、利用者に見せてからコミットする。
 
-## インストールするとき
+## インストール
 
 1. plugin をインストールする。自分だけで使うか、プロジェクトで共有するかを、利用者に確認する。
    - Claude Code、自分だけ: `claude plugin marketplace add hiroiku/dotagents` のあと、`claude plugin install dotagents@dotagents`。
@@ -18,21 +18,21 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
    - Antigravity: このリポジトリーをローカルに clone し、`agy plugin install <clone>/antigravity`。バージョンを上げたら、`git pull` のあと同じコマンドでインストールし直す(資料による。実機では未検証)。プロジェクトで共有する参照の書き方は無い。`.agents/plugins/` に置くとコピーになるので置かない。Antigravity で守れない決まりは README にあり、インストールの前に利用者に伝える。
 2. 設定ファイルが要るかを、利用者に確認する。要るのは、チェックのコマンドを渡したいとき、委任する操作を決めたいとき、共有ブランチを追加したいとき、続いている決定を残したいときである。
    - `checks` は、プロジェクトの script と workflow から当てはめる。CI が呼んでいるコマンドを、`push` に置く。無いチェックは、作ることを提案する。
-   - 設計の形(layered)は、すべてのプロジェクトで読み込まれる。層の依存の向きの違反を検出する lint かチェックがプロジェクトにあるかを調べる。ハーネスは決まりを読み込ませるだけで、チェックツールは提供しない。無ければ、作ることを利用者に提案し、作ったら `checks` に置く。
-   - `decisions` と `delegated` は、「dotagents.jsonc を書くとき」に沿って、利用者の言葉から書く。
-   - 書くときは、先頭に `$schema` の行を置く例(下の「dotagents.jsonc」)に沿う。書くものが無ければ、ファイルは置かない。
+   - レイヤー構成(layered)は、すべてのプロジェクトで読み込まれる。層の依存の向きの違反を検出する lint かチェックがプロジェクトにあるかを調べる。ハーネスは決まりを読み込ませるだけで、チェックツールは提供しない。無ければ、作ることを利用者に提案し、作ったら `checks` に置く。
+   - `decisions` と `delegated` は、「dotagents.jsonc の書き方」に沿って、利用者の言葉から書く。
+   - 書くときは、先頭に `$schema` の行を置く例(下の「dotagents.jsonc の項目」)に沿う。書くものが無ければ、ファイルは置かない。
 3. ルートに `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
-4. 7.x や 8.x の残りがあれば、下の「8.x と 7.x から移行するとき」に沿って消す。
+4. 7.x や 8.x の残りがあれば、下の「8.x と 7.x からの移行」に沿って消す。
 5. 下の「診断」の項目を調べ、残ったものを利用者に伝える。
 
-## アンインストールするとき
+## アンインストール
 
 1. `.claude/settings.json` から、`enabledPlugins` の `dotagents@dotagents` と、`extraKnownMarketplaces` の `dotagents` を消す。消して空になったオブジェクトだけを消し、それでファイルが `{}` になれば、ファイルを消す。
 2. `.codex/config.toml` から、`[marketplaces.dotagents]` と `[plugins."dotagents@dotagents"]` の表を、利用者が表に追加した行も含めて、見出しから最後の値の行まで消す。見出しの直前の空行 1 つも消す。表の後ろのコメントと空行は残す。ファイルが空になれば、ファイルを消す。
 3. Antigravity にインストールしていれば、`agy plugin uninstall dotagents`。
 4. `.agents/dotagents.jsonc` は残す。消すかは利用者に確認する。
 
-## 8.x と 7.x から移行するとき
+## 8.x と 7.x からの移行
 
 9.0.0 は、リポジトリーへのコピーによるインストールも、Pi へのインストールもしない。8.x の残りは、見つけたら消す。
 
@@ -48,16 +48,16 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
 
 - `.agents/dotagents.jsonc` が無い: 既定の動作で動く。`.agents/dotagents.json` だけがあれば、名前を `dotagents.jsonc` に変えるよう伝える(`.json` は読まれない)。委任した操作が無いので、外部に影響する操作は、すべて利用者への確認が要る。異常ではないので、書く必要がなければ、そのままにする。読めない: hook とエージェントは、`dotagents.jsonc` が無いものとして動く。
 - `dotagents.jsonc` に、知らない項目がある(知っている項目は `$schema`、`protected`、`delegated`、`checks`、`decisions`)。`outward` と `style` は、もう読まれない。残っていれば、何も効かないので、消してよいと伝える。
-- `delegated` に、知らない種類がある(種類は「dotagents.jsonc」にある)。
+- `delegated` に、知らない種類がある(種類は「dotagents.jsonc の項目」にある)。
 - `checks` が無い: エージェントのコンテキストにチェックのコマンドが入らず、ビルダーが push 時のチェックを実行してもブロックされない。一部のチェックだけが無いときは、どのチェックが無いかを伝える。
 - Claude Code と Codex のどちらの設定にも、参照が無い(`.claude/settings.json` の `enabledPlugins` に `dotagents@dotagents` が true で無く、`.codex/config.toml` に `[plugins."dotagents@dotagents"]` が無い): 各人が自分の環境にインストールしていなければ、このプロジェクトでは働かない。片方だけ無いときは、どちらに無いかを伝える。
 - この環境の Claude Code にインストールされていない: `~/.claude/plugins/installed_plugins.json`(`CLAUDE_CONFIG_DIR` があればその下)の `plugins["dotagents@dotagents"]` に、`scope` が `user` の記録か、`projectPath` がこのプロジェクトで `scope` が `project` か `local` の記録が無い。
 - Antigravity を使う利用者の `agy plugin list` に、dotagents が enabled で出ない: Antigravity では働かない。バージョンが Claude Code の plugin と違えば、インストールし直すよう伝える。
 - 共有ブランチが GitHub で保護されていない: 共有ブランチ(リモートのデフォルトブランチ、`main`、`master`、`protected` の名前。`*` を含むものは除く)ごとに、`gh api repos/{owner}/{repo}/rules/branches/<ブランチ> --jq length` が 1 以上か、`gh api repos/{owner}/{repo}/branches/<ブランチ>/protection` が応答すれば、保護されている。どちらも応答しなければ、検証できなかったと伝える。保護されていなければ、ハーネスをインストールしていない人やツールは、確認なしで push できる。
-- ルートに `ARCHITECTURE.md` が無い: エージェントは構成の地図を持たずに実装する。あれば、書いた不変条件と配置場所の違反を検出する lint かチェックが、`checks` にあるか。
-- 8.x と 7.x の残りが、上の「8.x と 7.x から移行するとき」に当てはまる。
+- ルートに `ARCHITECTURE.md` が無い: エージェントは構成を知らないまま実装する。あれば、書いた不変条件と配置場所の違反を検出する lint かチェックが、`checks` にあるか。
+- 8.x と 7.x の残りが、上の「8.x と 7.x からの移行」に当てはまる。
 
-## dotagents.jsonc
+## dotagents.jsonc の項目
 
 プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書く。hook と、どのエージェントのコンテキストも、ここを読む。どの項目も省ける。コメント(`//`、`/* */`)と末尾のカンマを書ける。先頭に `$schema` の行を置くと、エディターが補完と誤りの表示を出す(schema は、このリポジトリーの `schema/dotagents.schema.json`)。ハーネスは `$schema` を読まない。読めないときは、オーケストレーターに行と列を伝え、無いものとして動く。
 
@@ -85,9 +85,9 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
 
 `decisions` と `$schema` 以外は、確認が要る操作の範囲や、hook がブロックするコマンドを決める項目である。そのため、書き換えようとすると、利用者への確認が出る。
 
-## dotagents.jsonc を書くとき
+## dotagents.jsonc の書き方
 
 - `delegated` は、利用者がその種類を委任すると言ったときに追加する。同じ種類の確認が続いていたら、委任するかを利用者に確認する。
-- 速さと消費のどちらを優先するか、バッチを並列にしてよいか、レビューをどこまで頼むかを利用者が決めたら、`decisions` に 1 行で残す。会話にだけあると、新しいセッションと、コンテキストを圧縮したあとには届かない。
+- 速さと消費のどちらを優先するか、バッチを並列にしてよいか、レビューをどこまで頼むかを利用者が決めたら、`decisions` に 1 行で残す。会話にだけあると、新しいセッションと、コンテキストを圧縮したあとのエージェントには伝わらない。
 - ハーネスの文に、時間や数の上限は無い。上限が要るプロジェクトは、理由と一緒に `decisions` に書く。
 - 共有ブランチが GitHub で保護されていなければ、利用者に伝える。ハーネスをインストールしていない人やツールの操作は、この仕組みではブロックできない。

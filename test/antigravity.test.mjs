@@ -53,7 +53,7 @@ test('生成した Antigravity の置き場は、plugin/ から作り直して�
   for (const [file, content] of expected) assert.equal(actual.get(file), content, `${file}: node tools/antigravity.mjs で作り直す`);
 });
 
-test('Antigravity の置き場は、ルールに共通ルールと設計の形を、エージェントに同じ本文と Antigravity の道具を持つ', () => {
+test('Antigravity の置き場は、ルールに共通ルールとレイヤー構成を、エージェントに同じ本文と Antigravity の道具を持つ', () => {
   const files = build();
   assert.equal(files.get('rules/AGENTS.md'), `${coreText('core')}\n\n${coreText('layered')}\n`);
   // 1 つのルールのファイルは、24,000 バイトを超えると切られる(資料による)。
