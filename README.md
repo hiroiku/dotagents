@@ -6,8 +6,8 @@ English | [日本語](docs/README.ja.md)
 
 ## What it does
 
-- **One page per role.** Each role reads everything it needs on every run: the orchestrator session about 8,940 characters, a builder about 6,140, a reviewer about 6,650. The only skills left are the ones a user asks for: `architecture`, `prompting`, `releases`, `triage`.
-- **One way of working, not a menu.** Git is trunk: work integrates into the default branch and a release is a tag on it. The design is layered: six layers with dependencies pointing inward. Both are fixed, not chosen per project, and the git flow also sets the shared branches and the pull-request base the hooks enforce. A project that does not fit them says so in its own instructions (`AGENTS.md`); the user's instructions and the project's decisions take precedence over the harness's defaults.
+- **One page per role.** Each role reads everything it needs on every run: the orchestrator session about 9,100 characters, a builder about 6,250, a reviewer about 6,760. The only skills left are the ones a user asks for: `architecture`, `prompting`, `releases`, `triage`.
+- **One way of working, not a menu.** Git is trunk: work integrates into the default branch and a release is a tag on it. The design is layered: six layers with dependencies pointing inward. Both are fixed, not chosen per project, and the git flow also sets the shared branches and the pull-request base the hooks enforce. A project that does not fit them says so in its own documents (`AGENTS.md`, `ARCHITECTURE.md`); the user's instructions and the project's decisions take precedence over the harness's defaults.
 - **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching git and `gh` operations, the push and release checks when a subagent runs them, two procedures (below), and AI attribution in commits unless a project allows it (`allowAiAttribution`). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside: pushes to shared branches and tags, pull-request merges, releases, workflow runs and repository settings through `gh`, edits of instruction files and the declaration, messages to people. The harness does not read a project's own commands, since what to guard is the project's decision: a project that wants `terraform apply` or `npm publish` confirmed writes that in the host's permission settings (for example `ask` under `permissions` in Claude Code). Each project can delegate the kinds it trusts.
 
@@ -137,11 +137,16 @@ Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks
 
 What each key means and when to write it is described once, in the `description` fields of [`plugin/schema/dotagents.schema.json`](plugin/schema/dotagents.schema.json). The agents are told that file's path at the start of every session.
 
-### Project decisions go in AGENTS.md
+### Project decisions go in AGENTS.md and ARCHITECTURE.md
 
-The declaration holds only what the hooks judge by: `protected`, `delegated`, `checks`, `allowAiAttribution`. The project's own decisions (the technology it uses, where files go, the commands to run, what review does not look at) go in `AGENTS.md`, each with its reason and the condition for revisiting it. Codex reads `AGENTS.md` as it is, and so does Claude Code from 2.1.277 when there is no `CLAUDE.md`; Claude Code's own `builder` and `reviewer` subagents also load the project's instructions, `AGENTS.md` included. If anyone on the project uses a Claude Code older than 2.1.277, make `CLAUDE.md` a symbolic link to `AGENTS.md` (`ln -s AGENTS.md CLAUDE.md`). Detailed specifications and structure go in `ARCHITECTURE.md` and docs, linked from `AGENTS.md`.
+The declaration holds only what the hooks judge by: `protected`, `delegated`, `checks`, `allowAiAttribution`. The project's own decisions go in two files, by what they are about:
 
-The declaration's `decisions` array is deprecated. 9.x still reads it and gives it to every role; 10.0.0 will not. While it is there, the orchestrator suggests moving it to `AGENTS.md`, and `sync` prints the entries as Markdown you can paste (it never edits `AGENTS.md`). The harness's own text has no limits on time or count; a project that needs one writes it in `AGENTS.md` with its reason.
+- `AGENTS.md`: how agents work in the project (setting up the environment, the commands to run, how work proceeds, what review does not look at). It is the README for agents.
+- `ARCHITECTURE.md`: the technology chosen, the structure, where things go, and the invariants, each with its reason and the condition for revisiting it.
+
+Codex reads `AGENTS.md` as it is, and so does Claude Code from 2.1.277 when there is no `CLAUDE.md`; Claude Code's own `builder` and `reviewer` subagents also load the project's instructions, `AGENTS.md` included. If anyone on the project uses a Claude Code older than 2.1.277, make `CLAUDE.md` a symbolic link to `AGENTS.md` (`ln -s AGENTS.md CLAUDE.md`). Detailed specifications go in docs; `AGENTS.md` links to them and to `ARCHITECTURE.md`.
+
+The declaration's `decisions` array is deprecated. 9.x still reads it and gives it to every role; 10.0.0 will not. While it is there, the orchestrator suggests moving each entry to `AGENTS.md` or `ARCHITECTURE.md` by what it is about, and `sync` prints the entries as Markdown you can paste (it never edits either file). The harness's own text has no limits on time or count; a project that needs one writes it in `AGENTS.md` with its reason.
 
 ## Contents
 

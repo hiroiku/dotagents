@@ -102,8 +102,8 @@ test('dotagents.jsonc は注釈と末尾のカンマを許し、古い dotagents
 });
 
 // decisions は非推奨のあいだも読む(上のテスト)。移すことの提案は、利用者と話すオーケストレーターにだけ入る。
-test('decisions があるときだけ、オーケストレーターに、AGENTS.md へ移すことの提案が入る', () => {
-  const notice = /`\.agents\/dotagents\.jsonc` の `decisions` は非推奨で、10\.0\.0 で読まれなくなる。利用者に、AGENTS\.md へ移すことを提案する。/;
+test('decisions があるときだけ、オーケストレーターに、AGENTS.md か ARCHITECTURE.md へ移すことの提案が入る', () => {
+  const notice = /`\.agents\/dotagents\.jsonc` の `decisions` は非推奨で、10\.0\.0 で読まれなくなる。利用者に、AGENTS\.md か `ARCHITECTURE\.md` に、中身に合わせて移すことを提案する。/;
   const cwd = project({ decisions: ['a'] });
   assert.match(contextFor({ role: 'orchestrator', cwd }), notice);
   assert.match(contextFor({ role: 'orchestrator', cwd, host: 'codex' }), notice);

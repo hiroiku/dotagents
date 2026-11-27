@@ -65,9 +65,10 @@ test('schema の項目は、ハーネスが読む項目と一致する', () => {
 });
 
 // decisions は 9.1.0 で非推奨にした(10.0.0 で読まなくなる)。非推奨なのは decisions だけで、読む項目は変えない。
-test('schema は、decisions だけを非推奨と示し、AGENTS.md へ移すことを書く', () => {
+test('schema は、decisions だけを非推奨と示し、AGENTS.md か ARCHITECTURE.md へ移すことを書く', () => {
   assert.equal(schema.properties.decisions.deprecated, true);
   assert.match(schema.properties.decisions.description, /AGENTS\.md/);
+  assert.match(schema.properties.decisions.description, /ARCHITECTURE\.md/);
   assert.match(schema.properties.decisions.description, /10\.0\.0/);
   for (const [name, node] of Object.entries(schema.properties)) if (name !== 'decisions') assert.equal(node.deprecated, undefined, name);
   assert.deepEqual(errors(schema, { decisions: ['a'] }), []);

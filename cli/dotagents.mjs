@@ -44,14 +44,14 @@ function oldLines(old) {
   return ['', `古い参照を外しました。GitHub の ${REPOSITORY} から入れる参照で、リポジトリーに置いたものと両方が有効になるためです(remove では元に戻しません):`, ...old.flatMap(({ rel, items }) => items.map((item) => `  ${rel}: ${item}`))];
 }
 
-// 設定ファイルの decisions は非推奨。AGENTS.md に貼れる形で示す。AGENTS.md は書き換えない。
+// 設定ファイルの decisions は非推奨。AGENTS.md か ARCHITECTURE.md に貼れる形で示す。どちらも書き換えない。
 function decisionsLines(decisions) {
   if (!decisions.length) return [];
   const bullet = (text) => `- ${text.trim().split(/\r?\n/).join('\n  ')}`;
   return [
     '',
-    '設定ファイル(dotagents.jsonc)の decisions は非推奨です。9.x のあいだは読み込みますが、10.0.0 で読まれなくなります。プロジェクトの決めごとは AGENTS.md に書いてください。',
-    '次の内容を AGENTS.md に移し、移したら decisions を消してください。AGENTS.md は書き換えていません。',
+    '設定ファイル(dotagents.jsonc)の decisions は非推奨です。9.x のあいだは読み込みますが、10.0.0 で読まれなくなります。プロジェクトの決めごとは、作業の手順なら AGENTS.md に、技術の選定、構成、配置、不変条件なら ARCHITECTURE.md に書いてください。',
+    '次の内容を、AGENTS.md か ARCHITECTURE.md に、中身に合わせて移し、移したら decisions を消してください。AGENTS.md と ARCHITECTURE.md は書き換えていません。',
     '',
     '## 決定事項',
     '',
