@@ -7,7 +7,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { main } from '../cli/dotagents.mjs';
-import { ATTRIBUTES_BEGIN, ATTRIBUTES_END, BODY, codexHooks, GITATTRIBUTES, layout, RECORD } from '../cli/project.mjs';
+import { ATTRIBUTES_BEGIN, ATTRIBUTES_END, BODY, claudeHooks, codexHooks, GITATTRIBUTES, layout, RECORD, VERSION } from '../cli/project.mjs';
 
 const CLI = fileURLToPath(new URL('../cli/dotagents.mjs', import.meta.url));
 
@@ -46,8 +46,9 @@ function files(root) {
 }
 
 // プロジェクトがもともと持つ設定。タブの字下げ、項目の順、ほかの hook を、sync と remove のあとも保つことを確かめる。
+const OWN_CLAUDE_HOOK = { matcher: 'Bash', hooks: [{ type: 'command', command: './guard.sh' }] };
 const OWN = {
-  '.claude/settings.json': '{\n\t"permissions": {\n\t\t"ask": ["Bash(npm publish)"]\n\t},\n\t"enabledPlugins": {\n\t\t"other@market": true\n\t}\n}\n',
+  '.claude/settings.json': `{\n\t"permissions": {\n\t\t"ask": ["Bash(npm publish)"]\n\t},\n\t"enabledPlugins": {\n\t\t"other@market": true\n\t},\n\t"hooks": {\n\t\t"PreToolUse": [${JSON.stringify(OWN_CLAUDE_HOOK)}],\n\t\t"Stop": [{ "hooks": [{ "type": "command", "command": "./notify.sh" }] }]\n\t}\n}\n`,
   '.codex/hooks.json': '{\n  "hooks": {\n    "PreToolUse": [\n      { "matcher": "^Bash$", "hooks": [{ "type": "command", "command": "./lint.sh" }] }\n    ]\n  }\n}\n',
   '.agents/hooks.json': '{\n    "team-lint": {\n        "PostToolUse": [{ "matcher": "run_command", "hooks": [{ "type": "command", "command": "./lint.sh" }] }]\n    }\n}\n',
   '.agents/dotagents.jsonc': '{ "decisions": ["決定 A"] }\n',
@@ -62,14 +63,21 @@ test('sync は、無ければ置き、入口の設定に dotagents の項目だ�
   const placed = [...layout().keys()];
   assert.deepEqual(files(root), [...new Set([...placed, RECORD, GITATTRIBUTES, ...Object.keys(OWN)])].sort());
   for (const rel of placed) assert.ok(result.out.includes(rel), rel);
-  assert.equal(JSON.parse(read(root, RECORD)).version, JSON.parse(read(root, '.agents/dotagents/.claude-plugin/plugin.json')).version);
+  assert.equal(JSON.parse(read(root, RECORD)).version, VERSION);
 
+  // Claude Code の hook は、プロジェクトの設定の hooks に、利用者の hook を残して足す。本体を plugin として読ませる項目は書かない。
   const settings = read(root, '.claude/settings.json');
-  assert.ok(settings.startsWith('{\n\t"permissions": {\n\t\t"ask": ["Bash(npm publish)"]\n\t},\n\t"enabledPlugins": {\n\t\t"other@market": true,\n\t\t"dotagents@dotagents-project": true\n\t}'), settings);
-  assert.deepEqual(JSON.parse(settings).extraKnownMarketplaces, { 'dotagents-project': { source: { source: 'directory', path: './.agents/dotagents' } } });
-  // marketplace の根は本体で、plugin はその根にある。
-  const market = JSON.parse(read(root, '.agents/dotagents/.claude-plugin/marketplace.json'));
-  assert.deepEqual([market.name, market.plugins[0].name, market.plugins[0].source], ['dotagents-project', 'dotagents', './']);
+  assert.ok(settings.startsWith('{\n\t"permissions": {\n\t\t"ask": ["Bash(npm publish)"]\n\t},\n\t"enabledPlugins": {\n\t\t"other@market": true\n\t},\n\t"hooks": {\n\t\t"PreToolUse": [{"matcher":"Bash",'), settings);
+  const claude = JSON.parse(settings);
+  assert.equal(claude.extraKnownMarketplaces, undefined);
+  assert.deepEqual(claude.enabledPlugins, { 'other@market': true });
+  assert.deepEqual(claude.hooks.PreToolUse, [OWN_CLAUDE_HOOK, ...claudeHooks().PreToolUse]);
+  assert.deepEqual(claude.hooks.SessionStart, claudeHooks().SessionStart);
+  assert.deepEqual(claude.hooks.SubagentStart, claudeHooks().SubagentStart);
+  assert.equal(claude.hooks.Stop.length, 1);
+  // Claude Code のスキルとエージェントは、名前に dotagents- を付けて .claude/ に置く。
+  assert.match(read(root, '.claude/skills/dotagents-architecture/SKILL.md'), /^---\nname: dotagents-architecture$/m);
+  assert.match(read(root, '.claude/agents/dotagents-reviewer.md'), /^---\nname: dotagents-reviewer\n[\s\S]*^tools: Read, Glob, Grep, Bash$/m);
   const codex = JSON.parse(read(root, '.codex/hooks.json')).hooks;
   assert.equal(codex.PreToolUse[0].hooks[0].command, './lint.sh');
   assert.equal(codex.PreToolUse.length, 2);
@@ -107,17 +115,17 @@ test('sync は、前のバージョンで置いたものを置き直し、新し
   assert.equal(cli('sync', root).status, 0);
   // 前のバージョンが置いた状態を作る。記録には、前のバージョンの中身のハッシュが入っている。
   const old = { version: '8.9.0', files: { ...JSON.parse(read(root, RECORD)).files } };
-  write(root, '.agents/dotagents/agents/builder.md', '前のバージョンの文\n');
+  write(root, '.claude/agents/dotagents-builder.md', '前のバージョンの文\n');
   write(root, '.agents/skills/dotagents-old/SKILL.md', '---\nname: dotagents-old\n---\n');
   write(root, '.agents/dotagents/src/old.mjs', 'export {};\n');
-  for (const rel of ['.agents/dotagents/agents/builder.md', '.agents/skills/dotagents-old/SKILL.md', '.agents/dotagents/src/old.mjs']) {
+  for (const rel of ['.claude/agents/dotagents-builder.md', '.agents/skills/dotagents-old/SKILL.md', '.agents/dotagents/src/old.mjs']) {
     old.files[rel] = crypto.createHash('sha256').update(read(root, rel)).digest('hex');
   }
   write(root, RECORD, JSON.stringify(old));
   const result = cli('sync', root);
   assert.equal(result.status, 0, result.err);
   assert.match(result.out, /8\.9\.0/);
-  assert.equal(read(root, '.agents/dotagents/agents/builder.md'), layout().get('.agents/dotagents/agents/builder.md').toString());
+  assert.equal(read(root, '.claude/agents/dotagents-builder.md'), layout().get('.claude/agents/dotagents-builder.md').toString());
   assert.equal(exists(root, '.agents/skills/dotagents-old'), false);
   assert.equal(exists(root, '.agents/dotagents/src/old.mjs'), false);
   assert.notEqual(JSON.parse(read(root, RECORD)).version, '8.9.0');
@@ -126,20 +134,20 @@ test('sync は、前のバージョンで置いたものを置き直し、新し
 test('sync は、置いたファイルが手で書き換えられていれば、どのファイルかを示して何も変えずに止まり、--force で上書きする', () => {
   const root = repo();
   assert.equal(cli('sync', root).status, 0);
-  write(root, '.agents/dotagents/agents/builder.md', '手で直した\n');
+  write(root, '.agents/dotagents/schema/dotagents.schema.json', '手で直した\n');
   write(root, '.agents/dotagents/agents/extra.md', '手で足した\n');
   fs.rmSync(path.join(root, '.codex/agents/dotagents-builder.toml'));
   fs.rmSync(path.join(root, '.claude/settings.json'));
   const before = files(root).map((rel) => [rel, read(root, rel)]);
   const stopped = cli('sync', root);
   assert.equal(stopped.status, 1);
-  for (const rel of ['.agents/dotagents/agents/builder.md', '.agents/dotagents/agents/extra.md', '.codex/agents/dotagents-builder.toml']) assert.ok(stopped.err.includes(rel), rel);
+  for (const rel of ['.agents/dotagents/schema/dotagents.schema.json', '.agents/dotagents/agents/extra.md', '.codex/agents/dotagents-builder.toml']) assert.ok(stopped.err.includes(rel), rel);
   assert.ok(stopped.err.includes('--force'));
   assert.deepEqual(files(root).map((rel) => [rel, read(root, rel)]), before);
 
   const forced = cli('sync', root, '--force');
   assert.equal(forced.status, 0, forced.err);
-  assert.equal(read(root, '.agents/dotagents/agents/builder.md'), layout().get('.agents/dotagents/agents/builder.md').toString());
+  assert.equal(read(root, '.agents/dotagents/schema/dotagents.schema.json'), layout().get('.agents/dotagents/schema/dotagents.schema.json').toString());
   assert.equal(exists(root, '.agents/dotagents/agents/extra.md'), false);
   assert.ok(exists(root, '.codex/agents/dotagents-builder.toml') && exists(root, '.claude/settings.json'));
 });
@@ -167,23 +175,52 @@ test('9.1.0 までを置いたリポジトリーで sync すると、もう置�
   assert.ok(!read(root, '.codex/hooks.json').includes('src/hook.mjs'));
 });
 
-// リポジトリーの本体には、Claude Code が plugin として探すものと、hook の入口と schema だけを置く。
-test('本体に置くのは、Claude Code が plugin として探すファイルと、hook の入口、schema、記録だけである', () => {
+// 9.2.0 までは、Claude Code に本体を directory の marketplace の plugin として読ませていた。marketplace の名前はプロファイル
+// 全体で 1 つの登録なので、別のリポジトリーや worktree の本体を読み合った。いまは Claude Code にも、プロジェクトのファイルとして置く。
+test('9.2.0 を置いたリポジトリーで sync すると、本体を plugin として読ませる項目とファイルを外し、Claude Code のファイルを .claude/ に置く', () => {
+  const root = repo();
+  assert.equal(cli('sync', root).status, 0);
+  const old = { version: '9.2.0', files: { ...JSON.parse(read(root, RECORD)).files } };
+  for (const rel of Object.keys(old.files)) if (rel.startsWith('.claude/')) {
+    fs.rmSync(path.join(root, rel));
+    delete old.files[rel];
+  }
+  const legacy = ['.agents/dotagents/.claude-plugin/marketplace.json', '.agents/dotagents/.claude-plugin/plugin.json', '.agents/dotagents/hosts/claude/hooks.json', '.agents/dotagents/agents/builder.md', '.agents/dotagents/skills/triage/SKILL.md'];
+  for (const rel of legacy) {
+    write(root, rel, `${rel}\n`);
+    old.files[rel] = crypto.createHash('sha256').update(read(root, rel)).digest('hex');
+  }
+  write(root, RECORD, JSON.stringify(old));
+  write(root, '.claude/settings.json', JSON.stringify({
+    extraKnownMarketplaces: { team: { source: { source: 'github', repo: 'acme/tools' } }, 'dotagents-project': { source: { source: 'directory', path: './.agents/dotagents' } } },
+    enabledPlugins: { 'lint@team': true, 'dotagents@dotagents-project': true },
+    hooks: { PreToolUse: [OWN_CLAUDE_HOOK] },
+  }, null, 2));
+  const result = cli('sync', root);
+  assert.equal(result.status, 0, result.err);
+  assert.match(result.out, /9\.2\.0/);
+  for (const rel of legacy) assert.equal(exists(root, rel), false, rel);
+  for (const dir of ['.claude-plugin', 'hosts', 'agents', 'skills']) assert.equal(exists(root, `.agents/dotagents/${dir}`), false, dir);
+  const settings = JSON.parse(read(root, '.claude/settings.json'));
+  assert.deepEqual(settings.extraKnownMarketplaces, { team: { source: { source: 'github', repo: 'acme/tools' } } });
+  assert.deepEqual(settings.enabledPlugins, { 'lint@team': true });
+  assert.deepEqual(settings.hooks.PreToolUse, [OWN_CLAUDE_HOOK, ...claudeHooks().PreToolUse]);
+  for (const rel of [...layout().keys()].filter((name) => name.startsWith('.claude/'))) assert.ok(exists(root, rel), rel);
+  assert.ok(read(root, GITATTRIBUTES).includes('.claude/skills/dotagents-triage/SKILL.md linguist-generated=true'));
+
+  // remove は、置いたものと dotagents の項目だけを外し、利用者の hook と項目を残す。
+  assert.equal(cli('remove', root).status, 0);
+  assert.equal(exists(root, '.claude/skills'), false);
+  assert.equal(exists(root, '.claude/agents'), false);
+  assert.deepEqual(JSON.parse(read(root, '.claude/settings.json')), { extraKnownMarketplaces: { team: { source: { source: 'github', repo: 'acme/tools' } } }, enabledPlugins: { 'lint@team': true }, hooks: { PreToolUse: [OWN_CLAUDE_HOOK] } });
+});
+
+// リポジトリーの本体には、どのホストの hook も呼ぶ入口と、schema だけを置く。エージェントとスキルは、各ホストが読む場所に置く。
+test('本体に置くのは、hook の入口、schema、記録だけである', () => {
   const root = repo();
   assert.equal(cli('sync', root).status, 0);
   const body = files(root).filter((rel) => rel.startsWith('.agents/dotagents/')).map((rel) => rel.slice('.agents/dotagents/'.length));
-  const skills = fs.readdirSync(fileURLToPath(new URL('../plugin/skills', import.meta.url))).filter((name) => !name.startsWith('.')).sort();
-  assert.deepEqual(body, [
-    '.claude-plugin/marketplace.json',
-    '.claude-plugin/plugin.json',
-    'agents/builder.md',
-    'agents/reviewer.md',
-    'dotagents.mjs',
-    'hosts/claude/hooks.json',
-    'placed.json',
-    'schema/dotagents.schema.json',
-    ...skills.map((name) => `skills/${name}/SKILL.md`),
-  ].sort());
+  assert.deepEqual(body, ['dotagents.mjs', 'placed.json', 'schema/dotagents.schema.json']);
   assert.ok(BODY.includes('dotagents.mjs'));
 });
 
@@ -360,9 +397,9 @@ test('sync は、GitHub のこのリポジトリーを指す古い参照を、�
   for (const item of ['extraKnownMarketplaces の dots', 'enabledPlugins の dotagents@dots', '[marketplaces.dotagents]', '[plugins."dotagents@dotagents"]']) assert.ok(result.out.includes(item), item);
 
   const settings = read(root, '.claude/settings.json');
-  assert.ok(settings.startsWith('{\n    "permissions": { "allow": [] },\n    "extraKnownMarketplaces": {\n        "team": { "source": { "source": "github", "repo": "acme/tools" } },\n'), settings);
-  assert.deepEqual(Object.keys(JSON.parse(settings).extraKnownMarketplaces), ['team', 'dotagents-project']);
-  assert.deepEqual(JSON.parse(settings).enabledPlugins, { 'lint@team': true, 'dotagents@dotagents-project': true });
+  assert.ok(settings.startsWith('{\n    "permissions": { "allow": [] },\n    "extraKnownMarketplaces": {\n        "team": { "source": { "source": "github", "repo": "acme/tools" } }\n    },\n'), settings);
+  assert.deepEqual(Object.keys(JSON.parse(settings).extraKnownMarketplaces), ['team']);
+  assert.deepEqual(JSON.parse(settings).enabledPlugins, { 'lint@team': true });
   assert.equal(read(root, '.codex/config.toml'), `${head}# 表の後ろの注釈\n${tail}`);
 
   assert.equal(cli('remove', root).status, 0);
@@ -418,13 +455,18 @@ test('置いたものから、Claude Code、Codex、Antigravity の hook が動�
   const { root, sub, codexHome } = project;
   const options = { cwd: sub, codexHome };
 
-  // Claude Code は、本体を plugin として読み、${CLAUDE_PLUGIN_ROOT} に本体の場所を渡す。
-  const claude = JSON.parse(read(root, '.agents/dotagents/hosts/claude/hooks.json')).hooks;
-  const claudeEnv = { ...options, env: { CLAUDE_PLUGIN_ROOT: path.join(root, '.agents/dotagents') } };
+  // Claude Code は、プロジェクトの設定の hook を、$CLAUDE_PROJECT_DIR に起動したディレクトリーを渡して動かす。サブディレクトリーで
+  // 起動しても、ルートの設定を読むので、そこからルートを求める。
+  const claude = JSON.parse(read(root, '.claude/settings.json')).hooks;
+  const claudeEnv = { ...options, env: { CLAUDE_PROJECT_DIR: sub } };
   const claudeSession = shell(claude.SessionStart[0].hooks[0].command, { cwd: sub, hook_event_name: 'SessionStart', source: 'startup' }, claudeEnv);
   assert.match(claudeSession.hookSpecificOutput.additionalContext, /決定 A/);
-  // スキルは、ホストで見える名前で指す。Claude Code は plugin のスキル、Codex と Antigravity は .agents/skills/ に置いたスキル。
-  assert.ok(claudeSession.hookSpecificOutput.additionalContext.includes('`dotagents:releases`'));
+  // スキルは、ホストで見える名前で指す。リポジトリーに置いたときは、どのホストも dotagents-<スキル> の名前で置いたスキル。
+  assert.ok(claudeSession.hookSpecificOutput.additionalContext.includes('`dotagents-releases`') && exists(root, '.claude/skills/dotagents-releases/SKILL.md'));
+  assert.doesNotMatch(claudeSession.hookSpecificOutput.additionalContext, /`dotagents:/);
+  const claudeSubagent = shell(claude.SubagentStart[0].hooks[0].command, { cwd: sub, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'dotagents-builder' }, claudeEnv);
+  // サブエージェントには、メインのセッションだけの部分を入れない。
+  assert.ok(claudeSubagent.hookSpecificOutput.additionalContext.length < claudeSession.hookSpecificOutput.additionalContext.length);
   assert.ok(claudeSession.hookSpecificOutput.additionalContext.includes(path.join(root, '.agents/dotagents/schema/dotagents.schema.json')));
   assert.equal(shell(claude.PreToolUse[0].hooks[0].command, { cwd: sub, tool_name: 'Bash', tool_input: { command: RELEASE } }, claudeEnv).hookSpecificOutput.permissionDecision, 'ask');
 

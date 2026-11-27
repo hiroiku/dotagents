@@ -123,10 +123,10 @@ test('ホストに渡す文は、スキルをそのホストで見える名前�
   for (const host of ['claude', 'codex', 'antigravity']) seen += expect(namingFor(host, false), contextFor({ role: 'orchestrator', cwd: os.tmpdir(), host }), host);
   // Antigravity の plugin の生成物。
   for (const [file, text] of buildAntigravity()) if (file.endsWith('.md') && !file.startsWith('core/')) seen += expect('bare', text, `antigravity/${file}`);
-  // リポジトリーに置くファイル。本体は Claude Code が plugin として読むので、書いたままにする。
+  // リポジトリーに置くファイル。どのホストも、dotagents-<スキル> の名前で置いたスキルを読む。
   for (const [file, content] of layout()) {
     if (!file.endsWith('.md') && !file.endsWith('.toml')) continue;
-    seen += expect(file.startsWith('.agents/dotagents/') ? 'plugin' : 'placed', content.toString('utf8'), file);
+    seen += expect('placed', content.toString('utf8'), file);
   }
   assert.ok(seen > 0);
 });

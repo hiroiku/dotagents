@@ -60,6 +60,12 @@ const OVERRIDES = {
       '',
     ].join('\n');
   },
+  // スキルの名前の並びを埋め込み、skills/ を読まない。リポジトリーに置いた本体は skills/ を持たない。
+  'skills.mjs': (text) => {
+    const dir = path.join(PLUGIN, 'skills');
+    const names = fs.readdirSync(dir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+    return replaceOnce(text, "export const skillNames = (root = PLUGIN_ROOT) => fs.readdirSync(path.join(root, 'skills'), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();", `export const skillNames = () => ${JSON.stringify(names)};`, 'skills.mjs');
+  },
 };
 
 function readModule(name) {

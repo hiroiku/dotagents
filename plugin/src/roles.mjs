@@ -29,6 +29,15 @@ export function codexAgent(role, naming, prefix = 'dotagents') {
   return { file: `${fields.name}.toml`, content: `${CODEX_MARK}\n${body}`, legacy: body };
 }
 
+// リポジトリーに置くときの Claude Code のエージェントの定義(.claude/agents/)。plugin の定義と同じ形で、名前に prefix を付け、
+// 本文がスキルを指す名前を naming にする。frontmatter のほかの項目(ツールの許可)は、そのまま写す。
+export function claudeAgent(role, naming, prefix = 'dotagents') {
+  const { body, ...fields } = role;
+  const name = `${prefix}-${role.name}`;
+  const front = Object.entries({ ...fields, name }).map(([key, value]) => `${key}: ${value}`);
+  return { file: `${name}.md`, content: `---\n${front.join('\n')}\n---\n\n${nameSkills(body, naming)}\n` };
+}
+
 // Antigravity のツールの名前(資料による、実機で未確認)。資料は、知らない名前を許可の並びに書くと、サブエージェントが止まったまま
 // 進まないことがあると書く。ここに無い名前は書かない。
 const ANTIGRAVITY_BY_CLAUDE = {

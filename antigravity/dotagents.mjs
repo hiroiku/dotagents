@@ -297,31 +297,33 @@ export function placedProject(cwd) {
 
 // 文の中でスキルを指す書き方と、ホストごとにエージェントが実際に見るスキルの名前。
 //
-// 文(core/、agents/、skills/)は、スキルを Claude Code の plugin での名前で、`dotagents:<スキル>` と書く。Claude Code は、
-// plugin のエージェントの定義とスキルの本文を、置き換えずにそのまま読むからである。ほかのホストに渡す文は、組み立てるとき
-// (hook の文、Antigravity の生成、CLI が置くファイル)に、そのホストでの名前に置き換える。
+// 文(core/、agents/、skills/)は、スキルを Claude Code の plugin での名前で、`dotagents:<スキル>` と書く。個人の環境に入れた
+// Claude Code の plugin は、エージェントの定義とスキルの本文を、置き換えずにそのまま読むからである。ほかの置き方に渡す文は、
+// 組み立てるとき(hook の文、Antigravity の生成、CLI が置くファイル)に、その置き方での名前に置き換える。
 
 
 // スキルを指す書き方。バッククォートで囲む。
 export const SKILL_REF = /`dotagents:([a-z0-9-]+)`/g;
 
 // 名前の付け方。
-// - plugin: Claude Code の plugin(個人の環境とリポジトリーに置いたときの両方)。Codex の plugin も同じと見る(資料に無い、未確認)。
+// - plugin: 個人の環境に入れた Claude Code の plugin。Codex の plugin も同じと見る(資料に無い、未確認)。
 // - bare: Antigravity の plugin。資料の例は、plugin のスキルを名前だけで呼ぶ(未確認)。
-// - placed: リポジトリーに置いたときの Codex と Antigravity。CLI が .agents/skills/dotagents-<スキル>/ に置く。
+// - placed: リポジトリーに置いたとき。どのホストでも、CLI がスキルを dotagents-<スキル> の名前で置く
+//   (Claude Code は .claude/skills/、Codex と Antigravity は .agents/skills/)。
 export const NAMING = {
   plugin: (name) => `dotagents:${name}`,
   bare: (name) => name,
   placed: (name) => `dotagents-${name}`,
 };
 
+// placed は、hook の入口がリポジトリーに置いた本体かどうか(root.mjs)。置き方は入口の場所で決まるので、ホストに尋ねない。
 export function namingFor(host, placed = PLACED) {
-  if (host === 'claude') return 'plugin';
   if (placed) return 'placed';
   return host === 'antigravity' ? 'bare' : 'plugin';
 }
 
-export const skillNames = (root = PLUGIN_ROOT) => fs.readdirSync(path.join(root, 'skills'), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+// 配っているスキルの名前。hook の入口(tools/bundle.mjs が作る)には、名前の並びを埋め込む。リポジトリーに置いた本体は skills/ を持たない。
+export const skillNames = () => ["architecture","prompting","releases","triage"];
 
 // 文の中のスキルを指す箇所を、naming の名前に置き換える。配っていないスキルを指していれば止める。
 export function nameSkills(text, naming) {
@@ -359,6 +361,15 @@ export function codexAgent(role, naming, prefix = 'dotagents') {
   const fields = { name: `${prefix}-${role.name}`, description: role.description, developer_instructions: nameSkills(role.body, naming) };
   const body = `${Object.entries(fields).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n')}\n`;
   return { file: `${fields.name}.toml`, content: `${CODEX_MARK}\n${body}`, legacy: body };
+}
+
+// リポジトリーに置くときの Claude Code のエージェントの定義(.claude/agents/)。plugin の定義と同じ形で、名前に prefix を付け、
+// 本文がスキルを指す名前を naming にする。frontmatter のほかの項目(ツールの許可)は、そのまま写す。
+export function claudeAgent(role, naming, prefix = 'dotagents') {
+  const { body, ...fields } = role;
+  const name = `${prefix}-${role.name}`;
+  const front = Object.entries({ ...fields, name }).map(([key, value]) => `${key}: ${value}`);
+  return { file: `${name}.md`, content: `---\n${front.join('\n')}\n---\n\n${nameSkills(body, naming)}\n` };
 }
 
 // Antigravity のツールの名前(資料による、実機で未確認)。資料は、知らない名前を許可の並びに書くと、サブエージェントが止まったまま

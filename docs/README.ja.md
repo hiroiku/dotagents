@@ -40,21 +40,23 @@ npx @hiroiku/dotagents@latest sync
 
 | 場所 | 内容 |
 |---|---|
-| `.agents/dotagents/` | 本体。`plugin/` のうち、Claude Code が plugin として読むもの(manifest、エージェント、スキル、hook の定義)、hook の入口(`dotagents.mjs`。ルールの文と判定のスクリプトを 1 つにまとめたファイル)、schema です。これに、Claude Code の marketplace の定義(`.claude-plugin/marketplace.json`)と、置いたファイルのハッシュとバージョンの記録(`placed.json`)を足します。 |
-| `.claude/settings.json` | `extraKnownMarketplaces` の `dotagents-project`(本体を指す相対パスの `directory`)と、`enabledPlugins` の `dotagents@dotagents-project`。 |
+| `.agents/dotagents/` | 本体。どのホストの hook も呼ぶ入口(`dotagents.mjs`。ルールの文、スキルの名前、判定のスクリプトを 1 つにまとめたファイル)、schema、置いたファイルのハッシュとバージョンの記録(`placed.json`)です。 |
+| `.claude/settings.json`、`.claude/agents/dotagents-*.md`、`.claude/skills/dotagents-*/` | Claude Code の hook(`hooks` の `SessionStart`、`SubagentStart`、`PreToolUse`)、エージェントの定義、スキル。hook は、`$CLAUDE_PROJECT_DIR`(Claude Code を起動したディレクトリー)から `git` で求めたルートの本体を呼ぶので、リポジトリーと worktree は、それぞれ自分の本体を読みます。同じイベントに書いた利用者の hook は残します。dotagents の hook は、置いた本体を呼んでいることで見分けます。 |
 | `.codex/hooks.json`、`.codex/agents/dotagents-*.toml` | Codex の hook とエージェントの定義。hook は、`git rev-parse --show-toplevel` で求めたルートから本体を呼びます。 |
 | `.agents/hooks.json`、`.agents/agents/dotagents-*.md`、`.agents/rules/dotagents.md` | Antigravity の hook、エージェントの定義、常に読み込まれるルール。 |
 | `.agents/dotagents.jsonc` | 無ければ、`$schema`(`./dotagents/schema/dotagents.schema.json`)の行だけを持つファイルを作ります。あれば、`$schema` の行だけを書き換えます(下の「dotagents.jsonc」を参照)。 |
-| `.agents/skills/dotagents-*/` | Codex と Antigravity が読むスキル。プロジェクトのスキルと重ならないよう、名前に `dotagents-` を付けています。Claude Code は、スキルを本体の plugin から読みます。 |
+| `.agents/skills/dotagents-*/` | Codex と Antigravity が読むスキル。中身は Claude Code のスキルと同じです。どのホストでも、プロジェクトのスキルとエージェントと重ならないよう、名前に `dotagents-` を付けています。 |
 | `.gitattributes` | 置いたファイル(本体と、上の dotagents のファイル)に `linguist-generated=true` を付ける行。GitHub は、これらを生成物として扱い、PR の差分で畳みます。行は `# dotagents: ここから` から `# dotagents: ここまで` の区画にまとめ、ほかの行は変えません。ファイルが無ければ作ります。 |
 
 設定ファイル(`.claude/settings.json`、`.codex/hooks.json`、`.agents/hooks.json`)と `.gitattributes` は、dotagents の項目だけを追加または置き換え、ほかの項目と書式(順序、インデント)は変えません。JSON として読めないファイルがあると、何も変えずにエラーになります。
 
 プロジェクトの設定に、GitHub の `hiroiku/dotagents` を marketplace として入れる参照(`.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins`、`.codex/config.toml` の `[marketplaces.<名前>]` と `[plugins."dotagents@<名前>"]` の表)が残っていると、リポジトリーに置いたものと両方が有効になります。`sync` はこの参照を外し、外したものを表示します。`remove` は、外した参照を元に戻しません。
 
+9.2.0 までは、Claude Code に、本体を `dotagents-project` という名前の `directory` の marketplace の plugin として読ませていました(`.claude/settings.json` の `extraKnownMarketplaces` の `dotagents-project` と、`enabledPlugins` の `dotagents@dotagents-project`)。Claude Code は marketplace の名前ごとの登録をプロファイル全体で 1 つだけ持つので、同じ名前を持つ別のリポジトリーや worktree の本体を読み合っていました。`sync` と `remove` は、この 2 つの項目を外します。Claude Code のプロファイルに残った登録は、有効にするプロジェクトの設定が無くなれば使われません。9.2.0 のままのリポジトリーは、更新するまでこの登録を使い続けます。
+
 #### 更新
 
-同じコマンドを実行し、変わったファイルをコミットして PR にします。本体は丸ごと置き換え、新しいバージョンに無いファイルは削除します。9.1.0 までを置いたリポジトリーでは、本体の `src/`、`core/` など、もう置かないファイルを削除します。置いたファイルが手で書き換えられていると、どのファイルかを示して何も変えずに止まります。書き換えを捨ててよければ、`--force` を付けて実行し直します。
+同じコマンドを実行し、変わったファイルをコミットして PR にします。本体は丸ごと置き換え、新しいバージョンに無いファイルは削除します。前のバージョンを置いたリポジトリーでは、もう置かないファイル(9.1.0 までは本体の `src/`、`core/` など、9.2.0 は本体の `.claude-plugin/`、`agents/`、`skills/`、`hosts/`)を削除し、Claude Code のファイルを `.claude/` に置きます。置いたファイルが手で書き換えられていると、どのファイルかを示して何も変えずに止まります。書き換えを捨ててよければ、`--force` を付けて実行し直します。
 
 ```sh
 npx @hiroiku/dotagents@latest sync          # 初回も更新も同じコマンドです
@@ -69,7 +71,7 @@ npx @hiroiku/dotagents@latest sync --force  # 手で書き換えたファイル�
 | Codex | プロジェクトを信頼し、`/hooks` で dotagents の hook を承認します。hook の定義や呼び出すスクリプトが変わると承認し直しになるので、更新を取り込んだあとも `/hooks` で承認します。承認するまで、Codex では dotagents の hook が動きません。 |
 | Antigravity | フォルダーを信頼します。 |
 
-自分の環境にも dotagents をインストールしている人は、そのままでかまいません。dotagents を置いたリポジトリーの中では、個人の環境にインストールした plugin の hook は何もせず、リポジトリーに置いたバージョンが動きます。
+自分の環境にも dotagents をインストールしている人は、そのままでかまいません。dotagents を置いたリポジトリーの中では、個人の環境にインストールした plugin の hook は何もせず、リポジトリーに置いたバージョンが動きます。Claude Code には、個人の環境の plugin のスキルとエージェント(`dotagents:<名前>`)も、リポジトリーに置いたもの(`dotagents-<名前>`)と並んで見えます。リポジトリーに置いた hook が入れる文は、置いたものの名前を指します。
 
 #### アンインストール
 
@@ -79,13 +81,13 @@ npx @hiroiku/dotagents@latest sync --force  # 手で書き換えたファイル�
 npx @hiroiku/dotagents@latest remove
 ```
 
-#### 実機で確認していないこと
+#### 実機での確認
 
-各ツールの資料をもとに実装しており、次のことは実機で確認していません。
+各ツールの資料をもとに実装しています。実機で確かめたことと、確かめていないことは次のとおりです。
 
-- Claude Code: 相対パスの `directory` の marketplace を、インストールなしで読み込むこと。git worktree から起動したときに、メインのチェックアウトの本体を読み込むこと。別のプロジェクトにも同じ名前の marketplace(`dotagents-project`)があるときに、それぞれのプロジェクトの本体を読み込むこと。個人の環境の plugin も有効なときに、エージェントとスキル(どちらも `dotagents:` で始まる)が重複して見えるかどうか。
-- Codex: `.codex/hooks.json` の形と、hook のコマンドが実行されるディレクトリー。`.codex/agents/` と `.agents/skills/` を読み込むこと。個人の環境の plugin のスキルとの重複。
-- Antigravity: hook のコマンドが実行されるディレクトリーとシェル(資料に記載がありません。コマンドは `$(git rev-parse --show-toplevel)` でルートを求めるので、シェルを通して実行され、cwd がリポジトリーの中であれば動きます)。`.agents/rules/` の `trigger: always_on` のルール、`.agents/agents/`、`.agents/skills/` を読み込むこと。
+- Claude Code(確かめたこと): 2.1.332 で、2 つのリポジトリーと git worktree が、それぞれ自分の置いた本体を読むこと、置いたスキルが `dotagents-<スキル>` の名前で見えること、`git push origin main` で確認が出ることを確かめました。リポジトリーのサブディレクトリーで起動すると、2.1.332 は、スキルとエージェントを読みますが、ルートの `.claude/settings.json` の hook を動かさないので、ルールと確認が入りません。Claude Code は、リポジトリーのルートで起動してください。
+- Codex(確かめていないこと): `.codex/hooks.json` の形と、hook のコマンドが実行されるディレクトリー。`.codex/agents/` と `.agents/skills/` を読み込むこと。個人の環境の plugin のスキルとの重複。
+- Antigravity(確かめていないこと): hook のコマンドが実行されるディレクトリーとシェル(資料に記載がありません。コマンドは `$(git rev-parse --show-toplevel)` でルートを求めるので、シェルを通して実行され、cwd がリポジトリーの中であれば動きます)。`.agents/rules/` の `trigger: always_on` のルール、`.agents/agents/`、`.agents/skills/` を読み込むこと。
 
 ### 個人で使う(marketplace)
 
@@ -180,7 +182,7 @@ node tools/antigravity.mjs     # plugin/ から antigravity/ を生成します
 
 常時読み込まれる既定のルールは、`plugin/core/*.md` です。毎回の実行に必要な文だけを、`prompting` スキルの記述場所の順序に沿って置いてください。分野(H2)と話題(H3)を選び、どのロール(すべてのロール、またはメインのセッションだけ)が読むかは、`plugin/src/context.mjs` の一覧で決めます。見出しの構成は崩しません。H1 は 2 つ(既定のルールと、プロジェクトの設定)、H2 は分野、H3 は話題で、H4 は使いません。
 
-文の中でスキルを指すときは、`core/`、`agents/`、`skills/` のどこでも、Claude Code の plugin での名前で `` `dotagents:<スキル>` `` と書きます。Claude Code はこれらのファイルをそのまま読みます。ほかのホストに渡す文は、`plugin/src/skills.mjs` が、そのホストで見える名前(Antigravity の plugin では `<スキル>`、リポジトリーに置いたときの Codex と Antigravity では `dotagents-<スキル>`)に置き換えます。
+文の中でスキルを指すときは、`core/`、`agents/`、`skills/` のどこでも、Claude Code の plugin での名前で `` `dotagents:<スキル>` `` と書きます。個人の環境に入れた Claude Code の plugin は、これらのファイルをそのまま読みます。ほかの置き方に渡す文は、`plugin/src/skills.mjs` が、エージェントに見える名前(Antigravity の plugin では `<スキル>`、リポジトリーに置いたときはどのホストでも `dotagents-<スキル>`)に置き換えます。hook の入口は、隣にある `placed.json` で、リポジトリーに置いたものかを知ります。
 
 バージョンを上げるときは、`plugin/package.json`、2 つの plugin の manifest、ルートの `package.json` をそろえ、`node tools/antigravity.mjs` を実行してください。そろっていることはテストで検証しています。`plugin/` の下を変えたときも、同じく実行してください。CLI のパッケージは、ルートの `package.json` から公開します(`npm publish`)。公開したバージョンの `plugin/` が、リポジトリーに置く本体になります。
 

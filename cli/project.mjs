@@ -1,9 +1,8 @@
 // プロジェクトのリポジトリーに dotagents を置く、置き直す、外す。
 //
 // 置くものは 2 種類ある。
-// - ファイルごと置くもの: 本体(.agents/dotagents/、plugin/ のうち Claude Code が plugin として探すものと、hook の入口、schema に、
-//   Claude Code の marketplace の定義を足したもの)と、Codex と Antigravity が読む場所に置くエージェント、スキル、ルール。
-//   中身は plugin/ から導き、手で直さない。置いたファイルのハッシュとバージョンを、本体の中の記録(placed.json)に持ち、
+// - ファイルごと置くもの: 本体(.agents/dotagents/。hook の入口と schema)と、各ホストが読む場所に置くエージェント、スキル、
+//   ルール(Claude Code は .claude/、Codex は .codex/、Antigravity は .agents/)。中身は plugin/ から導き、手で直さない。置いたファイルのハッシュとバージョンを、本体の中の記録(placed.json)に持ち、
 //   手で書き換えられたことを見つける。
 // - 項目だけを足すもの: 入口の設定ファイル(.claude/settings.json、.codex/hooks.json、.agents/hooks.json)と、.gitattributes。
 //   dotagents の項目だけを足し引きし、ほかの項目と書式は変えない。
@@ -16,7 +15,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { sharedText } from '../plugin/src/context.mjs';
-import { antigravityAgent, codexAgent, roles } from '../plugin/src/roles.mjs';
+import { antigravityAgent, claudeAgent, codexAgent, roles } from '../plugin/src/roles.mjs';
 import { BUNDLE_FILE, PLACED_DIR, PLACED_RECORD, PLUGIN_ROOT } from '../plugin/src/root.mjs';
 import { nameSkills } from '../plugin/src/skills.mjs';
 import { list } from '../plugin/src/declaration.mjs';
@@ -27,7 +26,9 @@ import { dropTables, TomlShapeError } from './tomltext.mjs';
 
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
 export const VERSION = MANIFEST.version;
-// 個人の環境の marketplace(dotagents)と同じ名前は、1 人の環境に 2 つ登録できないので、別の名前にする。
+// 9.2.0 までは、Claude Code に本体を、この名前の directory の marketplace の plugin として読ませていた。Claude Code は
+// marketplace の名前を利用者のプロファイル全体で 1 つの登録として持つので、同じ名前を持つ別のリポジトリーや worktree の本体を
+// 読み合った。いまは置かないが、sync と remove は、残った項目を .claude/settings.json から外す。
 export const MARKETPLACE = `${MANIFEST.name}-project`;
 export const PLUGIN_ID = `${MANIFEST.name}@${MARKETPLACE}`;
 
@@ -80,8 +81,12 @@ const readFile = (root, rel) => {
 // ---------------------------------------------------------------- 置くファイル
 
 // hook のコマンドが本体を呼ぶ場所。Codex はサブディレクトリーから始まることがあり、Antigravity は hook の cwd が資料に無いので、
-// ルートは git に求める。
+// ルートは git に求める。Claude Code は、起動したディレクトリーを $CLAUDE_PROJECT_DIR で渡す。サブディレクトリーで起動すると、
+// $CLAUDE_PROJECT_DIR はそのサブディレクトリーになり、ルートの .claude/settings.local.json の hook は動く(2.1.332 で確かめた。
+// .claude/settings.json の hook は動かなかった)。どの設定から動いても本体を見つけられるよう、$CLAUDE_PROJECT_DIR を起点に、
+// ルートを git に求める。hook の cwd は、セッションの中の cd で動くので起点にしない。
 const HOOK_SCRIPT = `$(git rev-parse --show-toplevel)/${PLACED_DIR}/${BUNDLE_FILE}`;
+const CLAUDE_HOOK_SCRIPT = `$(git -C "$CLAUDE_PROJECT_DIR" rev-parse --show-toplevel)/${PLACED_DIR}/${BUNDLE_FILE}`;
 const callsHook = (command, script) => typeof command === 'string' && command.includes(`/${PLACED_DIR}/${script}`);
 // 9.1.0 までは、本体の src/hook.mjs を呼んでいた。置き直すときに、その組も dotagents の組として置き換える。
 const isOurCommand = (command) => callsHook(command, BUNDLE_FILE) || callsHook(command, 'src/hook.mjs');
@@ -100,14 +105,14 @@ function hostHooks(host, from, to) {
   };
   return rewrite(JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'hosts', host, 'hooks.json'), 'utf8')));
 }
+export const claudeHooks = () => hostHooks('claude', `\${CLAUDE_PLUGIN_ROOT}/${BUNDLE_FILE}`, CLAUDE_HOOK_SCRIPT).hooks;
 export const codexHooks = () => hostHooks('codex', `\${PLUGIN_ROOT}/${BUNDLE_FILE}`, HOOK_SCRIPT).hooks;
 export const antigravityHooks = () => hostHooks('antigravity', `./${BUNDLE_FILE}`, `"${HOOK_SCRIPT}"`)[ANTIGRAVITY_SET];
 
-// 本体として置く、plugin/ の中のもの。リポジトリーでは、Claude Code だけが本体を plugin として読む。Codex と Antigravity の
-// hook の定義は、CLI がプロジェクトの設定ファイルに書くので、本体には要らない(.codex-plugin/、hosts/codex/、hosts/antigravity/)。
-// - Claude Code が plugin として探すもの: manifest、エージェント、スキル、manifest が指す hook の定義。
-// - hook の入口(src/ と core/ をまとめたもの)と、エージェントに示す schema。
-export const BODY = ['.claude-plugin/plugin.json', 'agents', 'skills', path.posix.normalize(MANIFEST.hooks), BUNDLE_FILE, 'schema'];
+// 本体として置く、plugin/ の中のもの。リポジトリーでは、どのホストも本体を plugin として読まない。hook の定義は CLI が
+// プロジェクトの設定ファイルに書き、エージェントとスキルは CLI が各ホストの読む場所に置くので、本体に要るのは、hook の入口
+// (src/ と core/ をまとめたもの。スキルの名前も埋め込む)と、エージェントに示す schema だけである。
+export const BODY = [BUNDLE_FILE, 'schema'];
 
 const RULE_FRONT = ['---', 'trigger: always_on', 'description: dotagents の既定のルール(どのエージェントにも入る部分)', '---'].join('\n');
 
@@ -121,13 +126,6 @@ export function layout() {
     const rels = fs.statSync(source).isDirectory() ? walk(source).map((rel) => `${part}/${rel}`) : [part];
     for (const rel of rels) put(`${PLACED_DIR}/${rel}`, fs.readFileSync(path.join(PLUGIN_ROOT, rel)));
   }
-  // Claude Code は、本体を相対パスの directory の marketplace として読む。plugin はその根にある。
-  put(`${PLACED_DIR}/.claude-plugin/marketplace.json`, json({
-    name: MARKETPLACE,
-    owner: MANIFEST.author,
-    description: MANIFEST.description,
-    plugins: [{ name: MANIFEST.name, source: './', description: MANIFEST.description }],
-  }));
   // Antigravity のワークスペースのルールは、trigger の無いファイルを読まない(資料による)。
   put('.agents/rules/dotagents.md', `${RULE_FRONT}\n\n${sharedText('placed')}\n`);
   for (const role of roles()) {
@@ -135,9 +133,11 @@ export function layout() {
     put(`.agents/agents/${antigravity.file}`, antigravity.content);
     const codex = codexAgent(role, 'placed');
     put(`.codex/agents/${codex.file}`, codex.content);
+    const claude = claudeAgent(role, 'placed');
+    put(`.claude/agents/${claude.file}`, claude.content);
   }
-  // Codex と Antigravity は .agents/skills/ を読む。プロジェクトのスキルとぶつからないよう、名前に dotagents- を付け、
-  // 本文がスキルを指す箇所もその名前にする。Claude Code は、スキルを本体の plugin から読む。
+  // Codex と Antigravity は .agents/skills/ を、Claude Code は .claude/skills/ を読む。中身は同じである。プロジェクトのスキルと
+  // ぶつからないよう、名前に dotagents- を付け、本文がスキルを指す箇所もその名前にする。
   for (const rel of walk(path.join(PLUGIN_ROOT, 'skills'))) {
     const [name, ...rest] = rel.split('/');
     let content = fs.readFileSync(path.join(PLUGIN_ROOT, 'skills', rel));
@@ -148,18 +148,12 @@ export function layout() {
       if (renamed === text) throw new Error(`スキルの name を書き換えられない: ${rel}`);
       content = renamed;
     }
-    put(`.agents/skills/${MANIFEST.name}-${name}/${rest.join('/')}`, content);
+    for (const dir of ['.agents/skills', '.claude/skills']) put(`${dir}/${MANIFEST.name}-${name}/${rest.join('/')}`, content);
   }
   return files;
 }
 
 // ---------------------------------------------------------------- 入口の設定ファイル
-
-function box(data, key, file) {
-  data[key] ??= {};
-  if (!isObject(data[key])) throw new StopError(`${file} の ${key} がオブジェクトではありません。`);
-  return data[key];
-}
 
 // 入れ物から指定した名前を外す。外して空になったときだけ、入れ物ごと外す。
 function prune(data, key, name) {
@@ -191,14 +185,10 @@ function replaceGroups(data, key, ours, file) {
 // 設定ファイルごとの、dotagents の項目の書き換え。install が偽なら、dotagents の項目を外す。
 export const ENTRIES = {
   [CLAUDE_SETTINGS]: (data, install) => {
-    if (!install) {
-      prune(data, 'enabledPlugins', PLUGIN_ID);
-      prune(data, 'extraKnownMarketplaces', MARKETPLACE);
-      return;
-    }
-    // 相対パスの directory の marketplace は、その場で読まれる。各人のインストールは要らない(資料による)。
-    box(data, 'extraKnownMarketplaces', CLAUDE_SETTINGS)[MARKETPLACE] = { source: { source: 'directory', path: `./${PLACED_DIR}` } };
-    box(data, 'enabledPlugins', CLAUDE_SETTINGS)[PLUGIN_ID] = true;
+    // 9.2.0 までの、本体を plugin として読ませる項目。どちらの向きでも外す。
+    prune(data, 'enabledPlugins', PLUGIN_ID);
+    prune(data, 'extraKnownMarketplaces', MARKETPLACE);
+    replaceGroups(data, 'hooks', install ? claudeHooks() : {}, CLAUDE_SETTINGS);
   },
   [CODEX_HOOKS]: (data, install) => replaceGroups(data, 'hooks', install ? codexHooks() : {}, CODEX_HOOKS),
   [ANTIGRAVITY_HOOKS]: (data, install) => {

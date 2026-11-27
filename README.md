@@ -36,21 +36,23 @@ It places these files. The CLI builds all of them from `plugin/`; do not edit th
 
 | Path | What |
 |---|---|
-| `.agents/dotagents/` | The harness itself: the parts of `plugin/` that Claude Code reads as a plugin (manifest, agents, skills, hook definition), the hook entry point (`dotagents.mjs`, the rule texts and the guard scripts bundled into one file), and the schema. Added to them are a Claude Code marketplace definition (`.claude-plugin/marketplace.json`) and a record of the placed files' hashes and version (`placed.json`). |
-| `.claude/settings.json` | `dotagents-project` under `extraKnownMarketplaces` (a relative-path `directory` source pointing at the harness) and `dotagents@dotagents-project` under `enabledPlugins`. |
+| `.agents/dotagents/` | The harness itself: the hook entry point every host calls (`dotagents.mjs`, the rule texts, the skill names, and the guard scripts bundled into one file), the schema, and a record of the placed files' hashes and version (`placed.json`). |
+| `.claude/settings.json`, `.claude/agents/dotagents-*.md`, `.claude/skills/dotagents-*/` | Claude Code hooks (`SessionStart`, `SubagentStart`, `PreToolUse` under `hooks`), agent definitions, and skills. The hooks call the harness at the root that `git` finds from `$CLAUDE_PROJECT_DIR` (the directory Claude Code started in), so each repository and each worktree runs its own copy. A hook of yours in the same events stays; dotagents' hooks are told apart by calling the placed harness. |
 | `.codex/hooks.json`, `.codex/agents/dotagents-*.toml` | Codex hooks and agent definitions. The hooks call the harness from the root that `git rev-parse --show-toplevel` finds. |
 | `.agents/hooks.json`, `.agents/agents/dotagents-*.md`, `.agents/rules/dotagents.md` | Antigravity hooks, agent definitions, and the always-on rule. |
 | `.agents/dotagents.jsonc` | Created with only the `$schema` line (`./dotagents/schema/dotagents.schema.json`) when missing; otherwise only its `$schema` line is rewritten (see "The project declaration" below). |
-| `.agents/skills/dotagents-*/` | Skills for Codex and Antigravity, prefixed with `dotagents-` so they do not collide with the project's own. Claude Code reads the skills from the harness's plugin. |
+| `.agents/skills/dotagents-*/` | Skills for Codex and Antigravity, the same as Claude Code's. Every host's skills and agents are prefixed with `dotagents-` so they do not collide with the project's own. |
 | `.gitattributes` | Lines that mark the placed files (the harness and the dotagents files above) `linguist-generated=true`, so GitHub treats them as generated and collapses them in pull-request diffs. The lines sit in one block from `# dotagents: ここから` to `# dotagents: ここまで`; other lines are left as they are. The file is created when missing. |
 
 In the settings files (`.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json`) and `.gitattributes` only dotagents' entries are added or replaced; other entries and the formatting (order, indentation) stay as they are. If one of them is not valid JSON, the command stops with an error and changes nothing.
 
 A reference that installs `hiroiku/dotagents` from GitHub as a marketplace in the project's settings (`extraKnownMarketplaces` and `enabledPlugins` in `.claude/settings.json`, the `[marketplaces.<name>]` and `[plugins."dotagents@<name>"]` tables in `.codex/config.toml`) would stay enabled alongside the placed harness. `sync` removes such references and lists what it removed; `remove` does not restore them.
 
+Up to 9.2.0, Claude Code read the harness as a plugin from a `directory` marketplace named `dotagents-project` (`dotagents-project` under `extraKnownMarketplaces` and `dotagents@dotagents-project` under `enabledPlugins` in `.claude/settings.json`). Claude Code keeps one registration per marketplace name for the whole profile, so repositories and worktrees with the same name read each other's harness. `sync` and `remove` delete those two entries. The registration left in your Claude Code profile is no longer used once no project setting enables it; repositories still on 9.2.0 keep using it until they are updated.
+
 #### Update
 
-Run the same command, then commit the changed files and open a pull request. The harness is replaced as a whole, and files the new version no longer has are deleted. In a repository placed with 9.1.0 or earlier, this deletes the files no longer placed, such as the harness's `src/` and `core/`. If a placed file was edited by hand, the command names it and stops without changing anything; add `--force` to overwrite the edits.
+Run the same command, then commit the changed files and open a pull request. The harness is replaced as a whole, and files the new version no longer has are deleted. In a repository placed with an earlier version, this deletes the files no longer placed, such as the harness's `src/` and `core/` (9.1.0 and earlier) or its `.claude-plugin/`, `agents/`, `skills/`, and `hosts/` (9.2.0), and places Claude Code's files under `.claude/`. If a placed file was edited by hand, the command names it and stops without changing anything; add `--force` to overwrite the edits.
 
 ```sh
 npx @hiroiku/dotagents@latest sync          # the same command installs and updates
@@ -65,7 +67,7 @@ npx @hiroiku/dotagents@latest sync --force  # also overwrite files edited by han
 | Codex | Trust the project and approve the dotagents hooks in `/hooks`. Codex asks again whenever a hook definition or the script it calls changes, so approve again in `/hooks` after pulling an update. Until then the dotagents hooks do not run in Codex. |
 | Antigravity | Trust the folder. |
 
-If you also installed dotagents for yourself, leave it as it is: inside a repository that has dotagents placed, the hooks of your personal plugin do nothing, and the version placed in the repository runs.
+If you also installed dotagents for yourself, leave it as it is: inside a repository that has dotagents placed, the hooks of your personal plugin do nothing, and the version placed in the repository runs. Claude Code still lists the personal plugin's skills and agents (`dotagents:<name>`) next to the placed ones (`dotagents-<name>`); the context the placed hooks give points at the placed names.
 
 #### Uninstall
 
@@ -75,13 +77,13 @@ Run this, then commit the changed files and open a pull request. It deletes the 
 npx @hiroiku/dotagents@latest remove
 ```
 
-#### Not confirmed on real hosts
+#### Checked on real hosts
 
-This was built from each host's documentation. These points have not been confirmed on a real host:
+This was built from each host's documentation. What has and has not been checked on a real host:
 
-- Claude Code: that a relative-path `directory` marketplace loads with no install; that a session started from a git worktree loads the harness of the main checkout; that each project loads its own harness when another project also has a marketplace named `dotagents-project`; whether agents and skills (both starting with `dotagents:`) show twice when the personal plugin is also enabled.
-- Codex: the shape of `.codex/hooks.json` and the directory a hook command runs in; that `.codex/agents/` and `.agents/skills/` are read; duplicate skills with the personal plugin.
-- Antigravity: the directory and the shell a hook command runs in (the documentation does not say; the commands find the root with `$(git rev-parse --show-toplevel)`, so they work when run through a shell from inside the repository); that the `trigger: always_on` rule in `.agents/rules/`, `.agents/agents/`, and `.agents/skills/` are read.
+- Claude Code (checked): on 2.1.332, two repositories and a git worktree each run their own placed harness, the placed skills show as `dotagents-<skill>`, and `git push origin main` is asked. When Claude Code starts in a subdirectory of the repository, 2.1.332 shows the skills and agents but does not run the hooks in the root's `.claude/settings.json`, so the rules and the confirmations are missing; start Claude Code at the repository root.
+- Codex (not confirmed): the shape of `.codex/hooks.json` and the directory a hook command runs in; that `.codex/agents/` and `.agents/skills/` are read; duplicate skills with the personal plugin.
+- Antigravity (not confirmed): the directory and the shell a hook command runs in (the documentation does not say; the commands find the root with `$(git rev-parse --show-toplevel)`, so they work when run through a shell from inside the repository); that the `trigger: always_on` rule in `.agents/rules/`, `.agents/agents/`, and `.agents/skills/` are read.
 
 ### For yourself (marketplace)
 
@@ -176,7 +178,7 @@ After changing `plugin/src/` or `plugin/core/`, run `node tools/bundle.mjs`, the
 
 The always-loaded default rules are `plugin/core/*.md`. Put a text there only when every run needs it, after the placement order in the `prompting` skill. Choose the field (H2) and the topic (H3), then decide which roles read it (every role, or the main session only) in the list in `plugin/src/context.mjs`. The headings keep their shape: two H1 (the default rules, and the project's settings), H2 for a field, H3 for a topic, and no H4.
 
-To point at a skill in `core/`, `agents/`, or `skills/`, write its Claude Code plugin name, `` `dotagents:<skill>` ``; Claude Code reads these files as they are. For other hosts, `plugin/src/skills.mjs` rewrites it to the name that host shows (`<skill>` in the Antigravity plugin, `dotagents-<skill>` for Codex and Antigravity when the harness is placed in a repository).
+To point at a skill in `core/`, `agents/`, or `skills/`, write its Claude Code plugin name, `` `dotagents:<skill>` ``; Claude Code's personal plugin reads these files as they are. Elsewhere, `plugin/src/skills.mjs` rewrites it to the name the agent sees (`<skill>` in the Antigravity plugin, `dotagents-<skill>` on every host when the harness is placed in a repository). The hook entry point knows it is placed from the `placed.json` next to it.
 
 When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together, then run `node tools/antigravity.mjs`; a test keeps them equal. Run it after any change under `plugin/` as well. The CLI package is published from the root `package.json` (`npm publish`); the `plugin/` of the published version is what gets placed in repositories.
 
