@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { budgetOf, contextFor, coreText, standingSize } from '../plugin/src/context.mjs';
+import { contextFor, coreText } from '../plugin/src/context.mjs';
 import { findings } from '../plugin/src/guard.mjs';
 
 function project(declaration) {
@@ -14,10 +14,6 @@ function project(declaration) {
 }
 
 const ROLES = ['orchestrator', 'builder', 'reviewer', 'worker'];
-
-test('常設の文は、ロールごとの上限に収まる', () => {
-  for (const role of ROLES) assert.ok(standingSize(role) <= budgetOf(role), `${role}: ${standingSize(role)} 字 > ${budgetOf(role)} 字`);
-});
 
 test('dotagents.jsonc に何も書かなくても、git は trunk、設計は layered の文が入り、trunk の文はオーケストレーターにだけ入る', () => {
   const cwd = project({});

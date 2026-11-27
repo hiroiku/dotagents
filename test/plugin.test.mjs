@@ -53,8 +53,9 @@ test('セッションの開始の知らせは、始まり方を選ばずに受�
 test('Codex の hook は、常設の文を切らずに渡す', () => {
   for (const event of ['SessionStart', 'SubagentStart']) {
     for (const hook of json(PLUGIN, 'hosts', 'codex', 'hooks.json').hooks[event].flatMap((group) => group.hooks)) {
-      const role = event === 'SessionStart' ? 'orchestrator' : 'reviewer';
-      assert.ok(Math.ceil((standingSize(role) * 3) / 4) < hook.additionalContextLimit / 2, `${event}: ${standingSize(role)} 字`);
+      // サブエージェントの開始では、いちばん長いサブエージェントの文で確かめる。
+      const size = event === 'SessionStart' ? standingSize('orchestrator') : Math.max(...['builder', 'reviewer', 'worker'].map(standingSize));
+      assert.ok(Math.ceil((size * 3) / 4) < hook.additionalContextLimit / 2, `${event}: ${size} 字`);
     }
   }
 });

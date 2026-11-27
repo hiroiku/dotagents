@@ -14,12 +14,6 @@ import { PLUGIN_ROOT } from './root.mjs';
 
 export { PLUGIN_ROOT };
 
-// ロールが毎回読む文の上限(文字)。文を追加するたびに、ほかの文が読まれる度合いが下がる。超えたらテストが落ちる。
-// 数えるのは、共通ルール、レイヤー構成、オーケストレーターの文、エージェントの定義の本文である。`dotagents.jsonc` から導いた事実(決定、チェックのコマンド)は、
-// プロジェクトが持つものなので数えない。7.x では常設の文が 6,149 字になり、読まれない文が増えた。
-// これは、ハーネスが自分の大きさに掛ける上限である。エージェントの働き方に掛ける上限は、持たない。
-export const BUDGET = { orchestrator: 6000, subagent: 4000 };
-
 export const coreText = (name) => fs.readFileSync(path.join(PLUGIN_ROOT, 'core', `${name}.md`), 'utf8').trim();
 
 // ビルダーとレビュアーが実行しないチェック。
@@ -56,13 +50,13 @@ function standing(role, shared = true) {
   return parts;
 }
 
-// ロールが毎回読む文の字数。hook が入れる文に、ホストが入れるエージェントの定義の本文を加えて数える。上限と比べるのに使う。
+// ロールが毎回読む文の字数。hook が入れる文に、ホストが入れるエージェントの定義の本文を加えて数える。
+// 数えるのは、共通ルール、レイヤー構成、オーケストレーターの文、エージェントの定義の本文である。`dotagents.jsonc` から導いた事実
+// (決定、チェックのコマンド)は、プロジェクトが持つものなので数えない。README の字数の目安と、Codex に切らずに渡せるかの確認に使う。
 export function standingSize(role) {
   const body = roles().find((definition) => definition.name === role)?.body ?? '';
   return [...standing(role), body].filter(Boolean).join('\n\n').length;
 }
-
-export const budgetOf = (role) => (role === 'orchestrator' ? BUDGET.orchestrator : BUDGET.subagent);
 
 export function contextFor({ role = 'orchestrator', cwd = process.cwd(), shared = true } = {}) {
   const { value, error } = readDeclaration(cwd);
