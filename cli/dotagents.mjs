@@ -15,7 +15,8 @@ const USAGE = `使い方: npx @hiroiku/dotagents@latest <コマンド> [<プロ�
 
 コマンド:
   sync     dotagents をプロジェクトのリポジトリーに置きます。置いてあれば、このバージョン(${VERSION})に置き直します。
-  remove   置いたファイルと、設定ファイルの dotagents の項目を消します。.agents/dotagents.jsonc は残します。
+  remove   置いたファイルと、設定ファイルの dotagents の項目を消します。.agents/dotagents.jsonc は、sync が作ったままなら消し、
+           項目を書いてあれば $schema の行だけを外して残します。
 
 プロジェクトのパスを省くと、今のディレクトリーに置きます。パスは、git のリポジトリーのルートを指定します。
 

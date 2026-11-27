@@ -7,7 +7,7 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "この schema の URL です。エディターが補完と誤りの表示を出すための指定で、ハーネスは読みません。確認の判定も変えません。"
+      "description": "この schema の場所です。標準は、リポジトリーに置いた本体の schema を指す、このファイルからの相対パス `./dotagents/schema/dotagents.schema.json` です(`sync` が書きます)。置いたバージョンと schema がずれません。エディターが補完と誤りの表示を出すための指定で、ハーネスは読みません。確認の判定も変えません。"
     },
     "protected": {
       "type": "array",

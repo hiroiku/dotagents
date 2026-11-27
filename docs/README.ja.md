@@ -44,6 +44,7 @@ npx @hiroiku/dotagents@latest sync
 | `.claude/settings.json` | `extraKnownMarketplaces` の `dotagents-project`(本体を指す相対パスの `directory`)と、`enabledPlugins` の `dotagents@dotagents-project`。 |
 | `.codex/hooks.json`、`.codex/agents/dotagents-*.toml` | Codex の hook とエージェントの定義。hook は、`git rev-parse --show-toplevel` で求めたルートから本体を呼びます。 |
 | `.agents/hooks.json`、`.agents/agents/dotagents-*.md`、`.agents/rules/dotagents.md` | Antigravity の hook、エージェントの定義、常に読み込まれるルール。 |
+| `.agents/dotagents.jsonc` | 無ければ、`$schema`(`./dotagents/schema/dotagents.schema.json`)の行だけを持つファイルを作ります。あれば、`$schema` の行だけを書き換えます(下の「dotagents.jsonc」を参照)。 |
 | `.agents/skills/dotagents-*/` | Codex と Antigravity が読むスキル。プロジェクトのスキルと重ならないよう、名前に `dotagents-` を付けています。Claude Code は、スキルを本体の plugin から読みます。 |
 
 設定ファイル(`.claude/settings.json`、`.codex/hooks.json`、`.agents/hooks.json`)は、dotagents の項目だけを追加または置き換え、ほかの項目と書式(順序、インデント)は変えません。JSON として読めないファイルがあると、何も変えずにエラーになります。
@@ -71,7 +72,7 @@ npx @hiroiku/dotagents@latest sync --force  # 手で書き換えたファイル�
 
 #### アンインストール
 
-次のコマンドを実行し、変わったファイルをコミットして PR にします。置いたファイルと、設定ファイルの dotagents の項目だけを削除します。`.agents/dotagents.jsonc` は削除しません。
+次のコマンドを実行し、変わったファイルをコミットして PR にします。置いたファイルと、設定ファイルの dotagents の項目だけを削除します。`.agents/dotagents.jsonc` は、`sync` が作ったまま(`$schema` だけ)なら削除し、項目を書いてあれば `$schema` の行だけを外して残します。
 
 ```sh
 npx @hiroiku/dotagents@latest remove
@@ -94,6 +95,8 @@ npx @hiroiku/dotagents@latest remove
 | Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | `/plugin` で marketplace の自動更新をオンにします。または `claude plugin update dotagents@dotagents` |
 | Codex | `codex plugin marketplace add hiroiku/dotagents` のあと `codex plugin add dotagents@dotagents`。hook は `/hooks` で承認します | `codex plugin marketplace upgrade dotagents`(更新のあと、hook をもう一度承認します) |
 | Antigravity | このリポジトリーを clone し、`agy plugin install <clone>/antigravity` | `git pull` のあと、同じコマンドでインストールし直します(未検証) |
+
+個人の環境だけで使うときは、本体の schema がリポジトリーに無いので、`.agents/dotagents.jsonc` の `$schema` に `https://raw.githubusercontent.com/hiroiku/dotagents/master/plugin/schema/dotagents.schema.json` を書きます。
 
 hook は、`bun` があれば `bun` で、無ければ `node` で動きます。Antigravity の hook は `node` で動きます。Codex では、セッションの開始時に、エージェントの定義を `~/.codex/agents/dotagents-*.toml` に置きます(リポジトリーに置いたときは置きません)。
 
@@ -119,11 +122,11 @@ Antigravity で守れない決まり:
 
 ## dotagents.jsonc
 
-プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書きます。hook と、どのエージェントのコンテキストも、ここを読みます。どの項目も省けます。ファイルが無くても、既定の動作で動きます。先頭に `$schema` の行を書くと、エディターが項目の補完と誤りの表示を出します。
+プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書きます。hook と、どのエージェントのコンテキストも、ここを読みます。どの項目も省けます。ファイルが無くても、既定の動作で動きます。先頭に `$schema` の行を書くと、エディターが項目の補完と誤りの表示を出します。`$schema` は、リポジトリーに置いた本体の schema を指す相対パス(`./dotagents/schema/dotagents.schema.json`)を標準にします。置いたバージョンと schema がずれません。`sync` は、このファイルが無ければ `$schema` の行だけを持つファイルを作り、あれば、`$schema` が無いか、このリポジトリーの schema の URL を指すときだけ相対パスに書き換えます。
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/plugin/schema/dotagents.schema.json",
+  "$schema": "./dotagents/schema/dotagents.schema.json",
   // 既定の共有ブランチに追加する名前
   "protected": ["staging"],
   "delegated": ["merge:main", "tag", "release:v1"],

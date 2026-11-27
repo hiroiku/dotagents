@@ -18,7 +18,9 @@ import { sharedText } from '../plugin/src/context.mjs';
 import { antigravityAgent, codexAgent, roles } from '../plugin/src/roles.mjs';
 import { PLACED_DIR, PLACED_RECORD, PLUGIN_ROOT } from '../plugin/src/root.mjs';
 import { nameSkills } from '../plugin/src/skills.mjs';
+import { parseJsonc } from '../plugin/src/jsonc.mjs';
 import { editJsonText } from './jsontext.mjs';
+import { removeTopLevel, setTopLevelString } from './jsonctext.mjs';
 import { dropTables, TomlShapeError } from './tomltext.mjs';
 
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
@@ -32,6 +34,9 @@ export const CLAUDE_SETTINGS = '.claude/settings.json';
 export const CODEX_HOOKS = '.codex/hooks.json';
 export const ANTIGRAVITY_HOOKS = '.agents/hooks.json';
 export const CODEX_CONFIG = '.codex/config.toml';
+export const DECLARATION_FILE = '.agents/dotagents.jsonc';
+// 設定ファイルの $schema に書く、置いた本体の schema の場所(設定ファイルからの相対パス)。置いたバージョンと schema がずれない。
+export const SCHEMA_REF = `./${path.posix.relative(path.posix.dirname(DECLARATION_FILE), `${PLACED_DIR}/schema/dotagents.schema.json`)}`;
 // Antigravity の hooks.json の中の、dotagents の組の名前。
 const ANTIGRAVITY_SET = MANIFEST.name;
 
@@ -262,6 +267,43 @@ function dropOldCodex(root, changes, found) {
   }
 }
 
+// ---------------------------------------------------------------- 設定ファイルの $schema
+//
+// 設定ファイル(.agents/dotagents.jsonc)の $schema は、置いた本体の schema を指す相対パスを標準にする。置いたバージョンと
+// schema がずれず、push の前から読める。
+// - sync: ファイルが無ければ、$schema だけを持つファイルを作る。設定を書き始めたときから、エディターの補完が効く。
+//   あれば、$schema が無いか、このリポジトリーの schema の URL を指すときだけ書き換える。ほかを指していれば変えない。
+// - remove: 中身が相対パスの $schema だけならファイルごと消し、ほかの項目があれば $schema の行だけを外す(指す先が無くなる)。
+// 読めない設定ファイルは変えない。hook が、読めないことを利用者に伝える。
+
+const escape = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+const SCHEMA_URL = new RegExp(`^https?://(?:raw\\.githubusercontent\\.com/${escape(REPOSITORY)}/|github\\.com/${escape(REPOSITORY)}/(?:raw|blob)/|cdn\\.jsdelivr\\.net/gh/${escape(REPOSITORY)}@)[^?#]*/dotagents\\.schema\\.json$`, 'i');
+export const isOurSchemaUrl = (value) => typeof value === 'string' && SCHEMA_URL.test(value);
+
+function declarationChange(root, install, changes) {
+  const now = readFile(root, DECLARATION_FILE)?.toString('utf8') ?? null;
+  if (now === null) {
+    if (install) changes.set(DECLARATION_FILE, Buffer.from(json({ $schema: SCHEMA_REF })));
+    return;
+  }
+  let value;
+  try {
+    value = parseJsonc(now);
+  } catch {
+    return;
+  }
+  if (!isObject(value)) return;
+  if (install) {
+    if (value.$schema === undefined || isOurSchemaUrl(value.$schema)) {
+      const text = setTopLevelString(now, '$schema', SCHEMA_REF);
+      if (text !== now) changes.set(DECLARATION_FILE, Buffer.from(text));
+    }
+    return;
+  }
+  if (value.$schema !== SCHEMA_REF) return;
+  changes.set(DECLARATION_FILE, Object.keys(value).length === 1 ? null : Buffer.from(removeTopLevel(now, '$schema')));
+}
+
 // install が真なら、dotagents の項目を足し、古い参照を外す。外した古い参照を、ファイルごとに返す。
 function entryChanges(root, install, changes) {
   const old = [];
@@ -390,6 +432,7 @@ export function sync(dir, { force = false } = {}) {
   const stale = [...Object.keys(record?.files ?? {}), ...(force ? edits.filter((edit) => edit.kind === '追加').map((edit) => edit.rel) : [])];
   for (const rel of stale) if (!next.has(rel)) changes.set(rel, null);
   const old = entryChanges(root, true, changes);
+  declarationChange(root, true, changes);
   const recordText = recordOf(next);
   if (readFile(root, RECORD)?.toString('utf8') !== recordText) changes.set(RECORD, Buffer.from(recordText));
   return { root, from: record?.version ?? null, to: VERSION, changes: apply(root, changes), old };
@@ -401,6 +444,7 @@ export function remove(dir) {
   const changes = new Map();
   for (const rel of Object.keys(record?.files ?? {})) changes.set(rel, null);
   entryChanges(root, false, changes);
+  declarationChange(root, false, changes);
   if (record) changes.set(RECORD, null);
   const summary = apply(root, changes);
   // 記録に無いファイル(手で足したもの)は消さずに残し、知らせる。

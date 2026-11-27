@@ -159,6 +159,46 @@ test('sync は、入口の設定ファイルが JSON として読めなければ
   assert.deepEqual(files(root), ['.codex/hooks.json']);
 });
 
+// 設定ファイルの $schema は、置いた本体の schema を指す。master の URL は、置いたバージョンとずれ、push の前には読めない。
+test('sync は、設定ファイルの $schema を置いた本体の schema に向け、コメントと書式を保つ。remove は相対パスの $schema を外す', () => {
+  const RELATIVE = './dotagents/schema/dotagents.schema.json';
+  const DECLARATION = '.agents/dotagents.jsonc';
+  // 無ければ、$schema だけを持つファイルを作る。作ったままなら、remove がファイルごと消す。
+  const none = repo();
+  assert.equal(cli('sync', none).status, 0);
+  assert.deepEqual(JSON.parse(read(none, DECLARATION)), { $schema: RELATIVE });
+  assert.ok(exists(none, `.agents/${RELATIVE}`), '相対パスの先に schema がある');
+  assert.equal(cli('remove', none).status, 0);
+  assert.deepEqual(files(none), []);
+
+  const cases = [
+    // 無いときは、最初の項目の前に、同じ字下げで足す。
+    ['{\n    // 決定\n    "decisions": ["a"], // 行末の注釈\n}\n', `{\n    // 決定\n    "$schema": "${RELATIVE}",\n    "decisions": ["a"], // 行末の注釈\n}\n`],
+    // このリポジトリーの schema の URL は、その 1 行の値だけを書き換える。
+    ['{\n\t/* 先頭 */\n\t"$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/plugin/schema/dotagents.schema.json",\n\t"protected": ["staging"]\n}\n', `{\n\t/* 先頭 */\n\t"$schema": "${RELATIVE}",\n\t"protected": ["staging"]\n}\n`],
+    // ほかを指していれば変えない。
+    ['{ "$schema": "https://example.com/my.schema.json", "decisions": [] }\n', null],
+  ];
+  for (const [before, after] of cases) {
+    const root = repo();
+    write(root, DECLARATION, before);
+    const result = cli('sync', root);
+    assert.equal(result.status, 0, result.err);
+    assert.equal(read(root, DECLARATION), after ?? before);
+    assert.equal(result.out.includes(DECLARATION), after !== null, before);
+    // 2 回目は変えない。
+    assert.ok(!cli('sync', root).out.includes(DECLARATION));
+    // remove は、相対パスの $schema だけを外し、ほかの行は残す。
+    assert.equal(cli('remove', root).status, 0);
+    if (after === null) assert.equal(read(root, DECLARATION), before);
+    else {
+      const removed = read(root, DECLARATION);
+      assert.ok(!removed.includes('$schema'), removed);
+      assert.deepEqual(removed.split('\n').filter((line) => !line.includes('$schema')), after.split('\n').filter((line) => !line.includes('$schema')));
+    }
+  }
+});
+
 // 8.x までは、プロジェクトの設定に GitHub のこのリポジトリーを marketplace として入れる参照を書いていた。残ると、置いたものと両方が有効になる。
 test('sync は、GitHub のこのリポジトリーを指す古い参照を、名前によらず外し、ほかの項目と書式を保つ。remove は戻さない', () => {
   const root = repo();

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { SCHEMA_REF } from '../cli/project.mjs';
 import { CHECK_STAGES, KEYS } from '../plugin/src/declaration.mjs';
 import { DELEGABLE } from '../plugin/src/guard.mjs';
 import { parseJsonc } from '../plugin/src/jsonc.mjs';
+import { PLACED_DIR } from '../plugin/src/root.mjs';
 
 const read = (path) => fs.readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), 'utf8');
 const schema = JSON.parse(read('plugin/schema/dotagents.schema.json'));
@@ -69,15 +72,19 @@ test('schema が列挙する任せられる種類は、guard が任せられる�
   for (const bad of ['rewrite', 'bypass', 'policy', 'pushes', 'push:', 'tag ', '', 'Push']) assert.equal(new RegExp(pattern).test(bad), false, bad);
 });
 
+// 例は標準の相対パス(sync が書く)で書き、個人の環境だけで使うときの URL は、README の 1 か所にだけ書く。
 test('README の設定ファイルの例は、schema を通り、先頭に $schema の行がある', () => {
   for (const file of ['README.md', 'docs/README.ja.md']) {
     const examples = [...read(file).matchAll(/```jsonc\n([\s\S]*?)```/g)].map((match) => match[1]);
     assert.ok(examples.length > 0, file);
     for (const text of examples) {
       assert.deepEqual(errors(schema, parseJsonc(text)), [], `${file}\n${text}`);
-      assert.ok(text.includes(`"$schema": "${URL_OF_SCHEMA}"`), file);
+      assert.ok(text.includes(`"$schema": "${SCHEMA_REF}"`), file);
     }
+    assert.equal(read(file).split(URL_OF_SCHEMA).length - 1, 1, file);
   }
+  // 相対パスは、設定ファイルから、置いた本体の schema を指す。
+  assert.equal(path.posix.join('.agents', SCHEMA_REF), `${PLACED_DIR}/schema/dotagents.schema.json`);
 });
 
 test('schema は、正しい設定を通し、書き間違いを示す', () => {

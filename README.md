@@ -40,6 +40,7 @@ It places these files. The CLI builds all of them from `plugin/`; do not edit th
 | `.claude/settings.json` | `dotagents-project` under `extraKnownMarketplaces` (a relative-path `directory` source pointing at the harness) and `dotagents@dotagents-project` under `enabledPlugins`. |
 | `.codex/hooks.json`, `.codex/agents/dotagents-*.toml` | Codex hooks and agent definitions. The hooks call the harness from the root that `git rev-parse --show-toplevel` finds. |
 | `.agents/hooks.json`, `.agents/agents/dotagents-*.md`, `.agents/rules/dotagents.md` | Antigravity hooks, agent definitions, and the always-on rule. |
+| `.agents/dotagents.jsonc` | Created with only the `$schema` line (`./dotagents/schema/dotagents.schema.json`) when missing; otherwise only its `$schema` line is rewritten (see "The project declaration" below). |
 | `.agents/skills/dotagents-*/` | Skills for Codex and Antigravity, prefixed with `dotagents-` so they do not collide with the project's own. Claude Code reads the skills from the harness's plugin. |
 
 In the settings files (`.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json`) only dotagents' entries are added or replaced; other entries and the formatting (order, indentation) stay as they are. If one of them is not valid JSON, the command stops with an error and changes nothing.
@@ -67,7 +68,7 @@ If you also installed dotagents for yourself, leave it as it is: inside a reposi
 
 #### Uninstall
 
-Run this, then commit the changed files and open a pull request. It deletes the placed files and dotagents' entries in the settings files, and keeps `.agents/dotagents.jsonc`.
+Run this, then commit the changed files and open a pull request. It deletes the placed files and dotagents' entries in the settings files. `.agents/dotagents.jsonc` is deleted if it is still as `sync` created it (only `$schema`); otherwise only its `$schema` line is removed.
 
 ```sh
 npx @hiroiku/dotagents@latest remove
@@ -90,6 +91,8 @@ Installs the harness in your own environment only. It works in every project and
 | Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | turn on auto-update for the marketplace in `/plugin`, or `claude plugin update dotagents@dotagents` |
 | Codex | `codex plugin marketplace add hiroiku/dotagents` then `codex plugin add dotagents@dotagents`, and trust its hooks in `/hooks` | `codex plugin marketplace upgrade dotagents` (hooks need trusting again after an update) |
 | Antigravity | clone this repository, then `agy plugin install <clone>/antigravity` | `git pull`, then the same install command (not confirmed) |
+
+For a personal install only, the harness's schema is not in the repository, so write `https://raw.githubusercontent.com/hiroiku/dotagents/master/plugin/schema/dotagents.schema.json` as `$schema` in `.agents/dotagents.jsonc`.
 
 Hooks run with `bun` when it is installed and with `node` otherwise; Antigravity's hooks run with `node`. On Codex, the agent definitions are written to `~/.codex/agents/dotagents-*.toml` at the start of a session (not when the harness is placed in the repository).
 
@@ -115,11 +118,11 @@ The same limits apply when the harness is placed in a repository; the parts ever
 
 ## The project declaration
 
-Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks and every role's context read it. All keys are optional, and with no file the harness runs on its defaults. Put the `$schema` line first and editors complete the keys and flag mistakes.
+Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks and every role's context read it. All keys are optional, and with no file the harness runs on its defaults. Put the `$schema` line first and editors complete the keys and flag mistakes. The standard `$schema` is a relative path to the schema of the harness placed in the repository (`./dotagents/schema/dotagents.schema.json`), so the schema always matches the placed version. `sync` creates the file with only the `$schema` line when it does not exist; when it does, `sync` rewrites `$schema` to the relative path only if it is missing or points at this repository's schema URL.
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/plugin/schema/dotagents.schema.json",
+  "$schema": "./dotagents/schema/dotagents.schema.json",
   // Branches to treat as shared, in addition to the defaults
   "protected": ["staging"],
   "delegated": ["merge:main", "tag", "release:v1"],
