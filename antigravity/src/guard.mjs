@@ -588,7 +588,7 @@ function remembered(tools) {
 // - GitHub に尋ねる判定(CI の待ち、PR の base): 手元の判定の結果に関わらず、GitHub の時間の内で尋ねる。答えが無ければ
 //   止めない(開く側)。
 //
-// CI の待ちは、ほかのどの判定より先に返す。確認済みフラグでも、利用者の受け入れでも通らないからである。
+// CI の待ちは、ほかのどの判定より先に返す。確認済みフラグでも、利用者の承認でも通らないからである。
 export function decide(request, given) {
   const tools = remembered(given ?? runners());
   const { value: declaration } = readDeclaration(request.cwd);
