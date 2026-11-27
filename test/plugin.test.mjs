@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,8 +13,8 @@ const json = (...parts) => JSON.parse(fs.readFileSync(path.join(...parts), 'utf8
 const NAME = json(PLUGIN, '.claude-plugin', 'plugin.json').name;
 
 test('ホストごとの定義は、同じ名前と版を持つ', () => {
-  // 版を上げるときは、この 5 か所をそろえる。インストーラーの版は、入れる plugin の版と同じにする。
-  const manifests = [json(PLUGIN, '.claude-plugin', 'plugin.json'), json(PLUGIN, '.codex-plugin', 'plugin.json'), json(PLUGIN, 'package.json'), json(ROOT, 'package.json'), json(ROOT, 'cli', 'package.json')];
+  // 版を上げるときは、この 4 か所をそろえる。
+  const manifests = [json(PLUGIN, '.claude-plugin', 'plugin.json'), json(PLUGIN, '.codex-plugin', 'plugin.json'), json(PLUGIN, 'package.json'), json(ROOT, 'package.json')];
   assert.deepEqual([...new Set(manifests.map((manifest) => manifest.version))].length, 1);
   for (const manifest of manifests.slice(0, 3)) assert.equal(manifest.name, NAME);
   assert.equal(json(ROOT, '.claude-plugin', 'marketplace.json').plugins[0].source, './plugin');
@@ -108,20 +107,18 @@ test('プロジェクトに入れる、外す、点検するコマンドは配�
   for (const file of ['scripts', 'src/install.mjs', 'src/jsontext.mjs']) assert.equal(fs.existsSync(path.join(PLUGIN, file)), false, file);
 });
 
-// 入れるときに何を書くかは、インストーラー(cli/)が 1 か所で持つ。setup スキルは、インストーラーを呼ぶ手順と、外すときと点検に
-// 要る項目の名前だけを持つので、その名前が manifest、marketplace、インストーラーの指定と食い違わないことを守る。
-test('setup スキルが呼ぶインストーラーの名前と指定は、cli/ の定義に合い、書く中身はスキルに持たない', () => {
+// setup スキルは、plugin の入れ方、外し方、8.x の残りの消し方を手順として持つ。そこに書く名前が、manifest と marketplace の定義と
+// 食い違わないことを守る。インストーラーは無いので、スキルがインストーラーを呼ぶ手順を持たないことも守る。
+test('setup スキルに書く plugin の名前と置き場は、manifest と marketplace の定義に合い、インストーラーを呼ばない', () => {
   const skill = fs.readFileSync(path.join(PLUGIN, 'skills', 'setup', 'SKILL.md'), 'utf8');
   const market = json(ROOT, '.claude-plugin', 'marketplace.json').name;
   assert.equal(json(ROOT, '.agents', 'plugins', 'marketplace.json').name, market);
   const repository = json(PLUGIN, '.claude-plugin', 'plugin.json').repository.replace(/^https:\/\/github\.com\//, '');
   const id = `${NAME}@${market}`;
-  assert.ok(skill.includes(`npx ${json(ROOT, 'cli', 'package.json').name} init`));
-  const help = spawnSync(process.execPath, [path.join(ROOT, 'cli', 'bin', 'dotagents.mjs'), '--help'], { encoding: 'utf8' }).stdout;
-  const flags = new Set(skill.slice(skill.indexOf('## 入れるとき'), skill.indexOf('## 外すとき')).match(/--[a-z]+/g));
-  assert.ok(flags.size > 0);
-  for (const flag of flags) assert.ok(help.includes(flag), flag);
-  assert.doesNotMatch(skill, /```toml|"source": "github"|source_type/, 'ホストの設定に書く中身は、インストーラーが持つ');
+  assert.doesNotMatch(skill, /npx |インストーラー/);
+  assert.equal(fs.existsSync(path.join(ROOT, 'cli')), false);
+  assert.ok(skill.includes(`claude plugin install ${id}`) && skill.includes(`codex plugin add ${id}`));
+  assert.ok(skill.includes(`marketplace add ${repository}`));
   assert.deepEqual([...new Set(skill.match(/\b[\w-]+@[\w-]+\b/g))], [id]);
   assert.ok(skill.includes(`git:github.com/${repository}@`) && skill.includes(`.claude/skills/${NAME}`));
   assert.ok(skill.includes(`[marketplaces.${market}]`));

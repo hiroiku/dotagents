@@ -7,8 +7,6 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const HOOK = fileURLToPath(new URL('../plugin/src/hook.mjs', import.meta.url));
-// 入れ方として知らせる実行は、cli/ が配る名前の init である。
-const INSTALL = `npx ${JSON.parse(fs.readFileSync(new URL('../cli/package.json', import.meta.url), 'utf8')).name} init`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
 const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-codex-'));
 
@@ -28,16 +26,12 @@ function run(host, event, input) {
   return result.stdout ? JSON.parse(result.stdout).hookSpecificOutput : null;
 }
 
-test('dotagents.json の無いリポジトリーで Claude Code のセッションを始めると、利用者の画面に入れ方を知らせる', () => {
+test('dotagents.json の無いリポジトリーでも、Claude Code のどの開始でも、利用者の画面への知らせを返さない', () => {
   const raw = (host, event, input) => JSON.parse(spawnSync(process.execPath, [HOOK, host, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, DOTAGENTS_HOME: home, CODEX_HOME: codexHome } }).stdout);
   const repo = project();
   fs.mkdirSync(path.join(repo, '.git'));
-  assert.ok(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source: 'startup' }).systemMessage.includes(INSTALL));
-  assert.equal(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source: 'compact' }).systemMessage, undefined);
+  for (const source of ['startup', 'resume', 'compact']) assert.equal(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source }).systemMessage, undefined, source);
   assert.equal(raw('claude', 'subagent', { cwd: repo, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'dotagents:builder' }).systemMessage, undefined);
-  const declared = project({});
-  fs.mkdirSync(path.join(declared, '.git'));
-  assert.equal(raw('claude', 'session', { cwd: declared, hook_event_name: 'SessionStart', source: 'startup' }).systemMessage, undefined);
 });
 
 test('セッションの開始ではオーケストレーターの文を、サブエージェントの開始ではそのサブエージェントの文を返す', () => {

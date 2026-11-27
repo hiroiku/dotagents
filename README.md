@@ -33,43 +33,16 @@ The first two can be re-run by the orchestrator with `DOTAGENTS_CONFIRMED=1` whe
 
 Hooks run with `bun` when it is installed and with `node` otherwise.
 
-### Into a repository
+### Sharing it in a repository
 
-Run the installer inside the repository (Node.js 22 or later):
+The plugin is installed with each host's ordinary steps, and it works with no configuration file. Nothing in a repository is required; a project that wants to share the install writes a reference to the plugin:
 
-```sh
-npx @hiroiku/dotagents init
-```
+- Claude Code: `claude plugin marketplace add hiroiku/dotagents --scope project`, then `claude plugin install dotagents@dotagents --scope project`. This writes `.claude/settings.json`, which you commit. Everyone else trusts the folder and, if they have not installed the harness themselves, runs the install command once. Enabling it in the settings alone does not load it at the start of an interactive session.
+- Codex: each person runs the two commands above for Codex, trusts the project, and approves the hooks in `/hooks`. Codex asks again whenever the plugin's contents change.
 
-It asks, with a default for each answer (the current `.agents/dotagents.json`, otherwise a guess from `PATH`, branches, `package.json` scripts and the Makefile):
+If you installed the harness yourself and the project also references it, it is the same plugin, so nothing is injected twice. Only a **reference** to this repository is written, never a copy, so upgrading the harness creates no commits in your project.
 
-- the hosts: Claude Code, Codex
-- the entry point of each check stage (`edit`, `commit`, `push`, `release`)
-- where to install the plugin for Claude Code: this project, all your projects, or not at all
-
-Then it writes the project declaration and the host settings, removes what 8.x left behind (the copy under `.claude/skills/dotagents` and the pinned line in `.pi/settings.json`), runs `claude plugin install` when `claude` is on `PATH`, lists the files it changed, and tells you what each person does next. It never commits. If a settings file is not valid JSON, it writes nothing and stops. Only a **reference** to this repository is written, never a copy, so upgrading the harness creates no commits in your project. Only the harness's own entries are added or removed; every other key and character of your settings stays as it was. If you already installed the harness yourself, it is the same plugin, so nothing is injected twice. Re-running it changes the choices later.
-
-Without a terminal (an agent, CI), pass `--yes` or the answers:
-
-```sh
-npx @hiroiku/dotagents init --yes --hosts claude,codex --scope project --check push="npm run check"
-```
-
-| Option | Meaning |
-|---|---|
-| `--yes`, `-y` | Do not ask; answer every question without an option with its default |
-| `--hosts claude,codex` | Hosts to set up (`none` for neither) |
-| `--scope project\|user` | Where to install the plugin (`none` to skip) |
-| `--check stage=command` | Entry point of a check stage; `--check push=` clears one |
-
-You can also ask the agent to set the harness up (the `setup` skill): it asks you the same questions, then runs the installer with those options. In a repository without a declaration, Claude Code shows a notice when a session opens and the orchestrator offers the setup in its first reply; a declaration containing just `{}` means you decided not to, and silences the offer.
-
-| Host | What goes into the repository | What each person does |
-|---|---|---|
-| Claude Code | `.claude/settings.json`: `extraKnownMarketplaces` and `enabledPlugins` | Trust the folder. If you have not installed the harness yourself, run `claude plugin install dotagents@dotagents --scope project` once (`--scope user` for every project). Enabling it in the settings alone does not load it at the start of an interactive session. |
-| Codex | `.codex/config.toml`: a git marketplace and the plugin, unpinned | Trust the project, then approve the hooks in `/hooks`. Codex asks again whenever the plugin's contents change. |
-
-The installer has `init` only. The `setup` skill still does the rest: removing the harness, moving off 7.x, proposing an `ARCHITECTURE.md`, writing `decisions` and `delegated`, and checking a project (declaration, references, and whether GitHub protects the shared branches).
+To change something, write `.agents/dotagents.json` by hand (below). You can also ask the agent to do the install and the file for you (the `setup` skill): it also removes what 8.x and 7.x left behind, proposes an `ARCHITECTURE.md`, and checks a project (declaration, references, and whether GitHub protects the shared branches).
 
 ## The project declaration
 
@@ -97,7 +70,6 @@ Shared branches are the remote's default branch, `main`, `master`, and the names
 | `plugin/skills/` | `setup`, `architecture`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code hooks and Codex hooks. |
-| `cli/` | The installer, published to npm as `@hiroiku/dotagents`. It holds what goes into `dotagents.json` and the host settings. Not delivered by the marketplace. |
 | `tools/stats.mjs` | Totals of the harness's log. Not delivered by the marketplace, which ships `./plugin` only. |
 
 ## Limits
@@ -111,9 +83,9 @@ npm test                       # node --test, no dependencies
 node tools/stats.mjs --days 7  # what the harness did on this machine, from ~/.dotagents/log
 ```
 
-When you raise the version, change `plugin/package.json`, both plugin manifests, the root `package.json` and `cli/package.json` together; a test keeps them equal.
+When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together; a test keeps them equal.
 
-Coming from 8.x: run `npx @hiroiku/dotagents init` in each project again. It removes the copy under `.claude/skills/dotagents` and the pinned package line 8.x wrote into `.pi/settings.json`; 9.0.0 no longer supports Pi.
+Coming from 8.x: remove the copy under `.claude/skills/dotagents` and the pinned package line 8.x wrote into `.pi/settings.json` (the `setup` skill does it); 9.0.0 no longer supports Pi.
 
 ## License
 

@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { NOT_INSTALLED_NOTICE, contextFor, declarationMissing } from './context.mjs';
+import { contextFor } from './context.mjs';
 import { decide, roleOf } from './guard.mjs';
 import { record } from './log.mjs';
 import { codexAgent, roles } from './roles.mjs';
@@ -79,12 +79,7 @@ export function handle(host, event, input) {
     const role = event === 'session' && !input.agent_id ? 'orchestrator' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
     const text = contextFor({ role, cwd });
     record({ host, event: 'context', project, role, agentType: input.agent_type, chars: text.length });
-    const output = { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: text } };
-    // 利用者の画面への知らせは、Claude Code で、開いたとき(startup と resume)だけにする。Codex の受け口が
-    // systemMessage を受けるかは確かめていない。
-    const opened = input.source === undefined || input.source === 'startup' || input.source === 'resume';
-    if (host === 'claude' && role === 'orchestrator' && opened && declarationMissing(cwd)) output.systemMessage = NOT_INSTALLED_NOTICE;
-    return output;
+    return { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: text } };
   }
   if (event === 'tool') {
     // スキルの読み込みは、判定せずに数えるだけにする。読まれないスキルを見つけるためである。

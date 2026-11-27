@@ -24,27 +24,9 @@ const TIERS = ['edit', 'commit', 'push', 'release'];
 
 export const coreText = (name) => fs.readFileSync(path.join(PLUGIN_ROOT, 'core', `${name}.md`), 'utf8').trim();
 
-// cwd から上へたどり、git のリポジトリーの中にいるか。git は起動しない(セッションの始めを待たせない)。
-function insideRepository(cwd) {
-  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.git'))) return true;
-    if (path.dirname(dir) === dir) return false;
-  }
-}
-
-// git のリポジトリーの中で、`dotagents.json` が無いか。入れたか、入れないと決めたかを、ファイルの有無だけで持つ。
-export const declarationMissing = (cwd) => !readDeclaration(cwd).file && insideRepository(cwd);
-
-// 利用者の画面に出す知らせ。エージェントは利用者が話しかけるまで返答しないので、文脈に入れるだけでは、開いた時点で
-// 気づけない。
-export const NOT_INSTALLED_NOTICE = 'dotagents: このリポジトリーには .agents/dotagents.json がありません。`npx @hiroiku/dotagents init` を実行すると入れられます。入れない場合は、中身が {} の dotagents.json を置くと、この知らせは出なくなります。';
-
-function projectFacts({ role, value, error, missing }) {
+function projectFacts({ role, value, error }) {
   const parts = [];
-  if (role === 'orchestrator') {
-    if (missing) parts.push('このリポジトリーには、このハーネスの `.agents/dotagents.json` が無い。チェックの入口を知らないまま動いている。最初の返答で、`npx @hiroiku/dotagents init` の実行で入れることを利用者に 1 回提案する(エージェントが代わりに行うなら、setup のスキルに沿う)。入れないと決めたなら、中身が `{}` の `dotagents.json` を置けば、この提案は出なくなる。');
-    if (error) parts.push(`dotagents.json が読めない(${error})。無いものとして動いている。利用者に知らせる。`);
-  }
+  if (role === 'orchestrator' && error) parts.push(`dotagents.json が読めない(${error})。無いものとして動いている。利用者に知らせる。`);
   const decisions = list(value.decisions);
   if (decisions.length) parts.push(['# このプロジェクトで続いている決定', ...decisions.map((line) => `- ${line}`)].join('\n'));
   const checks = TIERS.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
@@ -79,8 +61,7 @@ export const budgetOf = (role) => (role === 'orchestrator' ? BUDGET.orchestrator
 export function contextFor({ role = 'orchestrator', cwd = process.cwd() } = {}) {
   const { value, error } = readDeclaration(cwd);
   const parts = standing(role);
-  const missing = role === 'orchestrator' && declarationMissing(cwd);
-  const facts = projectFacts({ role, value, error, missing });
+  const facts = projectFacts({ role, value, error });
   if (facts) parts.push(facts);
   return parts.join('\n\n');
 }

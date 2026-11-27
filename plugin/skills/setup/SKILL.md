@@ -5,35 +5,24 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 
 # ハーネスを整える
 
-入れるには、インストーラー(`npx @hiroiku/dotagents init`)を使う。外す、点検する道具は無い。下の手順に沿って、その場でファイルを読み、書き換える。
+plugin は、ホストの普通の手順で入れる。入れるだけで、設定ファイルが無くても既定で動く。変えたいときだけ、`.agents/dotagents.json` を手で書く。外す、点検する道具は無い。下の手順に沿って、その場でファイルを読み、書き換える。
 
-ハーネスはリポジトリーに写さず、各ホストのプロジェクトの設定に、このハーネスの置き場への参照を書くだけなので、版を上げてもプロジェクトにコミットはできない。設定は、この道具の項目だけを足し引きし、ほかの項目と字(並び、字下げ、注釈)は変えない。JSON として読めない設定(注釈の入ったものなど)は書き換えず、利用者に知らせる。書き換えたものは、利用者に見せてからコミットする。
+ハーネスはリポジトリーに写さず、各ホストの設定に、このハーネスの置き場への参照を書くだけなので、版を上げてもプロジェクトにコミットはできない。ホストの設定を書き換えるときは、この道具の項目だけを足し引きし、ほかの項目と字(並び、字下げ、注釈)は変えない。JSON として読めない設定は書き換えず、利用者に知らせる。書き換えたものは、利用者に見せてからコミットする。
 
 ## 入れるとき
 
-`dotagents.json`、`.claude/settings.json`、`.codex/config.toml` に何を書くか、8.x の残りの消し方は、インストーラーが 1 か所で持つ。スキルには書かない。インストーラーはコミットしない。
-
-1. 利用者が、リポジトリーの中の端末で `npx @hiroiku/dotagents init` を実行する形を、先に示す。ホスト、チェックの段階ごとの入口、plugin を入れる範囲を、画面で尋ね、書いたファイルと次にすることを見せる。
-2. エージェントが代わりに行うときは、尋ねる中身を、先に利用者に尋ねる。
-   - 設計の形(layered)は、すべてのプロジェクトに入る。層の依存の向きを落とす lint かチェックがプロジェクトにあるかを確かめる。ハーネスは決まりを入れるだけで、チェックの道具は入れない。無ければ、作ることを利用者に提案し、作ったらチェックの段階に置く。
+1. plugin を入れる。自分だけで使うか、プロジェクトで共有するかを、利用者に尋ねる。
+   - Claude Code、自分だけ: `claude plugin marketplace add hiroiku/dotagents` のあと、`claude plugin install dotagents@dotagents`。
+   - Claude Code、プロジェクトで共有: 両方に `--scope project` を付ける(`claude plugin marketplace add hiroiku/dotagents --scope project`、`claude plugin install dotagents@dotagents --scope project`)。`.claude/settings.json` に参照が書かれるので、利用者に見せてコミットする。ほかの人は、フォルダーを信頼し、自分で入れていなければ、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する。設定で有効にしただけでは、対話のセッションの始めに読まれない。
+   - Codex: `codex plugin marketplace add hiroiku/dotagents` のあと、`codex plugin add dotagents@dotagents`。プロジェクトを信頼し(`trust_level = "trusted"`)、`/hooks` で dotagents の hook を承認する。plugin の中身が変わるたびに、承認し直す。
+2. 設定ファイルが要るかを、利用者に尋ねる。要るのは、チェックの入口を渡したいとき、任せる操作を決めたいとき、共有のブランチを足したいとき、続いている決定を残したいときである。
    - `checks` は、プロジェクトの script と workflow から当てはめる。CI が呼んでいる入口を、push の段階に置く。無い段階は、作ることを提案する。
-   - ホストと、plugin を入れる範囲(`project` か `user`)。
-3. 答えを、質問なしの指定にして実行する。尋ねなかった質問は、いまの値か、推した値で答えられるので、すべて指定する。指定は `dotagents --help` にある。
-
-   ```sh
-   npx @hiroiku/dotagents init --yes --hosts claude,codex --scope project --check push="npm run check"
-   ```
-
-   選ばない範囲は `none`、空にする段階は `--check push=` と書く。
-4. 書いたファイルを、利用者に見せる。インストーラーが「知らせ」に出したものは、利用者に伝える。
-5. インストーラーが扱わないものは、ここで行う。
-   - 根に `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
-   - 7.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
+   - 設計の形(layered)は、すべてのプロジェクトに入る。層の依存の向きを落とす lint かチェックがプロジェクトにあるかを確かめる。ハーネスは決まりを入れるだけで、チェックの道具は入れない。無ければ、作ることを利用者に提案し、作ったらチェックの段階に置く。
    - `decisions` と `delegated` は、「dotagents.json を書くとき」に沿って、利用者の言葉から書く。
-6. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
-7. 各人がすることを、利用者に伝える。インストーラーも、終わりに同じことを出す。
-   - Claude Code: フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。
-   - Codex: プロジェクトを信頼し(`trust_level = "trusted"`)、`/hooks` で dotagents の hook を承認する。plugin の中身が変わるたびに、承認し直す。
+   - 書くものが無ければ、ファイルは置かない。
+3. 根に `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
+4. 7.x や 8.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
+5. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
 
 ## 外すとき
 
@@ -43,15 +32,19 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 
 ## 8.x と 7.x から移るとき
 
-8.x の残り(`.claude/skills/dotagents` の写しと、`.pi/settings.json` の `git:github.com/hiroiku/dotagents@` で始まる package の行)は、インストーラーが消す。9.0.0 は、写しで入れることも、Pi に入れることもしない。インストーラーは、7.x の残りを消さず、知らせるだけにする。
+9.0.0 は、写しで入れることも、Pi に入れることもしない。8.x の残りは、見つけたら消す。
 
-7.x が配ったもの(`.claude/dotagents.json`、`.claude/rules/dotagents`、`.codex/dotagents`)は、9.0.0 は読まない。中に、このプロジェクトの決めごとがあれば、`dotagents.json` の `decisions` などに移してから消す。ほかは残す。
+- `.claude/skills/dotagents` の写し。中に `VENDORED.json` があるときだけ、ディレクトリーごと消す。
+- `.pi/settings.json` の `packages` にある、`git:github.com/hiroiku/dotagents@` で始まる行。その行だけを消し、`packages` が空になれば `packages` も消す。JSON として読めなければ、書き換えず、利用者に知らせる。
+- `.agents/dotagents.json` に、`style` と `outward` があれば、消す。どちらも、もう読まれない。
+
+7.x が配ったもの(`.claude/dotagents.json`、`.claude/rules/dotagents`、`.codex/dotagents`)は、9.0.0 は読まない。中に、このプロジェクトの決めごとがあれば、`dotagents.json` の `decisions` などに移してから消す。ほかは残す。消す前に、利用者に見せる。
 
 ## 点検
 
 次を確かめ、当てはまったものを利用者に伝える。
 
-- `.agents/dotagents.json` が無い: 外へ届く操作は、すべて確かめる。Claude Code はセッションを開くたびに画面で知らせ、オーケストレーターは最初の返答で入れることを提案する。入れないと決めたなら、中身が `{}` の `dotagents.json` を置くと提案が止まる。読めない: hook とエージェントは、`dotagents.json` が無いものとして動く。
+- `.agents/dotagents.json` が無い: 既定で動く。任せた操作は無いので、外へ届く操作は、すべて確かめる。異常ではないので、書く必要がなければ、そのままにする。読めない: hook とエージェントは、`dotagents.json` が無いものとして動く。
 - `dotagents.json` に、知らない項目がある(知っている項目は `protected`、`delegated`、`checks`、`decisions`)。`outward` と `style` は、もう読まれない。残っていれば、何も効かないので、消してよいと伝える。
 - `delegated` に、知らない種類がある(種類は「dotagents.json」にある)。
 - `checks` が無い: エージェントの文脈にチェックの入口が入らず、ビルダーが push の段階のチェックを回しても止まらない。一部の段階だけが無いときは、その段階を知らせる。
@@ -59,7 +52,7 @@ description: このハーネスをプロジェクトに入れるとき、外す�
 - この環境の Claude Code に入っていない: `~/.claude/plugins/installed_plugins.json`(`CLAUDE_CONFIG_DIR` があればその下)の `plugins["dotagents@dotagents"]` に、`scope` が `user` の記録か、`projectPath` がこのプロジェクトで `scope` が `project` か `local` の記録が無い。
 - 共有のブランチが GitHub で守られていない: リモートのデフォルトブランチ、`main`、`master`、`protected` の名前(`*` を含むものは除く)ごとに、`gh api repos/{owner}/{repo}/rules/branches/<ブランチ> --jq length` が 1 以上か、`gh api repos/{owner}/{repo}/branches/<ブランチ>/protection` が答えれば守られている。どちらも答えなければ、確かめられなかったと伝える。守られていなければ、ハーネスを入れていない人と道具は、確かめなしで push できる。
 - 根に `ARCHITECTURE.md` が無い: エージェントは作りの地図を持たずに作る。あれば、書いた不変条件と置き場を落とす lint かチェックが、チェックの段階にあるか。
-- 8.x と 7.x の残りが、インストーラーが知らせたか、上の「8.x と 7.x から移るとき」に当てはまる。
+- 8.x と 7.x の残りが、上の「8.x と 7.x から移るとき」に当てはまる。
 
 ## dotagents.json
 

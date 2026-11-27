@@ -33,43 +33,16 @@ AI のコーディングエージェントに仕事を任せるためのハー�
 
 hook は、`bun` があれば `bun` で、無ければ `node` で動く。
 
-### リポジトリーに
+### リポジトリーで共有する
 
-リポジトリーの中で、インストーラーを実行する(Node.js 22 以上)。
+plugin は、ホストの普通の手順で入れる。設定ファイルが無くても、既定で動く。リポジトリーに必要なものは無い。チームで同じ入れ方にしたいときだけ、plugin への参照をリポジトリーに書く。
 
-```sh
-npx @hiroiku/dotagents init
-```
+- Claude Code: `claude plugin marketplace add hiroiku/dotagents --scope project` のあと、`claude plugin install dotagents@dotagents --scope project`。`.claude/settings.json` が書かれるので、コミットする。ほかの人は、フォルダーを信頼し、自分で入れていなければ、入れるコマンドを 1 回実行する。設定で有効にしただけでは、対話のセッションの始めに読まれない。
+- Codex: 各人が、上の Codex の 2 つのコマンドを実行し、プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。
 
-次を尋ねる。どの質問にも既定の答えがある。いまの `.agents/dotagents.json` の値、無ければ、`PATH`、ブランチ、`package.json` の scripts、Makefile から推した値である。
+自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。書くのは、このリポジトリーへの**参照**だけで、写しは置かないので、ハーネスの版を上げても、プロジェクトにコミットはできない。
 
-- 入れるホスト: Claude Code、Codex
-- チェックの段階(`edit`、`commit`、`push`、`release`)ごとの入口
-- Claude Code の plugin を入れる範囲: このプロジェクトだけ、自分の全プロジェクト、入れない
-
-答えをもとに、`dotagents.json` とホストの設定を書き、8.x の残り(`.claude/skills/dotagents` の写しと、`.pi/settings.json` の版を固定した行)を消し、`claude` が `PATH` にあれば `claude plugin install` も実行する。終わりに、書き換えたファイルの一覧と、各人がすることを示す。コミットはしない。JSON として読めない設定があれば、何も書かずに止まる。書くのは、このリポジトリーへの**参照**だけで、写しは置かないので、ハーネスの版を上げても、プロジェクトにコミットはできない。足し引きするのはハーネスの項目だけで、設定のほかの項目と字は変えない。自分の環境にも入れている人には、同じ plugin なので、文が二重に入ることも、二重に確かめることもない。選び直すときも、同じ実行をもう一度行う。
-
-端末でないとき(エージェントや CI)は、`--yes` か、答えの指定を付ける。
-
-```sh
-npx @hiroiku/dotagents init --yes --hosts claude,codex --scope project --check push="npm run check"
-```
-
-| 指定 | 意味 |
-|---|---|
-| `--yes`, `-y` | 尋ねず、指定の無い質問をすべて既定で答える |
-| `--hosts claude,codex` | 入れるホスト(`none` で入れない) |
-| `--scope project\|user` | plugin を入れる範囲(`none` で入れない) |
-| `--check 段階=コマンド` | チェックの段階ごとの入口。空にするなら `--check push=` |
-
-エージェントに、リポジトリーへハーネスを入れるよう頼んでもよい(`setup` スキル)。同じことを尋ね、答えを指定にして、インストーラーを実行する。`dotagents.json` が無いリポジトリーでは、Claude Code がセッションを開くたびに知らせ、オーケストレーターが最初の返答で入れることを提案する。中身が `{}` の `dotagents.json` は、入れないと決めた印で、この提案を止める。
-
-| ホスト | リポジトリーに書くもの | 各人がすること |
-|---|---|---|
-| Claude Code | `.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins` | フォルダーを信頼する。自分で入れていない人は、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する(すべてのプロジェクトで使うなら `--scope user`)。設定で有効にしただけでは、対話のセッションの始めに読まれない。 |
-| Codex | `.codex/config.toml` に、版を固定しない git の marketplace と plugin | プロジェクトを信頼し、`/hooks` で hook を承認する。plugin の中身が変わるたびに、承認し直す。 |
-
-インストーラーが持つのは `init` だけである。外すこと、7.x の残りの移行、`ARCHITECTURE.md` の提案、`decisions` と `delegated` を書くこと、プロジェクトの点検(`dotagents.json`、参照、共有のブランチが GitHub で守られているか)は、引き続き `setup` スキルの手順で行う。
+変えたいことがあるときは、`.agents/dotagents.json` を手で書く(下)。エージェントに、入れることと設定ファイルを頼んでもよい(`setup` スキル)。8.x と 7.x の残りを消すこと、`ARCHITECTURE.md` の提案、プロジェクトの点検(`dotagents.json`、参照、共有のブランチが GitHub で守られているか)も、`setup` スキルの手順で行う。
 
 ## dotagents.json
 
@@ -97,7 +70,6 @@ npx @hiroiku/dotagents init --yes --hosts claude,codex --scope project --check p
 | `plugin/skills/` | `setup`、`architecture`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs` など。 |
 | `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
-| `cli/` | インストーラー。npm に `@hiroiku/dotagents` として公開する。`dotagents.json` とホストの設定に何を書くかを持つ。marketplace は配らない。 |
 | `tools/stats.mjs` | ハーネスの記録の集計。marketplace は `./plugin` だけを配るので、配られない。 |
 
 ## 限界
@@ -111,9 +83,9 @@ npm test                       # node --test。依存は無い
 node tools/stats.mjs --days 7  # この環境でハーネスが何をしたか。~/.dotagents/log を集計する
 ```
 
-版を上げるときは、`plugin/package.json`、2 つの plugin の manifest、根の `package.json`、`cli/package.json` をそろえる。そろっていることはテストが守る。
+版を上げるときは、`plugin/package.json`、2 つの plugin の manifest、根の `package.json` をそろえる。そろっていることはテストが守る。
 
-8.x から移るときは、各プロジェクトで、`npx @hiroiku/dotagents init` をもう一度実行する。`.claude/skills/dotagents` の写しと、8.x が `.pi/settings.json` に書いた版を固定した package の行が消える。9.0.0 は Pi に対応しない。
+8.x から移るときは、`.claude/skills/dotagents` の写しと、8.x が `.pi/settings.json` に書いた版を固定した package の行を消す(`setup` スキルが行う)。9.0.0 は Pi に対応しない。
 
 ## ライセンス
 
