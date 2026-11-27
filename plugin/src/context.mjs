@@ -1,4 +1,4 @@
-// ロールごとに、常に文脈へ入れる文を組み立てる。2 つのホストの受け口が、同じこの関数を呼ぶ。
+// ロールごとに、常に文脈へ入れる文を組み立てる。どのホストの受け口も、同じこの関数を呼ぶ。
 //
 // 入れるのは、共通ルールと設計の形(layered)(どのロールにも)、オーケストレーターの文(git の流れ(trunk)を含む。オーケストレーターにだけ)、
 // `dotagents.jsonc` から導いた事実である。git は trunk、設計は layered に固定していて、プロジェクトは選べない。
@@ -41,9 +41,14 @@ function projectFacts({ role, value, error }) {
   return parts.join('\n\n');
 }
 
+// どのロールにも入る文。Antigravity では、hook ではなく plugin のルール(rules/AGENTS.md)として入れる。
+const SHARED = ['core', 'layered'];
+export const sharedText = () => SHARED.map(coreText).join('\n\n');
+
 // `dotagents.jsonc` から導かない文。共通ルールと設計の形はどのロールにも、オーケストレーターの文はオーケストレーターにだけ入る。
-function standing(role) {
-  const parts = [coreText('core'), coreText('layered')];
+// shared が偽のときは、ほかの経路で入る共通ルールと設計の形を外す。同じ文を 2 回入れないためである。
+function standing(role, shared = true) {
+  const parts = shared ? SHARED.map(coreText) : [];
   if (role === 'orchestrator') parts.push(coreText('orchestrator'));
   return parts;
 }
@@ -56,9 +61,9 @@ export function standingSize(role) {
 
 export const budgetOf = (role) => (role === 'orchestrator' ? BUDGET.orchestrator : BUDGET.subagent);
 
-export function contextFor({ role = 'orchestrator', cwd = process.cwd() } = {}) {
+export function contextFor({ role = 'orchestrator', cwd = process.cwd(), shared = true } = {}) {
   const { value, error } = readDeclaration(cwd);
-  const parts = standing(role);
+  const parts = standing(role, shared);
   const facts = projectFacts({ role, value, error });
   if (facts) parts.push(facts);
   return parts.join('\n\n');

@@ -22,3 +22,31 @@ export function codexAgent(role, prefix = 'dotagents') {
   const fields = { name: `${prefix}-${role.name}`, description: role.description, developer_instructions: role.body };
   return { file: `${fields.name}.toml`, content: `${Object.entries(fields).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n')}\n` };
 }
+
+// Antigravity の道具の名前(資料による、実機で未確認)。資料は、知らない名前を許可の並びに書くと、サブエージェントが止まったまま
+// 進まないことがあると書く。ここに無い名前は書かない。
+const ANTIGRAVITY_BY_CLAUDE = {
+  Read: ['view_file'],
+  Glob: ['find_by_name', 'list_dir'],
+  Grep: ['grep_search'],
+  Bash: ['run_command', 'manage_task'],
+  Edit: ['replace_file_content', 'multi_replace_file_content'],
+  Write: ['write_to_file'],
+  WebFetch: ['read_url_content'],
+  WebSearch: ['search_web'],
+};
+export const ANTIGRAVITY_TOOLS = [...new Set(Object.values(ANTIGRAVITY_BY_CLAUDE).flat())];
+
+// Antigravity は plugin の agents/ を読む。Claude Code の定義(モデルと道具の名前)はそのまま読めないので、frontmatter を直す。
+// 道具を決めていないエージェントにも、許可の並びを書く。並びを省いたときの既定は、資料の頁によって「すべて」と「無し」に分かれる。
+// ルールと hook がサブエージェントに届くよう、inheritCustomizations を書く(既定でも true と資料にある)。
+export function antigravityAgent(role, prefix = 'dotagents') {
+  const named = role.tools ? role.tools.split(',').map((name) => name.trim()).filter(Boolean) : Object.keys(ANTIGRAVITY_BY_CLAUDE);
+  const tools = [...new Set(named.flatMap((name) => {
+    if (!ANTIGRAVITY_BY_CLAUDE[name]) throw new Error(`Antigravity の道具に直せない: ${name}(${role.name})`);
+    return ANTIGRAVITY_BY_CLAUDE[name];
+  }))];
+  const name = `${prefix}-${role.name}`;
+  const front = [`name: ${name}`, `description: ${JSON.stringify(role.description)}`, 'model: inherit', 'mainAgent: false', 'subagent: true', 'inheritCustomizations: true', 'tools:', ...tools.map((tool) => `  - ${tool}`)];
+  return { file: `${name}.md`, content: `---\n${front.join('\n')}\n---\n\n${role.body}\n` };
+}

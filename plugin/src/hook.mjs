@@ -1,6 +1,7 @@
-// Claude Code と Codex の hook の受け口。2 つのホストは同じ入出力(stdin の JSON と hookSpecificOutput)を使う。
+// hook の受け口。Claude Code と Codex は同じ入出力(stdin の JSON と hookSpecificOutput)を使い、Antigravity は別の形を使う。
 //
 //   node hook.mjs <claude|codex> <session|subagent|tool|stopped>
+//   node hook.mjs antigravity <session|tool>
 //
 // ここは、ホストの言葉を判定の言葉に直すだけにする。判定は guard.mjs、文は context.mjs が持つ。
 // 受け口の誤りで作業そのものを止めない。読めない入力と例外は通し、例外は記録に残す。
@@ -69,7 +70,82 @@ export function requests(host, input) {
   return [];
 }
 
+// ---------------------------------------------------------------- Antigravity
+//
+// 形は資料による(https://antigravity.google/docs/hooks/)。実機では確かめていない。
+// - cwd と、どのエージェントからの呼び出しかは来ない。シェルは道具の Cwd、ほかは最初のワークスペースで読む。hook そのものは
+//   plugin の根で動くので、process.cwd() は使わない。
+// - ロールは見分けられないので、常にオーケストレーターとして判定する。サブエージェントの外へ届く操作も、止めずに利用者に確かめる。
+// - 共通ルールと設計の形は、plugin のルール(rules/AGENTS.md)がどのエージェントにも入れる。hook が入れるのは残りである。
+
+const ANTIGRAVITY_EDITS = new Set(['write_to_file', 'replace_file_content', 'multi_replace_file_content']);
+
+const antigravityCwd = (input) => {
+  const args = input.toolCall?.args ?? {};
+  if (typeof args.Cwd === 'string' && args.Cwd) return args.Cwd;
+  const [workspace] = Array.isArray(input.workspacePaths) ? input.workspacePaths : [];
+  return typeof workspace === 'string' && workspace ? workspace : process.cwd();
+};
+
+// 書き換えたあとの全文。置き換える文字列が 1 か所に決まらないとき(行の範囲で選ぶとき)は、分からないものとして返す。
+// 分からなければ、判定は確かめる線が動くものとして扱う。ReplacementChunks の中の形は、資料に無いので、replace_file_content と同じ名前で読む。
+function antigravityAfter(name, args, file) {
+  if (name === 'write_to_file') return typeof args.CodeContent === 'string' ? args.CodeContent : undefined;
+  const chunks = name === 'replace_file_content' ? [args] : Array.isArray(args.ReplacementChunks) ? args.ReplacementChunks : [];
+  if (!chunks.length) return undefined;
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+  for (const chunk of chunks) {
+    if (typeof chunk?.TargetContent !== 'string' || !chunk.TargetContent || typeof chunk.ReplacementContent !== 'string') return undefined;
+    const parts = text.split(chunk.TargetContent);
+    if (parts.length < 2 || (parts.length > 2 && chunk.AllowMultiple !== true)) return undefined;
+    text = parts.join(chunk.ReplacementContent);
+  }
+  return text;
+}
+
+export function antigravityRequests(input) {
+  const name = input.toolCall?.name;
+  const args = input.toolCall?.args ?? {};
+  const cwd = antigravityCwd(input);
+  // 確かめる画面は、Antigravity が出す(資料による)。
+  const base = { cwd, role: 'orchestrator', canAsk: true };
+  if (name === 'run_command' && typeof args.CommandLine === 'string') return [{ ...base, tool: 'shell', command: args.CommandLine, background: false }];
+  if (ANTIGRAVITY_EDITS.has(name) && typeof args.TargetFile === 'string') {
+    return [{ ...base, tool: 'edit', file: args.TargetFile, after: antigravityAfter(name, args, path.resolve(cwd, args.TargetFile)) }];
+  }
+  return [];
+}
+
+// PreToolUse は decision を必ず返す。通すときは allow を返す。allow は、ほかの hook と既定の許可の流れに任せる。
+// auto_approve は、利用者に確かめるはずの呼び出しを確かめずに通すので返さない。
+// 確かめるときは force_ask を返す。ask は、利用者が前に「常に許可」した操作を確かめずに通すからである。
+export const ANTIGRAVITY_PASS = { decision: 'allow' };
+
+function antigravity(event, input) {
+  const cwd = antigravityCwd(input);
+  const project = path.basename(cwd);
+  if (event === 'session') {
+    const text = contextFor({ role: 'orchestrator', cwd, shared: false });
+    record({ host: 'antigravity', event: 'context', project, role: 'orchestrator', chars: text.length });
+    return { injectSteps: [{ systemMessage: { systemMessage: text } }] };
+  }
+  if (event !== 'tool') return null;
+  for (const request of antigravityRequests(input)) {
+    const result = decide(request);
+    if (!result) continue;
+    record({ host: 'antigravity', event: 'guard', project, role: request.role, decision: result.decision, kind: result.kind, targets: result.findings?.map((finding) => `${finding.kind}:${finding.target}`) });
+    return { decision: result.decision === 'ask' ? 'force_ask' : 'deny', reason: result.reason };
+  }
+  return ANTIGRAVITY_PASS;
+}
+
 export function handle(host, event, input) {
+  if (host === 'antigravity') return antigravity(event, input);
   const cwd = input.cwd ?? process.cwd();
   const project = path.basename(cwd);
   if (event === 'session' || event === 'subagent') {
@@ -108,17 +184,24 @@ export function handle(host, event, input) {
 
 function main() {
   const [host, event] = process.argv.slice(2);
+  // Antigravity の PreToolUse は、読めない入力と例外でも決定を返す。返さないときの扱いは、資料に無い。
+  const fallback = host === 'antigravity' && event === 'tool' ? ANTIGRAVITY_PASS : null;
+  const write = (output) => {
+    if (output) process.stdout.write(JSON.stringify(output));
+  };
   let input;
   try {
     input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
+    if (!input || typeof input !== 'object') throw new Error('入力がオブジェクトではない');
   } catch {
+    write(fallback);
     return;
   }
   try {
-    const output = handle(host, event, input);
-    if (output) process.stdout.write(JSON.stringify(output));
+    write(handle(host, event, input));
   } catch (error) {
     record({ host, event: 'error', where: event, message: String(error?.message ?? error).slice(0, 300) });
+    write(fallback);
   }
 }
 

@@ -13,10 +13,10 @@ const json = (...parts) => JSON.parse(fs.readFileSync(path.join(...parts), 'utf8
 const NAME = json(PLUGIN, '.claude-plugin', 'plugin.json').name;
 
 test('ホストごとの定義は、同じ名前と版を持つ', () => {
-  // 版を上げるときは、この 4 か所をそろえる。
-  const manifests = [json(PLUGIN, '.claude-plugin', 'plugin.json'), json(PLUGIN, '.codex-plugin', 'plugin.json'), json(PLUGIN, 'package.json'), json(ROOT, 'package.json')];
+  // 版を上げるときは、この 4 か所をそろえ、node tools/antigravity.mjs で Antigravity の manifest を作り直す。
+  const manifests = [json(PLUGIN, '.claude-plugin', 'plugin.json'), json(PLUGIN, '.codex-plugin', 'plugin.json'), json(PLUGIN, 'package.json'), json(ROOT, 'antigravity', 'plugin.json'), json(ROOT, 'package.json')];
   assert.deepEqual([...new Set(manifests.map((manifest) => manifest.version))].length, 1);
-  for (const manifest of manifests.slice(0, 3)) assert.equal(manifest.name, NAME);
+  for (const manifest of manifests.slice(0, 4)) assert.equal(manifest.name, NAME);
   assert.equal(json(ROOT, '.claude-plugin', 'marketplace.json').plugins[0].source, './plugin');
   assert.equal(json(ROOT, '.agents', 'plugins', 'marketplace.json').plugins[0].source.path, './plugin');
 });
@@ -70,6 +70,7 @@ test('編集のたびにチェックを回す hook は無い', () => {
     const hooks = json(PLUGIN, json(PLUGIN, dir, 'plugin.json').hooks).hooks;
     assert.equal(hooks.PostToolUse, undefined, host);
   }
+  assert.equal(json(PLUGIN, 'hosts', 'antigravity', 'hooks.json').dotagents.PostToolUse, undefined, 'antigravity');
   assert.equal(fs.existsSync(path.join(PLUGIN, 'src', 'check.mjs')), false);
 });
 

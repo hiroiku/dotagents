@@ -3,7 +3,7 @@
   "version": "9.0.0",
   "private": true,
   "type": "module",
-  "description": "AI に仕事を任せるためのハーネス。Claude Code と Codex へ同じ中身で届ける。",
+  "description": "AI に仕事を任せるためのハーネス。Claude Code、Codex、Antigravity へ同じ中身で届ける。",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -1,0 +1,23 @@
+{
+  "dotagents": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "node ./src/hook.mjs antigravity session",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(run_command|write_to_file|replace_file_content|multi_replace_file_content)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./src/hook.mjs antigravity tool",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
