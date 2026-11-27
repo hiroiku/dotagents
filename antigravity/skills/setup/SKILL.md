@@ -75,7 +75,7 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
     "release": "npm run e2e"
   },
   "attribution": false,
-  "decisions": ["コントラストは指摘しない。デザイナーがブランドの色として指定しているため。ブランドの色を変えるときに見直す。"]
+  "decisions": ["金額は円の整数で持ち、小数を使わない。決済代行の API が円の整数しか受け付けないため。外貨に対応するときに見直す。"]
 }
 ```
 
