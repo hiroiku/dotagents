@@ -17,7 +17,7 @@ function project(declaration = {}) {
 const asBool = (value) => (/^(?:true|yes|on|1)$/i.test(value) ? 'true' : /^(?:false|no|off|0)$/i.test(value) ? 'false' : null);
 
 // git と gh の答えを差し替える。branch は今いるブランチ、remoteHead は手元に残っている origin/HEAD、config は git config の値。
-// repo は GitHub が答えるリポジトリーと既定のブランチ、prs は push するブランチごとの開いている PR。
+// repo は GitHub が答えるリポジトリーとデフォルトブランチ、prs は push するブランチごとの開いている PR。
 function tools({ branch = 'work/x', remoteHead = 'origin/main', upstream = null, config = {}, repo = { nameWithOwner: 'o/r', defaultBranchRef: { name: 'main' } }, prs = {} } = {}) {
   const asked = [];
   return {
@@ -59,7 +59,7 @@ function tools({ branch = 'work/x', remoteHead = 'origin/main', upstream = null,
 const run = (command, { role = 'orchestrator', declaration = {}, ...rest } = {}) => decide({ tool: 'shell', command, cwd: project(declaration), role, canAsk: true }, tools(rest));
 const kind = (command, options) => run(command, options)?.kind ?? null;
 
-test('作業ブランチの上で、共有のブランチを merge する追従を止め、rebase を案内する', () => {
+test('作業ブランチの上で、共有ブランチを merge する追従を止め、rebase を案内する', () => {
   const stopped = run('git merge origin/main');
   assert.equal(stopped.decision, 'deny');
   assert.equal(stopped.kind, 'follow');
@@ -67,14 +67,14 @@ test('作業ブランチの上で、共有のブランチを merge する追従�
   for (const command of ['git merge main', 'git -C sub merge --no-edit origin/main', 'rtk git merge upstream/main', 'git fetch && git merge -m "x" origin/main']) assert.equal(kind(command), 'follow', command);
   assert.equal(kind('git merge', { upstream: 'origin/main' }), 'follow');
   assert.equal(kind('git merge @{u}', { upstream: 'origin/main' }), 'follow');
-  // dotagents.jsonc の protected も見る。style は読まないので、release/ は共有のブランチにならない。
+  // dotagents.jsonc の protected も見る。style は読まないので、release/ は共有ブランチにならない。
   assert.equal(kind('git merge origin/release/drive-web/v1.73', { declaration: { protected: ['release/*'] } }), 'follow');
   assert.equal(kind('git merge origin/release/drive-web/v1.73', { declaration: { style: { git: 'release-branches' } } }), null);
   assert.equal(kind('git merge origin/staging', { declaration: { protected: ['staging'] } }), 'follow');
   for (const command of ['git merge work/y', 'git merge --abort', 'git merge --continue', 'git merge --ff-only origin/main', 'git merge origin/develop', 'git rebase origin/main']) assert.equal(kind(command), null, command);
 });
 
-test('共有のブランチの上で、作業ブランチを取り込む merge は止めない', () => {
+test('共有ブランチの上で、作業ブランチを取り込む merge は止めない', () => {
   assert.equal(kind('git merge --no-ff work/x', { branch: 'main' }), null);
   assert.equal(kind('git merge origin/main', { branch: 'main' }), null);
   assert.equal(kind('git pull', { branch: 'main' }), null);
@@ -104,7 +104,7 @@ test('追従の merge と PR の base は、利用者が求めたときにオー
   assert.equal(kind(`${CONFIRMED}=1 gh pr create --base develop`), null);
 });
 
-test('PR の base は、どのプロジェクトでも既定のブランチでなければ止める。style に何を書いても変わらない', () => {
+test('PR の base は、どのプロジェクトでもデフォルトブランチでなければ止める。style に何を書いても変わらない', () => {
   const stopped = run('gh pr create --draft --base develop');
   assert.equal(stopped.kind, 'base');
   assert.match(stopped.reason, /base は main/);
@@ -124,8 +124,8 @@ test('PR の base は、どのプロジェクトでも既定のブランチで�
 });
 
 // GitHub が答える PR の形。workflow の実行ごとに、状態と番号を持つ。
-test('PR の base は、手元に残った origin/HEAD ではなく、GitHub の既定のブランチと比べ、答えが無ければ通す', () => {
-  // 既定のブランチを master から main に変えたあと、手元の origin/HEAD は master のまま残る。
+test('PR の base は、手元に残った origin/HEAD ではなく、GitHub のデフォルトブランチと比べ、答えが無ければ通す', () => {
+  // デフォルトブランチを master から main に変えたあと、手元の origin/HEAD は master のまま残る。
   const stale = { remoteHead: 'origin/master' };
   assert.equal(kind('gh pr create --base master', stale), 'base');
   assert.match(run('gh pr create --base master', stale).reason, /base は main/);
@@ -147,7 +147,7 @@ test('PR を作るリポジトリーを -R でも GH_REPO でも同じに読み�
 
 test('値を取る git の大域の指定があっても、追従の merge を読む', () => {
   for (const command of ['git --git-dir .git merge main', 'git --git-dir=.git merge main', 'git --work-tree . merge main', 'git --namespace x merge main', 'git --no-pager -C . merge origin/main', 'git -c core.x=1 --git-dir .git merge origin/main']) assert.equal(kind(command), 'follow', command);
-  // リモートの名前と origin/HEAD は、リモートの既定のブランチを指す。
+  // リモートの名前と origin/HEAD は、リモートのデフォルトブランチを指す。
   for (const command of ['git merge origin/HEAD', 'git merge origin', 'git merge refs/remotes/origin/HEAD', 'git merge upstream']) assert.equal(kind(command), 'follow', command);
   assert.equal(kind('git --git-dir .git merge work/y'), null);
 });
@@ -218,7 +218,7 @@ test('push するブランチの PR で workflow が走っている間は、push
   assert.match(stopped.reason, /gh run cancel 777/);
   assert.equal(kind('git push', { prs: { 'work/x': pr(run_('QUEUED')) }, upstream: 'origin/work/x' }), 'ci');
   assert.equal(kind('git push -u origin HEAD', { prs: { 'work/x': pr(run_('QUEUED')) } }), 'ci');
-  // 利用者に確かめる操作ではないので、了承の印でも通さない。
+  // 利用者に確かめる操作ではないので、確認済みフラグでも通さない。
   assert.equal(kind(`${CONFIRMED}=1 git push origin work/x`, { prs: { 'work/x': pr(run_('IN_PROGRESS')) } }), 'ci');
   assert.equal(kind('git push origin work/x', { role: 'builder', prs: { 'work/x': pr(run_('IN_PROGRESS')) } }), 'ci');
 });
@@ -239,8 +239,8 @@ test('push するブランチがいくつあっても、GitHub へは 1 回だ�
   assert.deepEqual(probe.asked, ['api graphql']);
 });
 
-// CI の待ちは、了承の印でも、利用者の受け入れでも通らない。確かめの要る push でも、まず待つよう返す。
-test('同じコマンドに外へ届く操作があっても、CI が走っている間の push は、ほかの判定より先に止める', () => {
+// CI の待ちは、確認済みフラグでも、利用者の受け入れでも通らない。確かめの要る push でも、まず待つよう返す。
+test('同じコマンドに外部に影響する操作があっても、CI が走っている間の push は、ほかの判定より先に止める', () => {
   const running = { prs: { 'work/x': pr(run_('IN_PROGRESS')), main: pr(run_('QUEUED')) } };
   for (const command of ['git push origin work/x v1.2.3', 'git push origin work/x main', 'git push origin main', `${CONFIRMED}=1 git push origin main`, 'git commit -m x && git push origin work/x']) {
     for (const canAsk of [true, false]) {
@@ -251,11 +251,11 @@ test('同じコマンドに外へ届く操作があっても、CI が走って�
   }
   // 任せた push でも同じである。
   assert.equal(decide({ tool: 'shell', command: 'git push origin main', cwd: project({ delegated: ['push:main'] }), role: 'orchestrator', canAsk: true }, tools(running)).kind, 'ci');
-  // 走っていなければ、外へ届く操作の確かめに戻る。
+  // 走っていなければ、外部に影響する操作の確かめに戻る。
   assert.equal(decide({ tool: 'shell', command: 'git push origin work/x main', cwd: project(), role: 'orchestrator', canAsk: true }, tools()).decision, 'ask');
 });
 
-test('今いるブランチが分からないときは、行き先を書かない push を外へ届くものとして扱う', () => {
+test('今いるブランチが分からないときは、行き先を書かない push を外部に影響するものとして扱う', () => {
   for (const command of ['git push', 'git push origin HEAD', 'git push -u origin @']) {
     const result = run(command, { branch: null });
     assert.equal(result?.decision, 'ask', command);
@@ -310,7 +310,7 @@ const remoteDefault = (name) => (git) => {
   git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${name}`);
 };
 
-test('GitHub が遅くて時間を使い切っても、手元の git は自分の時間で答え、既定のブランチの削除を見落とさない', () => {
+test('GitHub が遅くて時間を使い切っても、手元の git は自分の時間で答え、デフォルトブランチの削除を見落とさない', () => {
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-slow-'));
   fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\nexec sleep 5\n', { mode: 0o755 });
   const dir = repository('work/x', remoteDefault('develop'));
@@ -327,14 +327,14 @@ test('GitHub が遅くて時間を使い切っても、手元の git は自分�
   }
 });
 
-test('リモートの既定のブランチが手元の時間の内に分からなければ、どの行き先も既定かもしれないものとして確かめる', () => {
+test('リモートのデフォルトブランチが手元の時間の内に分からなければ、どの行き先も既定かもしれないものとして確かめる', () => {
   const dir = repository('work/x', remoteDefault('develop'));
   const slow = { git: command(slowGit('refs/remotes/*/HEAD'), 300), gh: () => null };
   for (const command of ['git push origin develop', 'git push origin work/y']) {
     const result = decide({ tool: 'shell', command, cwd: dir, role: 'orchestrator', canAsk: true }, { ...slow, git: slow.git });
     assert.equal(result?.decision, 'ask', command);
   }
-  // 答えがあれば、既定のブランチだけを確かめる。既定が記録されていないリポジトリーでは、main と master を既定とみなす。
+  // 答えがあれば、デフォルトブランチだけを確かめる。既定が記録されていないリポジトリーでは、main と master を既定とみなす。
   const fast = (command, cwd) => decide({ tool: 'shell', command, cwd, role: 'orchestrator', canAsk: true }, { git: runners().git, gh: () => null })?.decision ?? null;
   assert.equal(fast('git push origin develop', dir), 'ask');
   assert.equal(fast('git push origin work/y', dir), null);
@@ -343,7 +343,7 @@ test('リモートの既定のブランチが手元の時間の内に分から�
   assert.equal(fast('git push origin main', bare), 'ask');
 });
 
-test('pull の設定か、リモートの既定のブランチが答えないときは、追従として止めない', () => {
+test('pull の設定か、リモートのデフォルトブランチが答えないときは、追従として止めない', () => {
   const dir = repository('work/x', (git) => git('config', 'pull.rebase', 'true'));
   const pull = (pattern) => decide({ tool: 'shell', command: 'git pull', cwd: dir, role: 'orchestrator', canAsk: true }, { git: command(slowGit(pattern), 300), gh: () => null })?.kind ?? null;
   assert.equal(pull('config'), null);

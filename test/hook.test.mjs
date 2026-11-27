@@ -79,7 +79,7 @@ test('Claude Code では確かめ、Codex では止める', () => {
   assert.equal(run('codex', 'tool', { ...input, tool_input: { command: 'DOTAGENTS_CONFIRMED=1 gh release create v1' } }), null);
 });
 
-test('サブエージェントの外へ届く操作と、オーケストレーターが回すチェックを止める', () => {
+test('サブエージェントの外部に影響する操作と、オーケストレーターが回すチェックを止める', () => {
   const cwd = project({ checks: { push: 'npm test' } });
   const worker = run('claude', 'tool', { cwd, agent_id: 'a1', agent_type: 'general-purpose', tool_name: 'Bash', tool_input: { command: 'gh release create v1' } });
   assert.equal(worker.permissionDecision, 'deny');

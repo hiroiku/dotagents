@@ -84,7 +84,7 @@ const HARMLESS = [
   'cat AGENTS.md | head',
 ];
 
-test('外へ届く操作を、種類と対象で読む', () => {
+test('外部に影響する操作を、種類と対象で読む', () => {
   for (const [command, expected] of OUTWARD) assert.deepEqual(kinds(command), expected, command);
 });
 
@@ -151,7 +151,7 @@ test('任せた操作は、どのロールでも通る', () => {
   assert.equal(decide({ tool: 'shell', command: 'git push --force origin main', cwd, role: 'orchestrator', canAsk: true }, tools).decision, 'ask');
 });
 
-test('確かめる手段の無いホストでは止め、了承の印を付けた実行し直しを通す', () => {
+test('確かめる手段の無いホストでは止め、確認済みフラグを付けた実行し直しを通す', () => {
   const cwd = project();
   const first = decide({ tool: 'shell', command: 'git push origin main', cwd, role: 'orchestrator', canAsk: false }, tools);
   assert.equal(first.decision, 'deny');
@@ -162,7 +162,7 @@ test('確かめる手段の無いホストでは止め、了承の印を付け�
   assert.equal(decide({ tool: 'shell', command: `${CONFIRMED}=1 git push origin main`, cwd, role: 'worker', canAsk: false }, tools).decision, 'deny');
 });
 
-test('了承の印は、外へ届く操作そのものに付いているときだけ効く', () => {
+test('確認済みフラグは、外部に影響する操作そのものに付いているときだけ効く', () => {
   const cwd = project();
   const decideNoAsk = (command) => decide({ tool: 'shell', command, cwd, role: 'orchestrator', canAsk: false }, tools);
   for (const command of [`${CONFIRMED}=1 true && git push --force origin main`, `${CONFIRMED}=1 git push origin main && git push origin master`, `${CONFIRMED}=1 git status; gh release create v1`, `${CONFIRMED}=1 true && git merge origin/main`]) {
@@ -284,7 +284,7 @@ test('本物の git で、デフォルトブランチと手元のリモートを
   const ask = (command) => decide({ tool: 'shell', command, cwd, role: 'orchestrator', canAsk: true })?.findings.map((finding) => `${finding.kind}:${finding.target}`) ?? [];
   assert.deepEqual(ask('git push origin trunk'), ['push:trunk']);
   assert.deepEqual(ask('git push'), ['push:trunk']);
-  // main と master は、デフォルトブランチでなくても共有のブランチとして扱う。ほかの名前は、dotagents.jsonc に書かなければ手元の作業である。
+  // main と master は、デフォルトブランチでなくても共有ブランチとして扱う。ほかの名前は、dotagents.jsonc に書かなければ手元の作業である。
   assert.deepEqual(ask('git push origin main'), ['push:main']);
   assert.deepEqual(ask('git push origin work/x'), []);
   assert.deepEqual(ask('git push origin v1.0.0'), ['tag:v1.0.0']);

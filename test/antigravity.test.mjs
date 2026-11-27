@@ -91,7 +91,7 @@ test('Antigravity のセッションの開始では、オーケストレータ�
   assert.match(run('SessionStart', common(broken)).injectSteps[0].systemMessage.systemMessage, /dotagents\.jsonc を読めなかった/);
 });
 
-test('Antigravity では、外へ届く操作を毎回確かめ、止める手順は理由と一緒に止め、ほかは利用者の許可の流れに任せる', () => {
+test('Antigravity では、外部に影響する操作を毎回確かめ、止める手順は理由と一緒に止め、ほかは利用者の許可の流れに任せる', () => {
   const cwd = project();
   const push = shell(cwd, 'git push origin main');
   assert.equal(push.decision, 'force_ask');

@@ -41,7 +41,7 @@ test('古い dotagents.jsonc に style が残っていても、読まず、知�
   }
 });
 
-test('共有のブランチは、リモートの既定のブランチ、main、master、protected で、style に release-branches と書いても release/ は加わらない', () => {
+test('共有ブランチは、リモートのデフォルトブランチ、main、master、protected で、style に release-branches と書いても release/ は加わらない', () => {
   const tools = { git: (cwd, ...args) => (args[0] === 'symbolic-ref' && args.some((arg) => arg.startsWith('refs/remotes')) ? 'origin/main' : args[0] === 'symbolic-ref' ? 'work/x' : null), gh: () => null };
   const pushed = (command, declaration) => findings({ tool: 'shell', command, cwd: '/repo' }, declaration, tools).map((finding) => `${finding.kind}:${finding.target}`);
   assert.deepEqual(pushed('git push origin release/drive-web/v1.73', { style: { git: 'release-branches' } }), []);
