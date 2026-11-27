@@ -24,7 +24,7 @@ export const SETTINGS_TITLE = 'このプロジェクトの設定(.agents/dotagen
 export const OUTLINE = [
   { title: '基本方針', parts: [{ file: 'principles', readers: 'all' }] },
   { title: '設計', parts: [{ file: 'design', readers: 'all' }, { file: 'layered', readers: 'all' }, { file: 'testing', readers: 'all' }, { file: 'architecture', readers: 'all' }] },
-  { title: '決定と記録', parts: [{ file: 'decisions', readers: 'all' }, { file: 'records', readers: 'main' }] },
+  { title: '決定と記録', parts: [{ file: 'decisions', readers: 'all' }, { file: 'records', readers: 'main' }, { file: 'documents', readers: 'all' }] },
   { title: '進行', parts: [{ file: 'progress', readers: 'main' }] },
   { title: 'Git', parts: [{ file: 'commits', readers: 'all' }, { file: 'branches', readers: 'main' }] },
   { title: 'GitHub', parts: [{ file: 'github', readers: 'main' }] },

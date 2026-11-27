@@ -109,7 +109,7 @@ test('ロールごとに入る分野は、メインのセッションと、サ�
   assert.deepEqual(headings(contextFor({ role: 'orchestrator', cwd }), 2), ['基本方針', '設計', '決定と記録', '進行', 'Git', 'GitHub', '決定事項', 'チェックのコマンド', '委任された操作']);
   for (const role of ['builder', 'reviewer', 'worker']) {
     assert.deepEqual(headings(contextFor({ role, cwd }), 2), ['基本方針', '設計', '決定と記録', 'Git', '決定事項', 'チェックのコマンド'], role);
-    assert.deepEqual(headings(contextFor({ role, cwd }), 3), ['判断基準', 'レイヤー構成(layered)', 'テスト', 'ARCHITECTURE.md', 'コミット'], role);
+    assert.deepEqual(headings(contextFor({ role, cwd }), 3), ['判断基準', 'レイヤー構成(layered)', 'テスト', 'ARCHITECTURE.md', '記録の置き場所', 'コミット'], role);
   }
   for (const role of ['orchestrator', 'builder', 'reviewer', 'worker']) {
     for (const where of [project({}), cwd]) {
