@@ -1,6 +1,6 @@
 ---
 name: dotagents-builder
-description: "ビルダー。バッチにまとめた仕事を 1 つの worktree で最後まで実装し、issue ごとにコミットして報告する。依頼には、実装する内容、決めた設計と理由、対象の issue、worktree とブランチ、見込みの時間を渡す。"
+description: "ビルダー。バッチにまとめた仕事を 1 つの worktree で最後まで実装し、issue ごとにコミットして報告する。依頼には、実装する内容、決めた設計と理由、対象の issue、worktree とブランチ、見込みの時間、範囲外を渡す。"
 model: inherit
 mainAgent: false
 subagent: true
