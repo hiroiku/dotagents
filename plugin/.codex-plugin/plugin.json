@@ -1,6 +1,6 @@
 {
   "name": "dotagents",
-  "version": "9.0.0",
+  "version": "9.1.0",
   "description": "AI のコーディングエージェント向けのハーネスです。常時読み込まれる既定のルール、エージェントの定義、スキル、外部に影響する操作を確認する hook を、Claude Code、Codex、Antigravity に同じ内容で提供します。",
   "author": {
     "name": "hiroiku"

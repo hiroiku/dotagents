@@ -1,6 +1,6 @@
 {
   "name": "@hiroiku/dotagents",
-  "version": "9.0.0",
+  "version": "9.1.0",
   "type": "module",
   "description": "AI のコーディングエージェント向けのハーネスです。Claude Code、Codex、Antigravity に同じ内容で提供します。",
   "license": "MIT",

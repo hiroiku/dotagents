@@ -199,6 +199,36 @@ test('sync は、設定ファイルの $schema を置いた本体の schema に�
   }
 });
 
+// decisions は 9.1.0 で非推奨(10.0.0 で読まなくなる)。AGENTS.md は利用者の指示ファイルなので、sync は案内だけを出し、書き換えない。
+test('sync は、設定ファイルに decisions が残っていれば、AGENTS.md に貼れる形で移す案内を出し、AGENTS.md を書き換えない', () => {
+  const root = repo();
+  const agents = '# 既存の指示\n\n- 既存の決めごと\n';
+  write(root, 'AGENTS.md', agents);
+  write(root, '.agents/dotagents.jsonc', '{ // 注釈\n  "decisions": ["決定 A。理由 A。", "決定 B\\n続き", "", 1],\n}\n');
+  for (const times of [1, 2]) {
+    const result = cli('sync', root);
+    assert.equal(result.status, 0, result.err);
+    assert.match(result.out, /decisions は非推奨です。[^\n]*10\.0\.0 で読まれなくなります。[^\n]*AGENTS\.md に書いてください。/, `${times} 回目`);
+    assert.ok(result.out.includes('\n## 決定事項\n\n- 決定 A。理由 A。\n- 決定 B\n  続き\n'), `${times} 回目\n${result.out}`);
+    assert.equal(read(root, 'AGENTS.md'), agents);
+  }
+  // 変えるファイルが無いときも出す。
+  assert.match(cli('sync', root).out, /変えるファイルはありません[\s\S]*## 決定事項/);
+  // AGENTS.md が無いプロジェクトにも、作らない。
+  const bare = repo();
+  write(bare, '.agents/dotagents.jsonc', '{ "decisions": ["決定 A"] }\n');
+  assert.equal(cli('sync', bare).status, 0);
+  assert.ok(!exists(bare, 'AGENTS.md'));
+  // 無い、空、読めないときは、案内を出さない。
+  for (const text of [null, '{ "decisions": [] }\n', '{ "protected": ["staging"] }\n', '{ "decisions": ["a", ,] }']) {
+    const other = repo();
+    if (text !== null) write(other, '.agents/dotagents.jsonc', text);
+    const result = cli('sync', other);
+    assert.equal(result.status, 0, result.err);
+    assert.doesNotMatch(result.out, /非推奨|決定事項/, String(text));
+  }
+});
+
 // 8.x までは、プロジェクトの設定に GitHub のこのリポジトリーを marketplace として入れる参照を書いていた。残ると、置いたものと両方が有効になる。
 test('sync は、GitHub のこのリポジトリーを指す古い参照を、名前によらず外し、ほかの項目と書式を保つ。remove は戻さない', () => {
   const root = repo();

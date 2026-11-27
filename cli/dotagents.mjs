@@ -44,8 +44,23 @@ function oldLines(old) {
   return ['', `古い参照を外しました。GitHub の ${REPOSITORY} から入れる参照で、リポジトリーに置いたものと両方が有効になるためです(remove では元に戻しません):`, ...old.flatMap(({ rel, items }) => items.map((item) => `  ${rel}: ${item}`))];
 }
 
-function syncReport({ root, from, to, changes, old }) {
-  if (!changes.length) return [`dotagents ${to} は ${root} に置かれていて、変えるファイルはありません。`];
+// 設定ファイルの decisions は非推奨。AGENTS.md に貼れる形で示す。AGENTS.md は書き換えない。
+function decisionsLines(decisions) {
+  if (!decisions.length) return [];
+  const bullet = (text) => `- ${text.trim().split(/\r?\n/).join('\n  ')}`;
+  return [
+    '',
+    '設定ファイル(dotagents.jsonc)の decisions は非推奨です。9.x のあいだは読み込みますが、10.0.0 で読まれなくなります。プロジェクトの決めごとは AGENTS.md に書いてください。',
+    '次の内容を AGENTS.md に移し、移したら decisions を消してください。AGENTS.md は書き換えていません。',
+    '',
+    '## 決定事項',
+    '',
+    ...decisions.map(bullet),
+  ];
+}
+
+function syncReport({ root, from, to, changes, old, decisions }) {
+  if (!changes.length) return [`dotagents ${to} は ${root} に置かれていて、変えるファイルはありません。`, ...decisionsLines(decisions)];
   const head = from === null ? `dotagents ${to} を ${root} に置きました。` : from === to ? `dotagents ${to} を ${root} に置き直しました。` : `dotagents を ${from} から ${to} に置き直しました(${root})。`;
   return [
     head,
@@ -56,6 +71,7 @@ function syncReport({ root, from, to, changes, old }) {
     '次の手順:',
     '- 変わったファイルをコミットし、PR にしてください。',
     '- Codex を使う人は、取り込んだあとに Codex で /hooks を開き、dotagents の hook を承認し直す必要があります。承認するまで、Codex では dotagents の hook が動きません。',
+    ...decisionsLines(decisions),
   ];
 }
 

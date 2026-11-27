@@ -18,6 +18,7 @@ import { sharedText } from '../plugin/src/context.mjs';
 import { antigravityAgent, codexAgent, roles } from '../plugin/src/roles.mjs';
 import { PLACED_DIR, PLACED_RECORD, PLUGIN_ROOT } from '../plugin/src/root.mjs';
 import { nameSkills } from '../plugin/src/skills.mjs';
+import { list } from '../plugin/src/declaration.mjs';
 import { parseJsonc } from '../plugin/src/jsonc.mjs';
 import { editJsonText } from './jsontext.mjs';
 import { removeTopLevel, setTopLevelString } from './jsonctext.mjs';
@@ -415,6 +416,17 @@ export function projectRoot(dir) {
   return resolved;
 }
 
+// 設定ファイルの `decisions`(9.1.0 で非推奨、10.0.0 で読まなくなる)。AGENTS.md に移してもらうために、文字列の項目を返す。
+// 読めない、無い、空のときは空にする。AGENTS.md は利用者の指示ファイルなので、ここでは書かない。
+function leftDecisions(root) {
+  try {
+    const value = parseJsonc(readFile(root, DECLARATION_FILE)?.toString('utf8') ?? '');
+    return isObject(value) ? list(value.decisions) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function sync(dir, { force = false } = {}) {
   const root = projectRoot(dir);
   const record = readRecord(root, { force });
@@ -435,7 +447,8 @@ export function sync(dir, { force = false } = {}) {
   declarationChange(root, true, changes);
   const recordText = recordOf(next);
   if (readFile(root, RECORD)?.toString('utf8') !== recordText) changes.set(RECORD, Buffer.from(recordText));
-  return { root, from: record?.version ?? null, to: VERSION, changes: apply(root, changes), old };
+  const applied = apply(root, changes);
+  return { root, from: record?.version ?? null, to: VERSION, changes: applied, old, decisions: leftDecisions(root) };
 }
 
 export function remove(dir) {
