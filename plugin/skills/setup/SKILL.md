@@ -15,6 +15,7 @@ plugin は、ホストの普通の手順で入れる。入れるだけで、設�
    - Claude Code、自分だけ: `claude plugin marketplace add hiroiku/dotagents` のあと、`claude plugin install dotagents@dotagents`。
    - Claude Code、プロジェクトで共有: 両方に `--scope project` を付ける(`claude plugin marketplace add hiroiku/dotagents --scope project`、`claude plugin install dotagents@dotagents --scope project`)。`.claude/settings.json` に参照が書かれるので、利用者に見せてコミットする。ほかの人は、フォルダーを信頼し、自分で入れていなければ、1 回 `claude plugin install dotagents@dotagents --scope project` を実行する。設定で有効にしただけでは、対話のセッションの始めに読まれない。
    - Codex: `codex plugin marketplace add hiroiku/dotagents` のあと、`codex plugin add dotagents@dotagents`。プロジェクトを信頼し(`trust_level = "trusted"`)、`/hooks` で dotagents の hook を承認する。plugin の中身が変わるたびに、承認し直す。
+   - Antigravity: このリポジトリーを手元に clone し、`agy plugin install <clone>/antigravity`。版を上げたら、`git pull` のあと同じコマンドで入れ直す(資料による、実機で未確認)。プロジェクトで共有する参照の書き方は無い。`.agents/plugins/` に置くと写しになるので置かない。Antigravity で守れない決まりは README にあり、入れる前に利用者に伝える。
 2. 設定ファイルが要るかを、利用者に尋ねる。要るのは、チェックの入口を渡したいとき、任せる操作を決めたいとき、共有のブランチを足したいとき、続いている決定を残したいときである。
    - `checks` は、プロジェクトの script と workflow から当てはめる。CI が呼んでいる入口を、push の段階に置く。無い段階は、作ることを提案する。
    - 設計の形(layered)は、すべてのプロジェクトに入る。層の依存の向きを落とす lint かチェックがプロジェクトにあるかを確かめる。ハーネスは決まりを入れるだけで、チェックの道具は入れない。無ければ、作ることを利用者に提案し、作ったらチェックの段階に置く。
@@ -28,7 +29,8 @@ plugin は、ホストの普通の手順で入れる。入れるだけで、設�
 
 1. `.claude/settings.json` から、`enabledPlugins` の `dotagents@dotagents` と、`extraKnownMarketplaces` の `dotagents` を消す。消して空になった入れ物だけを消し、それでファイルが `{}` になれば、ファイルを消す。
 2. `.codex/config.toml` から、`[marketplaces.dotagents]` と `[plugins."dotagents@dotagents"]` の表を、利用者が表に足した行も含めて、見出しから最後の値の行まで消す。見出しの直前の空の行 1 つも消す。表の後ろの注釈と空の行は残す。ファイルが空になれば、ファイルを消す。
-3. `.agents/dotagents.jsonc` は残す。消すかは利用者に尋ねる。
+3. Antigravity に入れていれば、`agy plugin uninstall dotagents`。
+4. `.agents/dotagents.jsonc` は残す。消すかは利用者に尋ねる。
 
 ## 8.x と 7.x から移るとき
 
@@ -50,6 +52,7 @@ plugin は、ホストの普通の手順で入れる。入れるだけで、設�
 - `checks` が無い: エージェントの文脈にチェックの入口が入らず、ビルダーが push の段階のチェックを回しても止まらない。一部の段階だけが無いときは、その段階を知らせる。
 - どのホストの設定にも、参照が無い(`.claude/settings.json` の `enabledPlugins` に `dotagents@dotagents` が true で無く、`.codex/config.toml` に `[plugins."dotagents@dotagents"]` が無い): 各人が自分の環境に入れていなければ、このプロジェクトでは働かない。片方だけ無いときは、そのホストを知らせる。
 - この環境の Claude Code に入っていない: `~/.claude/plugins/installed_plugins.json`(`CLAUDE_CONFIG_DIR` があればその下)の `plugins["dotagents@dotagents"]` に、`scope` が `user` の記録か、`projectPath` がこのプロジェクトで `scope` が `project` か `local` の記録が無い。
+- Antigravity を使う利用者の `agy plugin list` に、dotagents が enabled で出ない: Antigravity では働かない。版が Claude Code の plugin と違えば、入れ直すと伝える。
 - 共有のブランチが GitHub で守られていない: リモートのデフォルトブランチ、`main`、`master`、`protected` の名前(`*` を含むものは除く)ごとに、`gh api repos/{owner}/{repo}/rules/branches/<ブランチ> --jq length` が 1 以上か、`gh api repos/{owner}/{repo}/branches/<ブランチ>/protection` が答えれば守られている。どちらも答えなければ、確かめられなかったと伝える。守られていなければ、ハーネスを入れていない人と道具は、確かめなしで push できる。
 - 根に `ARCHITECTURE.md` が無い: エージェントは作りの地図を持たずに作る。あれば、書いた不変条件と置き場を落とす lint かチェックが、チェックの段階にあるか。
 - 8.x と 7.x の残りが、上の「8.x と 7.x から移るとき」に当てはまる。

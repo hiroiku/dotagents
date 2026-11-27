@@ -1,6 +1,6 @@
 # dotagents
 
-AI のコーディングエージェントに仕事を任せるためのハーネス。ロールごとに毎回入る 1 枚、固定したやり方(trunk と layered の設計)、手元の外へ届く操作を止める仕組みを、同じ中身のまま **Claude Code** と **Codex** へ届ける。
+AI のコーディングエージェントに仕事を任せるためのハーネス。ロールごとに毎回入る 1 枚、固定したやり方(trunk と layered の設計)、手元の外へ届く操作を止める仕組みを、同じ中身のまま **Claude Code** と **Codex** へ届ける。**Google Antigravity** にも、制約つきで届ける(下)。
 
 [English](../README.md) | 日本語
 
@@ -30,8 +30,22 @@ AI のコーディングエージェントに仕事を任せるためのハー�
 |---|---|---|
 | Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | `/plugin` で marketplace の自動更新をオンにする。または `claude plugin update dotagents@dotagents` |
 | Codex | `codex plugin marketplace add hiroiku/dotagents` のあと `codex plugin add dotagents@dotagents`。hook は `/hooks` で承認する | `codex plugin marketplace upgrade dotagents`(更新のあと、hook をもう一度承認する) |
+| Antigravity | このリポジトリーを clone し、`agy plugin install <clone>/antigravity` | `git pull` のあと、同じコマンドで入れ直す(未確認) |
 
-hook は、`bun` があれば `bun` で、無ければ `node` で動く。
+hook は、`bun` があれば `bun` で、無ければ `node` で動く。Antigravity の hook は `node` で動く。
+
+### Antigravity(制約つき)
+
+Antigravity の plugin は、`node tools/antigravity.mjs` で `plugin/` から `antigravity/` に作る。Antigravity は plugin の `agents/` を読むが、そこにある Claude Code のエージェントの定義を読めないからである。Antigravity の資料だけで作り、**実機では確かめていない**。`agy plugin install https://github.com/<owner>/<repo>` は、リポジトリーの根が plugin のときの手順として資料にある。下のディレクトリーを URL で入れられるかは資料に無いので、clone してから入れる。
+
+各ロールが受け取る文: どのエージェントも、plugin の常に入るルール(`rules/AGENTS.md`)から、共通ルールと設計の形を受け取る。メインのセッションは、`SessionStart` の hook から、オーケストレーターの文と `.agents/dotagents.jsonc` の事実も受け取る。ビルダーとレビュアーは、エージェントの定義をシステムプロンプトとして受け取る(`model: inherit`、道具の許可の並び。レビュアーは読むだけ)。hook は `run_command` と 3 つの編集の道具を判定する。外へ届く操作には `force_ask`(「常に許可」のあとも毎回確かめる)、止める手順と AI の署名には理由を添えた `deny`、ほかには `allow` を返し、Antigravity 自身の許可の決まりに任せる。確かめを飛ばす `auto_approve` は返さない。
+
+Antigravity で守れない決まり:
+
+- **ビルダーとレビュアーへの制限は、文だけになる。** hook には、どのエージェントの呼び出しかが来ないので、すべてをオーケストレーターの呼び出しとして判定する。サブエージェントの外へ届く操作は、止めずに利用者に確かめる。push と release の段階の重いチェックも、サブエージェントで止まらない。
+- **サブエージェントの開始で事実を入れられない。** サブエージェントの開始の知らせが無いので、`decisions` とチェックの入口は、メインのセッションにだけ届く。サブエージェントに要るものは、オーケストレーターが依頼に書く。サブエージェントの中でも `SessionStart` が来るかは資料に無い。来るなら、サブエージェントにもオーケストレーターの文が入る。
+- **バックグラウンドの判定が無い。** シェルの呼び出しに、バックグラウンドで動くかが来ない。
+- **コネクターの判定と、ロールごとの消費の記録が無い。** MCP の道具を通した連絡は、hook で判定しない(設定していない MCP の呼び出しは、Antigravity が既定で確かめる)。スキルの読み込みと、ロールごとの時間とトークンは記録しない。
 
 ### リポジトリーで共有する
 
@@ -68,11 +82,12 @@ plugin は、ホストの普通の手順で入れる。設定ファイルが無�
 | 場所 | 中身 |
 |---|---|
 | `plugin/core/` | どのロールも読む共通ルール(`core.md`)と設計の形(`layered.md`)、trunk の流れを含むオーケストレーターの 1 枚(`orchestrator.md`)。大きさはテストが守る。 |
-| `plugin/agents/` | `builder`(ビルダー)と `reviewer`(レビュアー)。Claude Code のエージェントと Codex の TOML は、ここから導く。 |
+| `plugin/agents/` | `builder`(ビルダー)と `reviewer`(レビュアー)。Claude Code のエージェント、Codex の TOML、Antigravity のエージェントは、ここから導く。 |
 | `schema/` | `.agents/dotagents.jsonc` の JSON Schema。エディターのためで、hook は使わない。marketplace は配らない。 |
 | `plugin/skills/` | `setup`、`architecture`、`prompting`、`releases`、`triage`。 |
-| `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs` など。 |
-| `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
+| `plugin/src/` | `guard.mjs`(どのホストも呼ぶ 1 つの判定)、`context.mjs` など。 |
+| `plugin/hosts/` | 薄い受け口。Claude Code、Codex、Antigravity の hook。 |
+| `antigravity/` | Antigravity の plugin。`tools/antigravity.mjs` が `plugin/` から作る生成物で、手で直さない。古いとテストが落ちる。 |
 | `tools/stats.mjs` | ハーネスの記録の集計。marketplace は `./plugin` だけを配るので、配られない。 |
 
 ## 限界
@@ -84,9 +99,10 @@ plugin は、ホストの普通の手順で入れる。設定ファイルが無�
 ```sh
 npm test                       # node --test。依存は無い
 node tools/stats.mjs --days 7  # この環境でハーネスが何をしたか。~/.dotagents/log を集計する
+node tools/antigravity.mjs     # plugin/ から antigravity/ を作る
 ```
 
-版を上げるときは、`plugin/package.json`、2 つの plugin の manifest、根の `package.json` をそろえる。そろっていることはテストが守る。
+版を上げるときは、`plugin/package.json`、2 つの plugin の manifest、根の `package.json` をそろえ、`node tools/antigravity.mjs` を実行する。そろっていることはテストが守る。`plugin/` の下を変えたときも、同じく実行する。
 
 8.x から移るときは、`.claude/skills/dotagents` の写しと、8.x が `.pi/settings.json` に書いた版を固定した package の行を消す(`setup` スキルが行う)。9.0.0 は Pi に対応しない。
 

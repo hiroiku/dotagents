@@ -1,6 +1,6 @@
 # dotagents
 
-A harness for delegating work to AI coding agents. One set of contents — one always-on page per role, a fixed way of working (trunk and a layered design), and mechanisms that stop operations reaching outside your machine — delivered natively to **Claude Code** and **Codex**.
+A harness for delegating work to AI coding agents. One set of contents — one always-on page per role, a fixed way of working (trunk and a layered design), and mechanisms that stop operations reaching outside your machine — delivered natively to **Claude Code** and **Codex**, and with limits to **Google Antigravity** (below).
 
 English | [日本語](docs/README.ja.md)
 
@@ -30,8 +30,22 @@ The first two can be re-run by the orchestrator with `DOTAGENTS_CONFIRMED=1` whe
 |---|---|---|
 | Claude Code | `/plugin install dotagents --marketplace hiroiku/dotagents` | turn on auto-update for the marketplace in `/plugin`, or `claude plugin update dotagents@dotagents` |
 | Codex | `codex plugin marketplace add hiroiku/dotagents` then `codex plugin add dotagents@dotagents`, and trust its hooks in `/hooks` | `codex plugin marketplace upgrade dotagents` (hooks need trusting again after an update) |
+| Antigravity | clone this repository, then `agy plugin install <clone>/antigravity` | `git pull`, then the same install command (not confirmed) |
 
-Hooks run with `bun` when it is installed and with `node` otherwise.
+Hooks run with `bun` when it is installed and with `node` otherwise; Antigravity's hooks run with `node`.
+
+### Antigravity (with limits)
+
+The Antigravity plugin is generated from `plugin/` into `antigravity/` by `node tools/antigravity.mjs`, because Antigravity reads a plugin's `agents/` and cannot read the Claude Code agent definitions there. It was built from Antigravity's documentation only and **has not been run on a real Antigravity**. `agy plugin install https://github.com/<owner>/<repo>` is documented for a repository whose root is the plugin; whether a subdirectory can be installed by URL is not documented, so clone first.
+
+What each role receives: every agent gets the shared rules and the layered design from the plugin's always-on rule (`rules/AGENTS.md`); the main session also gets the orchestrator's page and the facts from `.agents/dotagents.jsonc` from the `SessionStart` hook; the builder and the reviewer get their definition as their system prompt (`model: inherit`, a tool allowlist, the reviewer's read-only). The hooks judge `run_command` and the three editing tools: an outward operation answers `force_ask` (asked every time, even after "Always Allow"), a stopped procedure or AI attribution answers `deny` with the reason, and everything else answers `allow`, which leaves the call to Antigravity's own permission rules (`auto_approve`, which would skip them, is never returned).
+
+What Antigravity cannot enforce:
+
+- **Limits on the builder and the reviewer are text only.** A hook is not told which agent made a call, so every call is judged as the orchestrator's: a subagent's outward operation is asked of you instead of stopped, and the heavy `push` and `release` checks are not stopped in a subagent.
+- **No facts at a subagent's start.** There is no subagent-start event, so `decisions` and the check entry points reach the main session only; the orchestrator has to pass what a subagent needs in its request. The documentation does not say whether `SessionStart` also fires inside a subagent; if it does, the subagent also receives the orchestrator's page.
+- **No background check.** A shell call does not say whether it runs in the background.
+- **No connector check and no per-role usage.** Messages through MCP tools are not judged by the hook (Antigravity asks for unconfigured MCP calls by default), and skill loads and each role's time and tokens are not logged.
 
 ### Sharing it in a repository
 
@@ -68,11 +82,12 @@ Shared branches are the remote's default branch, `main`, `master`, and the names
 | Path | What |
 |---|---|
 | `plugin/core/` | The page every role reads (`core.md`), the layered design (`layered.md`, also read by every role), and the orchestrator's page, which includes the trunk flow (`orchestrator.md`). A test enforces their size. |
-| `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents and Codex agent TOML. |
+| `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents, Codex agent TOML, and Antigravity agents. |
 | `schema/` | JSON Schema of `.agents/dotagents.jsonc`, for editors. Not read by hooks and not delivered by the marketplace. |
 | `plugin/skills/` | `setup`, `architecture`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, and the host adapters' shared code. |
-| `plugin/hosts/` | Thin adapters: Claude Code hooks and Codex hooks. |
+| `plugin/hosts/` | Thin adapters: Claude Code, Codex, and Antigravity hooks. |
+| `antigravity/` | The Antigravity plugin, generated from `plugin/` by `tools/antigravity.mjs`. Do not edit it; a test fails when it is stale. |
 | `tools/stats.mjs` | Totals of the harness's log. Not delivered by the marketplace, which ships `./plugin` only. |
 
 ## Limits
@@ -84,9 +99,10 @@ The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, n
 ```sh
 npm test                       # node --test, no dependencies
 node tools/stats.mjs --days 7  # what the harness did on this machine, from ~/.dotagents/log
+node tools/antigravity.mjs     # generate antigravity/ from plugin/
 ```
 
-When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together; a test keeps them equal.
+When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together, then run `node tools/antigravity.mjs`; a test keeps them equal. Run it after any change under `plugin/` as well.
 
 Coming from 8.x: remove the copy under `.claude/skills/dotagents` and the pinned package line 8.x wrote into `.pi/settings.json` (the `setup` skill does it); 9.0.0 no longer supports Pi.
 
