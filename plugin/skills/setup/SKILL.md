@@ -19,7 +19,7 @@ plugin は、ホストの普通の手順で入れる。入れるだけで、設�
    - `checks` は、プロジェクトの script と workflow から当てはめる。CI が呼んでいる入口を、push の段階に置く。無い段階は、作ることを提案する。
    - 設計の形(layered)は、すべてのプロジェクトに入る。層の依存の向きを落とす lint かチェックがプロジェクトにあるかを確かめる。ハーネスは決まりを入れるだけで、チェックの道具は入れない。無ければ、作ることを利用者に提案し、作ったらチェックの段階に置く。
    - `decisions` と `delegated` は、「dotagents.jsonc を書くとき」に沿って、利用者の言葉から書く。
-   - 書くものが無ければ、ファイルは置かない。
+   - 書くときは、先頭に `$schema` の行を置く例(下の「dotagents.jsonc」)に沿う。書くものが無ければ、ファイルは置かない。
 3. 根に `ARCHITECTURE.md` が無ければ、作ることを利用者に提案する。作るときは、architecture のスキルに沿う。
 4. 7.x や 8.x の残りがあれば、下の「8.x と 7.x から移るとき」に沿って消す。
 5. 下の「点検」の項目を確かめ、残ったものを利用者に伝える。
@@ -45,7 +45,7 @@ plugin は、ホストの普通の手順で入れる。入れるだけで、設�
 次を確かめ、当てはまったものを利用者に伝える。
 
 - `.agents/dotagents.jsonc` が無い: 既定で動く。`.agents/dotagents.json` だけがあれば、名前を `dotagents.jsonc` に変えると伝える(`.json` は読まれない)。任せた操作は無いので、外へ届く操作は、すべて確かめる。異常ではないので、書く必要がなければ、そのままにする。読めない: hook とエージェントは、`dotagents.jsonc` が無いものとして動く。
-- `dotagents.jsonc` に、知らない項目がある(知っている項目は `protected`、`delegated`、`checks`、`decisions`)。`outward` と `style` は、もう読まれない。残っていれば、何も効かないので、消してよいと伝える。
+- `dotagents.jsonc` に、知らない項目がある(知っている項目は `$schema`、`protected`、`delegated`、`checks`、`decisions`)。`outward` と `style` は、もう読まれない。残っていれば、何も効かないので、消してよいと伝える。
 - `delegated` に、知らない種類がある(種類は「dotagents.jsonc」にある)。
 - `checks` が無い: エージェントの文脈にチェックの入口が入らず、ビルダーが push の段階のチェックを回しても止まらない。一部の段階だけが無いときは、その段階を知らせる。
 - どのホストの設定にも、参照が無い(`.claude/settings.json` の `enabledPlugins` に `dotagents@dotagents` が true で無く、`.codex/config.toml` に `[plugins."dotagents@dotagents"]` が無い): 各人が自分の環境に入れていなければ、このプロジェクトでは働かない。片方だけ無いときは、そのホストを知らせる。
@@ -56,10 +56,11 @@ plugin は、ホストの普通の手順で入れる。入れるだけで、設�
 
 ## dotagents.jsonc
 
-プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書く。hook と、どのエージェントの文脈も、ここを読む。どの項目も省ける。注釈(`//`、`/* */`)と末尾のカンマを書ける。読めないときは、オーケストレーターに行と列を知らせ、無いものとして動く。
+プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書く。hook と、どのエージェントの文脈も、ここを読む。どの項目も省ける。注釈(`//`、`/* */`)と末尾のカンマを書ける。先頭に `$schema` の行を置くと、エディターが補完と誤りの表示を出す(schema は、このリポジトリーの `schema/dotagents.schema.json`)。ハーネスは `$schema` を読まない。読めないときは、オーケストレーターに行と列を知らせ、無いものとして動く。
 
 ```jsonc
 {
+  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/schema/dotagents.schema.json",
   // 既定(リモートのデフォルトブランチ、main、master)に足す、共有のブランチ
   "protected": ["staging"],
   "delegated": ["merge:main", "tag", "release:v1"],
@@ -73,12 +74,13 @@ plugin は、ホストの普通の手順で入れる。入れるだけで、設�
 }
 ```
 
+- `$schema`: schema の URL。エディターのための印で、確かめる線を動かさない。
 - `protected`: 共有のブランチとして足す名前。リモートのデフォルトブランチと、`main`、`master` は、書かなくても含まれる。
 - `delegated`: 確かめずに進めてよい種類。`種類` か `種類:対象` で書く。種類は push、tag、merge、release、settings、workflow、message、instructions である。共有のブランチの書き換え、保護を飛ばすマージ、`dotagents.jsonc` の書き換えは、任せられない。
 - `checks`: チェックの段階ごとの入口。エージェントの文脈に入り、エージェントが自分で回す。hook はチェックを実行しない。`edit` には、編集したファイルを `{file}` で受ける軽いチェックを置く。`push` と `release` に置いたコマンドは、ビルダーとレビュアーが実行すると止まる(引数を足して絞った実行は止まらない)。どの段階のコマンドも、ビルダーとレビュアーがバックグラウンドで始めると止まる。CI も同じ入口を呼ぶ形にする。
 - `decisions`: どのエージェントも読む、続いている決定。レビューで見ないもの、採っている設計の配置、環境の名前のように、会話から消えると困るものを 1 行ずつ書く。
 
-`decisions` のほかは、確かめる線を動かす。書き換えるときは、利用者に確かめが出る。
+`decisions` と `$schema` のほかは、確かめる線を動かす。書き換えるときは、利用者に確かめが出る。
 
 ## dotagents.jsonc を書くとき
 

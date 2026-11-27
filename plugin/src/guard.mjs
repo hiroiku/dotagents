@@ -39,6 +39,8 @@ export const KIND_LABELS = {
 const PACED = new Set(['builder', 'reviewer']);
 // 任せられない種類。線そのものを動かすか、保護を外す操作である。
 const NEVER_DELEGATED = new Set(['rewrite', 'bypass', 'policy']);
+// 任せられる種類。schema の `delegated` の列挙と一致することを、テストが守る。
+export const DELEGABLE = Object.keys(KIND_LABELS).filter((kind) => !NEVER_DELEGATED.has(kind));
 
 // 1 回の判定で、手元の git に尋ねてよい時間と、GitHub に尋ねてよい時間。片方の遅さがもう片方の答えを変えないよう、
 // 別々に持つ。合わせても hook の上限(10 秒)より十分短くする。上限を過ぎると、ホストは hook を失敗として扱い、

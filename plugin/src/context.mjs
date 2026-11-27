@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { list, readDeclaration } from './declaration.mjs';
+import { CHECK_STAGES, list, readDeclaration } from './declaration.mjs';
 import { roles } from './roles.mjs';
 import { PLUGIN_ROOT } from './root.mjs';
 
@@ -20,8 +20,6 @@ export { PLUGIN_ROOT };
 // これは、ハーネスが自分の大きさに掛ける上限である。エージェントの働き方に掛ける上限は、持たない。
 export const BUDGET = { orchestrator: 6000, subagent: 4000 };
 
-const TIERS = ['edit', 'commit', 'push', 'release'];
-
 export const coreText = (name) => fs.readFileSync(path.join(PLUGIN_ROOT, 'core', `${name}.md`), 'utf8').trim();
 
 function projectFacts({ role, value, error }) {
@@ -29,7 +27,7 @@ function projectFacts({ role, value, error }) {
   if (role === 'orchestrator' && error) parts.push(`dotagents.jsonc が読めない(${error})。無いものとして動いている。利用者に知らせる。`);
   const decisions = list(value.decisions);
   if (decisions.length) parts.push(['# このプロジェクトで続いている決定', ...decisions.map((line) => `- ${line}`)].join('\n'));
-  const checks = TIERS.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
+  const checks = CHECK_STAGES.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
   if (checks.length) {
     const lines = ['# チェックの入口', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
     const heavy = checks.filter((key) => key === 'push' || key === 'release').map((key) => `${key} の段階`);

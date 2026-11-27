@@ -22,6 +22,9 @@ import path from 'node:path';
 import { parseJsonc } from './jsonc.mjs';
 
 export const DECLARATION = path.join('.agents', 'dotagents.jsonc');
+// 読む項目。schema/dotagents.schema.json の項目と一致することを、テストが守る。`$schema` はエディターのための印で、読まない。
+export const KEYS = ['$schema', 'protected', 'delegated', 'checks', 'decisions'];
+export const CHECK_STAGES = ['edit', 'commit', 'push', 'release'];
 const POLICY_KEYS = ['protected', 'delegated', 'checks'];
 
 // 注釈と末尾のカンマを許す。読めなければ、行と列を添えて投げる。

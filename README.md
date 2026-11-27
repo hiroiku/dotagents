@@ -46,10 +46,11 @@ To change something, write `.agents/dotagents.jsonc` by hand (below). You can al
 
 ## The project declaration
 
-Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks and every role's context read it. All keys are optional. Comments (`//`, `/* */`) and trailing commas are allowed, hence the `.jsonc` name. An older `.agents/dotagents.json` is not read: rename it. If the file cannot be read, the orchestrator is told where (line and column) and the harness runs as if it were absent.
+Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks and every role's context read it. All keys are optional. Comments (`//`, `/* */`) and trailing commas are allowed, hence the `.jsonc` name. Put the `$schema` line first and editors complete the keys and flag mistakes (`schema/dotagents.schema.json`; the harness does not read it). The schema rejects unknown keys, so a misspelled key and the retired `style` and `outward` are underlined instead of silently ignored. An older `.agents/dotagents.json` is not read: rename it. If the file cannot be read, the orchestrator is told where (line and column) and the harness runs as if it were absent.
 
 ```jsonc
 {
+  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/schema/dotagents.schema.json",
   // Branches to treat as shared, in addition to the defaults
   "protected": ["staging"],
   "delegated": ["merge:main", "tag", "release:v1"],
@@ -68,6 +69,7 @@ Shared branches are the remote's default branch, `main`, `master`, and the names
 |---|---|
 | `plugin/core/` | The page every role reads (`core.md`), the layered design (`layered.md`, also read by every role), and the orchestrator's page, which includes the trunk flow (`orchestrator.md`). A test enforces their size. |
 | `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents and Codex agent TOML. |
+| `schema/` | JSON Schema of `.agents/dotagents.jsonc`, for editors. Not read by hooks and not delivered by the marketplace. |
 | `plugin/skills/` | `setup`, `architecture`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code hooks and Codex hooks. |

@@ -46,10 +46,11 @@ plugin は、ホストの普通の手順で入れる。設定ファイルが無�
 
 ## dotagents.jsonc
 
-プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書く。hook と、どのエージェントの文脈も、ここを読む。どの項目も省ける。注釈(`//`、`/* */`)と末尾のカンマを書ける(だから拡張子は `.jsonc`)。古い名前の `.agents/dotagents.json` は読まない。名前を変える。読めないときは、オーケストレーターに行と列を知らせ、ファイルが無いものとして動く。
+プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書く。hook と、どのエージェントの文脈も、ここを読む。どの項目も省ける。注釈(`//`、`/* */`)と末尾のカンマを書ける(だから拡張子は `.jsonc`)。先頭に `$schema` の行を書くと、エディターが項目の補完と誤りの表示を出す(`schema/dotagents.schema.json`。ハーネスは読まない)。schema は知らない項目を誤りにするので、書き間違いも、もう読まれない `style` と `outward` も、無視されずに線が引かれる。古い名前の `.agents/dotagents.json` は読まない。名前を変える。読めないときは、オーケストレーターに行と列を知らせ、ファイルが無いものとして動く。
 
 ```jsonc
 {
+  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/schema/dotagents.schema.json",
   // 既定に足す、共有のブランチ
   "protected": ["staging"],
   "delegated": ["merge:main", "tag", "release:v1"],
@@ -68,6 +69,7 @@ plugin は、ホストの普通の手順で入れる。設定ファイルが無�
 |---|---|
 | `plugin/core/` | どのロールも読む共通ルール(`core.md`)と設計の形(`layered.md`)、trunk の流れを含むオーケストレーターの 1 枚(`orchestrator.md`)。大きさはテストが守る。 |
 | `plugin/agents/` | `builder`(ビルダー)と `reviewer`(レビュアー)。Claude Code のエージェントと Codex の TOML は、ここから導く。 |
+| `schema/` | `.agents/dotagents.jsonc` の JSON Schema。エディターのためで、hook は使わない。marketplace は配らない。 |
 | `plugin/skills/` | `setup`、`architecture`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(2 つのホストが呼ぶ 1 つの判定)、`context.mjs` など。 |
 | `plugin/hosts/` | 薄い受け口。Claude Code の hook と Codex の hook。 |
