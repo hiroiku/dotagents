@@ -17,7 +17,7 @@ const ROLES = ['orchestrator', 'builder', 'reviewer', 'worker'];
 
 test('dotagents.jsonc に何も書かなくても、git は trunk、設計は layered の文が入り、trunk の文はオーケストレーターにだけ入る', () => {
   const cwd = project({});
-  const trunk = coreText('orchestrator');
+  const trunk = coreText('branches');
   assert.match(trunk, /リリースは、デフォルトブランチのコミットに tag を付けて行う/);
   assert.match(contextFor({ role: 'orchestrator', cwd }), /リリースは、デフォルトブランチのコミットに tag を付けて行う/);
   for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /リリースは、デフォルトブランチのコミットに tag を付けて行う/, role);

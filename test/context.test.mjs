@@ -12,14 +12,14 @@ function project(declaration) {
   return dir;
 }
 
-test('共通ルールはどのロールにも入り、オーケストレーターの文はオーケストレーターにだけ入る', () => {
+test('どのロールにも入る部分はどのロールにも、メインのセッションだけの部分はオーケストレーターにだけ入る', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-context-'));
   const orchestrator = contextFor({ role: 'orchestrator', cwd });
-  assert.ok(orchestrator.includes(coreText('core')) && orchestrator.includes(coreText('orchestrator')));
+  assert.ok(orchestrator.includes(coreText('principles')) && orchestrator.includes(coreText('progress')));
   for (const role of ['builder', 'reviewer', 'worker']) {
     const text = contextFor({ role, cwd });
-    assert.ok(text.includes(coreText('core')), role);
-    assert.ok(!text.includes(coreText('orchestrator')), role);
+    assert.ok(text.includes(coreText('principles')), role);
+    assert.ok(!text.includes(coreText('progress')), role);
   }
 });
 
@@ -63,7 +63,7 @@ test('常設の文、エージェントの定義、スキルに、時間や数�
 
 test('進め方は既定で、利用者とプロジェクトの決めごとが優先すると、どのロールにも届く', () => {
   for (const role of ['orchestrator', 'builder', 'reviewer', 'worker']) {
-    assert.match(contextFor({ role, cwd: project({}) }), /進め方は既定である。利用者の指示やプロジェクトの決めごとと食い違うときは、そちらに従い、食い違いを伝える。/, role);
+    assert.match(contextFor({ role, cwd: project({}) }), /ここにある進め方は既定である。利用者の指示、ホストの権限設定[^。]*、プロジェクトの決めごと[^。]*が、これより優先する。食い違うときは、そちらに従い、食い違いを伝える。/, role);
   }
 });
 
@@ -99,4 +99,25 @@ test('dotagents.jsonc は注釈と末尾のカンマを許し、古い dotagents
     assert.doesNotMatch(contextFor({ role, cwd: old }), /古い名前の決定|push: `make`/, role);
     assert.equal(contextFor({ role, cwd: old }), contextFor({ role, cwd: project({}) }), role);
   }
+});
+
+// 見出しは、H1 が出どころ(既定のルールとプロジェクトの設定)、H2 が分野、H3 が話題で、H4 は使わない。
+test('ロールごとに入る分野は、メインのセッションと、サブエージェントで分かれ、H1 は 2 つまでで、H4 を使わない', () => {
+  const cwd = project({ decisions: ['a'], checks: { push: 'npm test' }, delegated: ['tag'] });
+  const headings = (text, level) => text.split('\n').filter((line) => line.startsWith(`${'#'.repeat(level)} `)).map((line) => line.slice(level + 1));
+  assert.deepEqual(headings(contextFor({ role: 'orchestrator', cwd }), 1), ['dotagents の既定のルール', 'このプロジェクトの設定(.agents/dotagents.jsonc)']);
+  assert.deepEqual(headings(contextFor({ role: 'orchestrator', cwd }), 2), ['基本方針', '設計', '決定と記録', '進行', 'Git', 'GitHub', '決定事項', 'チェックのコマンド', '委任された操作']);
+  for (const role of ['builder', 'reviewer', 'worker']) {
+    assert.deepEqual(headings(contextFor({ role, cwd }), 2), ['基本方針', '設計', '決定と記録', 'Git', '決定事項', 'チェックのコマンド'], role);
+    assert.deepEqual(headings(contextFor({ role, cwd }), 3), ['判断基準', 'レイヤー構成(layered)', 'テスト', 'ARCHITECTURE.md', 'コミット'], role);
+  }
+  for (const role of ['orchestrator', 'builder', 'reviewer', 'worker']) {
+    for (const where of [project({}), cwd]) {
+      const text = contextFor({ role, cwd: where });
+      assert.ok(headings(text, 1).length <= 2, role);
+      assert.doesNotMatch(text, /^#### /m, role);
+    }
+  }
+  // 設定が何も無ければ、プロジェクトの設定の H1 は出さない。
+  assert.doesNotMatch(contextFor({ role: 'orchestrator', cwd: project({}) }), /# このプロジェクトの設定/);
 });

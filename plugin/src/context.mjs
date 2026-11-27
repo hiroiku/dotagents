@@ -1,10 +1,10 @@
 // ロールごとに、常にコンテキストに読み込ませる文を組み立てる。どのホストの受け口も、同じこの関数を呼ぶ。
 //
-// 入れるのは、共通ルールとレイヤー構成(layered)(どのロールにも)、オーケストレーターの文(git の流れ(trunk)を含む。オーケストレーターにだけ)、
-// `dotagents.jsonc` から導いた事実である。git は trunk、設計は layered に固定していて、プロジェクトは選べない。
-// 合わないプロジェクトは、共通ルールのとおり、プロジェクトの決めごと(`decisions`、AGENTS.md)が優先する。サブエージェントの仕事の中身は、エージェントの定義
-// (agents/)が持ち、ホストがサブエージェントのコンテキストに読み込ませる。
-// 利用者が頼んだ場面の手順は、スキルが持つ。
+// 文は H1 が 2 つである。「dotagents の既定のルール」(core/ の文)と、「このプロジェクトの設定」(`dotagents.jsonc` から導いた事実)。
+// 既定のルールは、H2 が分野、H3 が話題で、どの部分をどのロールが読むかは、下の OUTLINE の 1 か所にだけ持つ。
+// git は trunk、設計は layered に固定していて、プロジェクトは選べない。合わないプロジェクトは、既定のルールの冒頭のとおり、
+// プロジェクトの決めごと(`decisions`、AGENTS.md)が優先する。サブエージェントの仕事の中身は、エージェントの定義(agents/)が持ち、
+// ホストがサブエージェントのコンテキストに読み込ませる。利用者が頼んだ場面の手順は、スキルが持つ。
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,6 +16,40 @@ export { PLUGIN_ROOT };
 
 export const coreText = (name) => fs.readFileSync(path.join(PLUGIN_ROOT, 'core', `${name}.md`), 'utf8').trim();
 
+export const RULES_TITLE = 'dotagents の既定のルール';
+export const SETTINGS_TITLE = 'このプロジェクトの設定(.agents/dotagents.jsonc)';
+
+// 既定のルールの順番と、各部分を読むロール。all はどのロールにも、main はメインのセッション(オーケストレーター)にだけ入る。
+// 各部分のファイル(core/<file>.md)は、H3 以下だけを持つ。H2 は、中身のある部分が 1 つでもあるときだけ出す。
+export const OUTLINE = [
+  { title: '基本方針', parts: [{ file: 'principles', readers: 'all' }] },
+  { title: '設計', parts: [{ file: 'design', readers: 'all' }, { file: 'layered', readers: 'all' }, { file: 'testing', readers: 'all' }, { file: 'architecture', readers: 'all' }] },
+  { title: '決定と記録', parts: [{ file: 'decisions', readers: 'all' }, { file: 'records', readers: 'main' }] },
+  { title: '進行', parts: [{ file: 'progress', readers: 'main' }] },
+  { title: 'Git', parts: [{ file: 'commits', readers: 'all' }, { file: 'branches', readers: 'main' }] },
+  { title: 'GitHub', parts: [{ file: 'github', readers: 'main' }] },
+];
+
+// readers に挙げた種類の部分のうち、role が読むものを、H2 を付けて並べる。
+function sections(role, readers) {
+  const reads = (part) => readers.includes(part.readers) && (part.readers === 'all' || role === 'orchestrator');
+  return OUTLINE.flatMap(({ title, parts }) => {
+    const texts = parts.filter(reads).map((part) => coreText(part.file));
+    return texts.length ? [[`## ${title}`, ...texts].join('\n\n')] : [];
+  });
+}
+
+// どのロールにも入る文。Antigravity では、hook ではなく plugin のルール(rules/AGENTS.md)として読み込ませる。
+export const sharedText = () => [`# ${RULES_TITLE}`, coreText('preamble'), ...sections('worker', ['all'])].join('\n\n');
+
+// `dotagents.jsonc` から導かない文。shared が偽のときは、ほかの経路(rules/AGENTS.md)で入るどのロールにも入る部分を外し、
+// メインのセッションだけの部分を「(続き)」として返す。同じ文を 2 回読み込ませないためである。
+function standing(role, shared = true) {
+  if (shared) return [`# ${RULES_TITLE}`, coreText('preamble'), ...sections(role, ['all', 'main'])];
+  const rest = sections(role, ['main']);
+  return rest.length ? [`# ${RULES_TITLE}(続き)`, ...rest] : [];
+}
+
 // ビルダーとレビュアーが実行しないチェック。
 const HEAVY = { push: ['push 時', 'バッチを push する前'], release: ['リリース前', 'リリースの前'] };
 
@@ -23,36 +57,24 @@ function projectFacts({ role, value, error }) {
   const parts = [];
   if (role === 'orchestrator' && error) parts.push(`dotagents.jsonc を読めなかったので、無いものとして動いている。次のエラーを利用者に伝える。\n\nエラー: ${error}`);
   const decisions = list(value.decisions);
-  if (decisions.length) parts.push(['# プロジェクトの決定事項', '', '`.agents/dotagents.jsonc` の `decisions` に書かれた決定である。', '', ...decisions.map((line) => `- ${line}`)].join('\n'));
+  if (decisions.length) parts.push(['## 決定事項', '', ...decisions.map((line) => `- ${line}`)].join('\n'));
   const checks = CHECK_STAGES.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
   if (checks.length) {
-    const lines = ['# チェックのコマンド', '', '`.agents/dotagents.jsonc` の `checks` に書かれたコマンドである。', '', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
+    const lines = ['## チェックのコマンド', '', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];
     const heavy = checks.filter((key) => key in HEAVY).map((key) => HEAVY[key]);
     if (heavy.length && (role === 'builder' || role === 'reviewer')) lines.push('', `${heavy.map(([label]) => label).join('と')}のチェックのコマンドは、${heavy.map(([, when]) => when).join('と')}に、メインのセッションで 1 回だけ実行する。このエージェントがそのまま実行すると、hook がブロックする。対象を絞った実行はブロックしない。`);
     parts.push(lines.join('\n'));
   }
   if (role === 'orchestrator') {
     const delegated = list(value.delegated);
-    if (delegated.length) parts.push(`# 委任された操作\n\n\`.agents/dotagents.jsonc\` の \`delegated\` に書かれた次の種類は、利用者に確認せずに進める: ${delegated.join('、')}`);
+    if (delegated.length) parts.push(`## 委任された操作\n\n次の種類は、利用者に確認せずに進める: ${delegated.join('、')}`);
   }
-  return parts.join('\n\n');
-}
-
-// どのロールにも入る文。Antigravity では、hook ではなく plugin のルール(rules/AGENTS.md)として入れる。
-const SHARED = ['core', 'layered'];
-export const sharedText = () => SHARED.map(coreText).join('\n\n');
-
-// `dotagents.jsonc` から導かない文。共通ルールとレイヤー構成はどのロールにも、オーケストレーターの文はオーケストレーターにだけ入る。
-// shared が偽のときは、ほかの経路で入る共通ルールとレイヤー構成を外す。同じ文を 2 回入れないためである。
-function standing(role, shared = true) {
-  const parts = shared ? SHARED.map(coreText) : [];
-  if (role === 'orchestrator') parts.push(coreText('orchestrator'));
-  return parts;
+  return parts.length ? [`# ${SETTINGS_TITLE}`, ...parts].join('\n\n') : '';
 }
 
 // ロールが毎回読む文の字数。hook が入れる文に、ホストが入れるエージェントの定義の本文を加えて数える。
-// 数えるのは、共通ルール、レイヤー構成、オーケストレーターの文、エージェントの定義の本文である。`dotagents.jsonc` から導いた事実
-// (決定、チェックのコマンド)は、プロジェクトが持つものなので数えない。README の字数の目安と、Codex に切らずに渡せるかの確認に使う。
+// `dotagents.jsonc` から導いた事実(決定、チェックのコマンド)は、プロジェクトが持つものなので数えない。
+// README の字数の目安と、Codex に切らずに渡せるかの確認に使う。
 export function standingSize(role) {
   const body = roles().find((definition) => definition.name === role)?.body ?? '';
   return [...standing(role), body].filter(Boolean).join('\n\n').length;

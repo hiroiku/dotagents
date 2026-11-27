@@ -35,18 +35,18 @@ test('dotagents.jsonc の無いリポジトリーでも、Claude Code のどの�
   assert.equal(raw('claude', 'subagent', { cwd: repo, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'dotagents:builder' }).systemMessage, undefined);
 });
 
-test('セッションの開始ではオーケストレーターの文を、サブエージェントの開始ではそのサブエージェントの文を返す', () => {
+test('セッションの開始ではメインのセッションの既定のルールを、サブエージェントの開始ではそのサブエージェントの文を返す', () => {
   const cwd = project({ decisions: ['決定 A'] });
   const orchestrator = run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'startup' });
   assert.equal(orchestrator.hookEventName, 'SessionStart');
-  assert.match(orchestrator.additionalContext, /# オーケストレーター/);
+  assert.match(orchestrator.additionalContext, /## 進行/);
   assert.match(orchestrator.additionalContext, /決定 A/);
   const builder = run('claude', 'subagent', { cwd, hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'dotagents:builder' });
   assert.equal(builder.hookEventName, 'SubagentStart');
-  assert.doesNotMatch(builder.additionalContext, /# オーケストレーター/);
+  assert.doesNotMatch(builder.additionalContext, /## 進行/);
   assert.doesNotMatch(builder.additionalContext, /上限/);
   assert.equal(fs.existsSync(path.join(codexHome, 'agents')), false, 'Claude Code のセッションでは Codex の設定に触れない');
-  assert.match(run('codex', 'session', { cwd }).additionalContext, /# 共通ルール/);
+  assert.match(run('codex', 'session', { cwd }).additionalContext, /# dotagents の既定のルール/);
   // Codex は plugin でエージェントを運べないので、セッションの開始でエージェントの定義を置く。
   const agent = path.join(codexHome, 'agents', 'dotagents-builder.toml');
   assert.match(fs.readFileSync(agent, 'utf8'), /^name = "dotagents-builder"/m);
@@ -62,7 +62,7 @@ test('セッションの開始ではオーケストレーターの文を、サ�
   assert.equal(fs.readFileSync(agent, 'utf8'), 'name = "dotagents-builder"\n# 利用者が書いた定義\n');
 });
 
-test('サブエージェントの文脈が作り直されたときは、オーケストレーターの文ではなく、そのサブエージェントの文を返す', () => {
+test('サブエージェントの文脈が作り直されたときは、メインのセッションの既定のルールではなく、そのサブエージェントの文を返す', () => {
   const cwd = project();
   // Claude Code は、作り直しのあと、サブエージェントの中でセッションの開始を知らせる。エージェントの ID と種類が付く。
   const rebuilt = (agentType) => run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'compact', agent_id: 'a1', agent_type: agentType });
@@ -70,11 +70,11 @@ test('サブエージェントの文脈が作り直されたときは、オー�
   for (const agentType of ['general-purpose', 'dotagents:builder', 'dotagents:reviewer']) {
     const output = rebuilt(agentType);
     assert.equal(output.hookEventName, 'SessionStart');
-    assert.doesNotMatch(output.additionalContext, /# オーケストレーター/, agentType);
+    assert.doesNotMatch(output.additionalContext, /## 進行/, agentType);
     assert.equal(output.additionalContext, start(agentType).additionalContext, `${agentType}: 始まったときと同じ文`);
   }
   // エージェントとして起こしたメインのセッション(claude --agent)は、ID を持たない。オーケストレーターのままである。
-  assert.match(run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'compact', agent_type: 'general-purpose' }).additionalContext, /# オーケストレーター/);
+  assert.match(run('claude', 'session', { cwd, hook_event_name: 'SessionStart', source: 'compact', agent_type: 'general-purpose' }).additionalContext, /## 進行/);
 });
 
 test('Claude Code では確かめ、Codex では止める', () => {
@@ -174,7 +174,7 @@ test('プロジェクトに 8.x の写しが残っていても、受け口は譲
   fs.mkdirSync(nested, { recursive: true });
   for (const dir of [cwd, nested]) {
     for (const host of ['claude', 'codex']) {
-      assert.match(run(host, 'session', { cwd: dir }).additionalContext, /# 共通ルール/);
+      assert.match(run(host, 'session', { cwd: dir }).additionalContext, /# dotagents の既定のルール/);
       assert.notEqual(run(host, 'tool', { cwd: dir, tool_name: 'Bash', tool_input: { command: 'gh release create v1' } }), null);
     }
   }

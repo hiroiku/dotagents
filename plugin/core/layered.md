@@ -1,4 +1,4 @@
-# レイヤー構成(layered)
+### レイヤー構成(layered)
 
 層は `app-kernel`、`domain`、`application`、`interface`、`infrastructure`、`frameworks` の 6 つで、依存は外側から内側へ向ける。
 

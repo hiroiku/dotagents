@@ -3,6 +3,6 @@
   "version": "9.0.0",
   "private": true,
   "type": "module",
-  "description": "AI のコーディングエージェント向けのハーネスです。常時読み込まれる共通ルール、エージェントの定義、スキル、外部に影響する操作を確認する hook を、Claude Code、Codex、Antigravity に同じ内容で提供します。",
+  "description": "AI のコーディングエージェント向けのハーネスです。常時読み込まれる既定のルール、エージェントの定義、スキル、外部に影響する操作を確認する hook を、Claude Code、Codex、Antigravity に同じ内容で提供します。",
   "license": "MIT"
 }

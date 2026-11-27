@@ -78,7 +78,7 @@ export function requests(host, input) {
 // - cwd と、どのエージェントからの呼び出しかは来ない。シェルはツールの Cwd、ほかは最初のワークスペースで読む。hook そのものは
 //   plugin の根で動くので、process.cwd() は使わない。
 // - ロールは見分けられないので、常にオーケストレーターとして判定する。サブエージェントの外部に影響する操作も、止めずに利用者に確かめる。
-// - 共通ルールとレイヤー構成は、plugin のルール(rules/AGENTS.md)がどのエージェントにも入れる。hook が入れるのは残りである。
+// - 既定のルールのうちどのロールにも入る部分は、plugin のルール(rules/AGENTS.md)がどのエージェントにも入れる。hook が入れるのは、メインのセッションだけの部分(「(続き)」)と、プロジェクトの設定である。
 
 const ANTIGRAVITY_EDITS = new Set(['write_to_file', 'replace_file_content', 'multi_replace_file_content']);
 
@@ -153,7 +153,7 @@ export function handle(host, event, input) {
   if (event === 'session' || event === 'subagent') {
     if (host === 'codex' && event === 'session') syncCodexAgents();
     // Claude Code は、サブエージェントのコンテキストを作り直したときにも、そのサブエージェントの中でセッションの開始を知らせる。
-    // その知らせにはエージェントの ID が付く。ID が付いた知らせにオーケストレーターの文を返すと、作り直しのあと、サブエージェントがオーケストレーターとして振る舞う。
+    // その知らせにはエージェントの ID が付く。ID が付いた知らせにメインのセッションだけの部分を返すと、作り直しのあと、サブエージェントがオーケストレーターとして振る舞う。
     const role = event === 'session' && !input.agent_id ? 'orchestrator' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
     const text = contextFor({ role, cwd });
     record({ host, event: 'context', project, role, agentType: input.agent_type, chars: text.length });

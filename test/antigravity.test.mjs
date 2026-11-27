@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { coreText } from '../plugin/src/context.mjs';
+import { coreText, sharedText } from '../plugin/src/context.mjs';
 import { ANTIGRAVITY_TOOLS, roles } from '../plugin/src/roles.mjs';
 import { build, OUT } from '../tools/antigravity.mjs';
 
@@ -53,9 +53,10 @@ test('生成した Antigravity の置き場は、plugin/ から作り直して�
   for (const [file, content] of expected) assert.equal(actual.get(file), content, `${file}: node tools/antigravity.mjs で作り直す`);
 });
 
-test('Antigravity の置き場は、ルールに共通ルールとレイヤー構成を、エージェントに同じ本文と Antigravity の道具を持つ', () => {
+test('Antigravity の置き場は、ルールにどのロールにも入る既定のルールを、エージェントに同じ本文と Antigravity の道具を持つ', () => {
   const files = build();
-  assert.equal(files.get('rules/AGENTS.md'), `${coreText('core')}\n\n${coreText('layered')}\n`);
+  assert.equal(files.get('rules/AGENTS.md'), `${sharedText()}\n`);
+  assert.ok(files.get('rules/AGENTS.md').includes(coreText('layered')) && !files.get('rules/AGENTS.md').includes(coreText('progress')));
   // 1 つのルールのファイルは、24,000 バイトを超えると切られる(資料による)。
   assert.ok(Buffer.byteLength(files.get('rules/AGENTS.md')) < 24000);
   for (const role of roles()) {
@@ -75,16 +76,17 @@ test('Antigravity の置き場は、ルールに共通ルールとレイヤー�
   for (const event of ['SessionStart', 'PreToolUse']) assert.ok(fs.existsSync(path.join(OUT, commandOf(event).split(' ')[1])), event);
 });
 
-test('Antigravity のセッションの開始では、オーケストレーターの文と dotagents.jsonc の事実を入れ、ルールと同じ文は入れない', () => {
+test('Antigravity のセッションの開始では、メインのセッションだけの既定のルールと dotagents.jsonc の事実を入れ、ルールと同じ文は入れない', () => {
   const cwd = project({ decisions: ['決定 A'], checks: { push: 'npm test' }, delegated: ['tag'] });
   const output = run('SessionStart', common(cwd));
   assert.equal(output.injectSteps.length, 1);
   const text = output.injectSteps[0].systemMessage.systemMessage;
-  assert.match(text, /# オーケストレーター/);
+  assert.match(text, /^# dotagents の既定のルール\(続き\)\n\n## 決定と記録/);
+  assert.match(text, /## 進行/);
   assert.match(text, /決定 A/);
   assert.match(text, /push: `npm test`/);
   assert.match(text, /確認せずに進める: tag/);
-  assert.ok(!text.includes(coreText('core')) && !text.includes(coreText('layered')));
+  assert.ok(!text.includes(coreText('principles')) && !text.includes(coreText('layered')));
   const broken = project();
   fs.mkdirSync(path.join(broken, '.agents'));
   fs.writeFileSync(path.join(broken, '.agents', 'dotagents.jsonc'), '{');
