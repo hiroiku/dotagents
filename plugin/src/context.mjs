@@ -1,7 +1,8 @@
 // ロールごとに、常に文脈へ入れる文を組み立てる。2 つのホストの受け口が、同じこの関数を呼ぶ。
 //
-// 入れるのは、共通ルール(どのロールにも)、オーケストレーターの文(オーケストレーターにだけ)、プロジェクトが選んだスタイルの文
-// (そのスタイルが入れるロールにだけ)、`dotagents.json` から導いた事実である。サブエージェントの仕事の中身は、エージェントの定義
+// 入れるのは、共通ルールと設計の形(layered)(どのロールにも)、オーケストレーターの文(git の流れ(trunk)を含む。オーケストレーターにだけ)、
+// `dotagents.json` から導いた事実である。git は trunk、設計は layered に固定していて、プロジェクトは選べない。
+// 合わないプロジェクトは、共通ルールのとおり、プロジェクトの決めごと(`decisions`、AGENTS.md)が優先する。サブエージェントの仕事の中身は、エージェントの定義
 // (agents/)が持ち、ホストがサブエージェントの文脈に入れる。
 // 利用者が頼んだ場面の手順は、スキルが持つ。
 
@@ -10,12 +11,11 @@ import path from 'node:path';
 import { list, readDeclaration } from './declaration.mjs';
 import { roles } from './roles.mjs';
 import { PLUGIN_ROOT } from './root.mjs';
-import { appliesTo, catalog, chosenStyles, readStyle } from './style.mjs';
 
 export { PLUGIN_ROOT };
 
 // ロールが毎回読む文の上限(文字)。足すたびに、ほかの文が読まれる度合いが下がる。超えたらテストが落ちる。
-// 数えるのは、共通ルール、オーケストレーターの文、選んだスタイルの文、エージェントの定義の本文である。`dotagents.json` から導いた事実(決定、チェックの入口)は、
+// 数えるのは、共通ルール、設計の形、オーケストレーターの文、エージェントの定義の本文である。`dotagents.json` から導いた事実(決定、チェックの入口)は、
 // プロジェクトが持つものなので数えない。7.x では常設の文が 6,149 字になり、読まれない文が増えた。
 // これは、ハーネスが自分の大きさに掛ける上限である。エージェントの働き方に掛ける上限は、持たない。
 export const BUDGET = { orchestrator: 6000, subagent: 4000 };
@@ -39,12 +39,11 @@ export const declarationMissing = (cwd) => !readDeclaration(cwd).file && insideR
 // 気づけない。
 export const NOT_INSTALLED_NOTICE = 'dotagents: このリポジトリーには .agents/dotagents.json がありません。`npx @hiroiku/dotagents init` を実行すると入れられます。入れない場合は、中身が {} の dotagents.json を置くと、この知らせは出なくなります。';
 
-function projectFacts({ role, value, error, unknown, missing }) {
+function projectFacts({ role, value, error, missing }) {
   const parts = [];
   if (role === 'orchestrator') {
-    if (missing) parts.push('このリポジトリーには、このハーネスの `.agents/dotagents.json` が無い。スタイルとチェックの入口を知らないまま動いている。最初の返答で、`npx @hiroiku/dotagents init` の実行で入れることを利用者に 1 回提案する(エージェントが代わりに行うなら、setup のスキルに沿う)。入れないと決めたなら、中身が `{}` の `dotagents.json` を置けば、この提案は出なくなる。');
+    if (missing) parts.push('このリポジトリーには、このハーネスの `.agents/dotagents.json` が無い。チェックの入口を知らないまま動いている。最初の返答で、`npx @hiroiku/dotagents init` の実行で入れることを利用者に 1 回提案する(エージェントが代わりに行うなら、setup のスキルに沿う)。入れないと決めたなら、中身が `{}` の `dotagents.json` を置けば、この提案は出なくなる。');
     if (error) parts.push(`dotagents.json が読めない(${error})。無いものとして動いている。利用者に知らせる。`);
-    if (unknown.length) parts.push(`dotagents.json の style に、このハーネスの知らないスタイルがある(${unknown.join('、')})。その軸は選ばれていないものとして動いている。利用者に知らせる。`);
   }
   const decisions = list(value.decisions);
   if (decisions.length) parts.push(['# このプロジェクトで続いている決定', ...decisions.map((line) => `- ${line}`)].join('\n'));
@@ -62,37 +61,26 @@ function projectFacts({ role, value, error, unknown, missing }) {
   return parts.join('\n\n');
 }
 
-// `dotagents.json` から導かない文。共通ルール、オーケストレーターの文、選んだスタイルのうちこのロールに入るもの。
-function standing(role, styles) {
-  const parts = [coreText('core')];
+// `dotagents.json` から導かない文。共通ルールと設計の形はどのロールにも、オーケストレーターの文はオーケストレーターにだけ入る。
+function standing(role) {
+  const parts = [coreText('core'), coreText('layered')];
   if (role === 'orchestrator') parts.push(coreText('orchestrator'));
-  for (const style of styles) if (appliesTo(style, role)) parts.push(style.body);
   return parts;
 }
 
 // ロールが毎回読む文の字数。hook が入れる文に、ホストが入れるエージェントの定義の本文を足す。上限と比べるのに使う。
-function standingSize(role, styles = []) {
+export function standingSize(role) {
   const body = roles().find((definition) => definition.name === role)?.body ?? '';
-  return [...standing(role, styles), body].filter(Boolean).join('\n\n').length;
-}
-
-// どのスタイルを選んでも上限に収まるかを見るための、軸ごとに最も長いスタイルを選んだときの字数。
-export function largestSize(role) {
-  const styles = Object.entries(catalog()).flatMap(([axis, names]) => {
-    const sized = names.map((name) => readStyle(axis, name)).filter((style) => appliesTo(style, role)).map((style) => [style, standingSize(role, [style])]);
-    return sized.length ? [sized.sort((a, b) => b[1] - a[1])[0][0]] : [];
-  });
-  return standingSize(role, styles);
+  return [...standing(role), body].filter(Boolean).join('\n\n').length;
 }
 
 export const budgetOf = (role) => (role === 'orchestrator' ? BUDGET.orchestrator : BUDGET.subagent);
 
 export function contextFor({ role = 'orchestrator', cwd = process.cwd() } = {}) {
   const { value, error } = readDeclaration(cwd);
-  const { chosen, unknown } = chosenStyles(value);
-  const parts = standing(role, chosen);
+  const parts = standing(role);
   const missing = role === 'orchestrator' && declarationMissing(cwd);
-  const facts = projectFacts({ role, value, error, unknown, missing });
+  const facts = projectFacts({ role, value, error, missing });
   if (facts) parts.push(facts);
   return parts.join('\n\n');
 }

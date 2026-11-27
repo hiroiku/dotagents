@@ -1,7 +1,3 @@
----
-roles: all
----
-
 # 設計の形(layered)
 
 層は `app-kernel`、`domain`、`application`、`interface`、`infrastructure`、`frameworks` の 6 つで、依存は外から内へ向ける。import してよいのは次の層だけである。

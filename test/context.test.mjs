@@ -46,7 +46,7 @@ test('プロジェクトの決定とチェックの入口は、どのロール�
 
 // 数値は決まりとして読まれ、状況に合わなくても守られる。進め方は、理由と引き換えで書く。
 // 計測の結果(何倍、何割)と、仕組みの形(バッチごとに 1 回、エージェント 1 体)は、上限ではないので当たらない。
-test('常設の文、エージェントの定義、スタイル、スキルに、時間や数の上限を書かない', () => {
+test('常設の文、エージェントの定義、スキルに、時間や数の上限を書かない', () => {
   const LIMITS = /[0-9]+ ?(?:秒|分|時間|日|週)|[0-9]+ ?(?:つ|体|件|回|本|個)(?:まで|以内|以下|を超え)|(?:上限|最大|目安)は ?[0-9]/;
   const files = [];
   const walk = (dir) => {
@@ -55,7 +55,7 @@ test('常設の文、エージェントの定義、スタイル、スキルに�
       else if (entry.name.endsWith('.md')) files.push(path.join(dir, entry.name));
     }
   };
-  for (const name of ['core', 'agents', 'skills', 'styles']) walk(path.join(PLUGIN_ROOT, name));
+  for (const name of ['core', 'agents', 'skills']) walk(path.join(PLUGIN_ROOT, name));
   assert.ok(files.length >= 8, '読む場所が変わっていないこと');
   for (const file of files) {
     fs.readFileSync(file, 'utf8').split('\n').forEach((line, index) => {

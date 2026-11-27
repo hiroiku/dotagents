@@ -67,8 +67,9 @@ test('作業ブランチの上で、共有のブランチを merge する追従�
   for (const command of ['git merge main', 'git -C sub merge --no-edit origin/main', 'rtk git merge upstream/main', 'git fetch && git merge -m "x" origin/main']) assert.equal(kind(command), 'follow', command);
   assert.equal(kind('git merge', { upstream: 'origin/main' }), 'follow');
   assert.equal(kind('git merge @{u}', { upstream: 'origin/main' }), 'follow');
-  // スタイルが決める共有のブランチも、dotagents.json の protected も見る。
-  assert.equal(kind('git merge origin/release/drive-web/v1.73', { declaration: { style: { git: 'release-branches' } } }), 'follow');
+  // dotagents.json の protected も見る。style は読まないので、release/ は共有のブランチにならない。
+  assert.equal(kind('git merge origin/release/drive-web/v1.73', { declaration: { protected: ['release/*'] } }), 'follow');
+  assert.equal(kind('git merge origin/release/drive-web/v1.73', { declaration: { style: { git: 'release-branches' } } }), null);
   assert.equal(kind('git merge origin/staging', { declaration: { protected: ['staging'] } }), 'follow');
   for (const command of ['git merge work/y', 'git merge --abort', 'git merge --continue', 'git merge --ff-only origin/main', 'git merge origin/develop', 'git rebase origin/main']) assert.equal(kind(command), null, command);
 });
@@ -77,7 +78,7 @@ test('共有のブランチの上で、作業ブランチを取り込む merge �
   assert.equal(kind('git merge --no-ff work/x', { branch: 'main' }), null);
   assert.equal(kind('git merge origin/main', { branch: 'main' }), null);
   assert.equal(kind('git pull', { branch: 'main' }), null);
-  assert.equal(kind('git merge work/x', { branch: 'release/drive-web/v1.73', declaration: { style: { git: 'release-branches' } } }), null);
+  assert.equal(kind('git merge work/x', { branch: 'release/drive-web/v1.73', declaration: { protected: ['release/*'] } }), null);
   // 今いるブランチが分からない(HEAD が切り離されている)ときは通す。
   assert.equal(kind('git merge origin/main', { branch: null }), null);
 });
@@ -100,53 +101,48 @@ test('追従の merge と PR の base は、利用者が求めたときにオー
   assert.equal(kind(`${CONFIRMED}=1 git merge origin/main`), null);
   assert.equal(kind(`${CONFIRMED}=1 git merge origin/main`, { role: 'builder' }), 'follow');
   assert.doesNotMatch(run('git merge origin/main', { role: 'builder' }).reason, new RegExp(CONFIRMED));
-  const declaration = { style: { git: 'trunk' } };
-  assert.equal(kind(`${CONFIRMED}=1 gh pr create --base develop`, { declaration }), null);
+  assert.equal(kind(`${CONFIRMED}=1 gh pr create --base develop`), null);
 });
 
-test('git のスタイルを選んだプロジェクトでは、PR の base が既定のブランチでなければ止め、スタイルが共有する base は通す', () => {
-  const trunk = { style: { git: 'trunk' } };
-  const stopped = run('gh pr create --draft --base develop', { declaration: trunk });
+test('PR の base は、どのプロジェクトでも既定のブランチでなければ止める。style に何を書いても変わらない', () => {
+  const stopped = run('gh pr create --draft --base develop');
   assert.equal(stopped.kind, 'base');
-  assert.match(stopped.reason, /trunk.*base は main/);
-  assert.equal(kind('gh pr create --base main', { declaration: trunk }), null);
-  assert.equal(kind('gh pr create --fill', { declaration: trunk }), null);
-  assert.equal(kind('gh pr create -Bmain', { declaration: trunk }), null);
-  assert.equal(kind('gh pr create --base release/v1', { declaration: trunk }), 'base');
-  const release = { style: { git: 'release-branches' } };
-  assert.equal(kind('gh pr create --base release/drive-web/v1.73', { declaration: release }), null);
-  assert.equal(kind('gh pr create --base release/v1 --head work/fix', { declaration: release }), null);
-  assert.equal(kind('gh pr create', { declaration: release }), null);
-  assert.equal(kind('gh pr create --base=develop', { declaration: release }), 'base');
-  assert.match(run('gh pr create --base develop', { declaration: release }).reason, /release-branches.*base は main.*release\/\*/);
-  // git のスタイルを選んでいなければ、base は見ない。別のリポジトリーへの PR も見ない。
-  assert.equal(kind('gh pr create --base anything'), null);
-  assert.equal(kind('gh pr create --base anything', { declaration: { style: { git: 'develop-master' } } }), null);
-  assert.equal(kind('gh pr create --base x -R other/repo', { declaration: trunk }), null);
+  assert.match(stopped.reason, /base は main/);
+  assert.doesNotMatch(stopped.reason, /release\/\*|スタイル/);
+  assert.equal(kind('gh pr create --base main'), null);
+  assert.equal(kind('gh pr create --fill'), null);
+  assert.equal(kind('gh pr create -Bmain'), null);
+  assert.equal(kind('gh pr create --base=develop'), 'base');
+  assert.equal(kind('gh pr create --base release/v1'), 'base');
+  for (const style of [{ git: 'release-branches' }, { git: 'trunk' }, { git: 'develop-master' }]) {
+    assert.equal(kind('gh pr create --base release/drive-web/v1.73', { declaration: { style } }), 'base', JSON.stringify(style));
+    assert.equal(kind('gh pr create --base anything', { declaration: { style } }), 'base', JSON.stringify(style));
+    assert.equal(kind('gh pr create', { declaration: { style } }), null);
+  }
+  // 別のリポジトリーへの PR は見ない。
+  assert.equal(kind('gh pr create --base x -R other/repo'), null);
 });
 
 // GitHub が答える PR の形。workflow の実行ごとに、状態と番号を持つ。
 test('PR の base は、手元に残った origin/HEAD ではなく、GitHub の既定のブランチと比べ、答えが無ければ通す', () => {
-  const trunk = { style: { git: 'trunk' } };
   // 既定のブランチを master から main に変えたあと、手元の origin/HEAD は master のまま残る。
-  const stale = { declaration: trunk, remoteHead: 'origin/master' };
+  const stale = { remoteHead: 'origin/master' };
   assert.equal(kind('gh pr create --base master', stale), 'base');
   assert.match(run('gh pr create --base master', stale).reason, /base は main/);
   assert.equal(kind('gh pr create --base main', stale), null);
-  assert.equal(kind('gh pr create --base develop', { declaration: trunk, repo: null }), null);
-  assert.equal(kind('gh pr create --base develop', { declaration: trunk, repo: { nameWithOwner: 'o/r', defaultBranchRef: null } }), null);
+  assert.equal(kind('gh pr create --base develop', { repo: null }), null);
+  assert.equal(kind('gh pr create --base develop', { repo: { nameWithOwner: 'o/r', defaultBranchRef: null } }), null);
   // GitHub へ尋ねるのは、PR を作る操作のときだけである。
   for (const command of ['git merge work/y', 'git status', 'gh pr view 1', 'gh pr list --base master']) {
     const probe = tools();
-    decide({ tool: 'shell', command, cwd: project(trunk), role: 'orchestrator', canAsk: true }, probe);
+    decide({ tool: 'shell', command, cwd: project(), role: 'orchestrator', canAsk: true }, probe);
     assert.ok(!probe.asked.includes('repo view'), command);
   }
 });
 
 test('PR を作るリポジトリーを -R でも GH_REPO でも同じに読み、このプロジェクトのリポジトリーなら base を見る', () => {
-  const declaration = { style: { git: 'trunk' } };
-  for (const command of ['gh pr create --base develop -R o/r', 'gh pr create --repo=github.com/O/R --base develop', 'GH_REPO=o/r gh pr create --base develop', 'gh pr -R o/r create --base develop']) assert.equal(kind(command, { declaration }), 'base', command);
-  for (const command of ['gh pr create --base develop -R other/repo', 'GH_REPO=other/repo gh pr create --base develop', 'GH_REPO=https://github.com/other/repo gh pr create --base develop']) assert.equal(kind(command, { declaration }), null, command);
+  for (const command of ['gh pr create --base develop -R o/r', 'gh pr create --repo=github.com/O/R --base develop', 'GH_REPO=o/r gh pr create --base develop', 'gh pr -R o/r create --base develop']) assert.equal(kind(command), 'base', command);
+  for (const command of ['gh pr create --base develop -R other/repo', 'GH_REPO=other/repo gh pr create --base develop', 'GH_REPO=https://github.com/other/repo gh pr create --base develop']) assert.equal(kind(command), null, command);
 });
 
 test('値を取る git の大域の指定があっても、追従の merge を読む', () => {

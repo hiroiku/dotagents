@@ -15,7 +15,6 @@ import path from 'node:path';
 import { attribution } from './attribution.mjs';
 import { DECLARATION, list, parseDeclaration, policyOf, readDeclaration } from './declaration.mjs';
 import { simpleCommands } from './shell.mjs';
-import { chosenStyles } from './style.mjs';
 
 export const CONFIRMED = 'DOTAGENTS_CONFIRMED';
 
@@ -85,15 +84,7 @@ export function delegated(entries, finding) {
 // 本番のブランチがこの名前で残っていることが多く、`dotagents.json` を書くまで、そこへの push が確かめなしで通っていた。
 const CONVENTIONAL = ['main', 'master'];
 
-// 選んだスタイルの値。スタイルごとの共有のブランチの既定を、スタイルの部品(styles/)から読む。
-function styleValues(declaration) {
-  const { chosen } = chosenStyles(declaration);
-  const values = Object.assign({}, ...chosen.map((style) => style.values));
-  const flow = chosen.find((style) => style.axis === 'git')?.name ?? null;
-  return { flow, shared: list(values.shared) };
-}
-
-// 共有のブランチ。リモートの既定のブランチ、main と master、選んだスタイルの既定、`dotagents.json` の protected を合わせる。
+// 共有のブランチ。リモートの既定のブランチ、main と master、`dotagents.json` の protected を合わせる。
 // ask は、git にそのリポジトリーについて尋ねる関数である。
 // リモートの既定が記録されていなければ、main と master を既定とみなす。git が答えなければ、どのブランチも既定かも
 // しれないので、すべてを共有のブランチとして扱う(外へ届く側に倒す)。
@@ -101,7 +92,7 @@ function guardedBranches(ask, remote, declaration) {
   const head = ask('symbolic-ref', '-q', '--short', `refs/remotes/${remote}/HEAD`);
   const unknown = !head && ask('for-each-ref', '--format=%(refname)', `refs/remotes/${remote}/HEAD`) === null;
   const defaults = head ? [head.slice(remote.length + 1)] : CONVENTIONAL;
-  return { defaults, guarded: [...new Set([...(unknown ? ['*'] : []), ...defaults, ...CONVENTIONAL, ...styleValues(declaration).shared, ...list(declaration.protected)])] };
+  return { defaults, guarded: [...new Set([...(unknown ? ['*'] : []), ...defaults, ...CONVENTIONAL, ...list(declaration.protected)])] };
 }
 
 // git の前に付く大域の指定のうち、次の語を値に取るもの。
@@ -306,7 +297,7 @@ function editFinding(request) {
 
 export const PROCEDURE_LABELS = {
   follow: '追従の merge',
-  base: '既定のブランチでもスタイルが共有するブランチでもない PR の base',
+  base: '既定のブランチではない PR の base',
   ci: 'CI が走っている間の push',
 };
 
@@ -414,14 +405,12 @@ function optionValue(words, short, long) {
 // リポジトリーの書き方(OWNER/REPO、HOST/OWNER/REPO、URL)をそろえて、owner/repo にする。
 const repoName = (text) => String(text).replace(/\.git$/, '').split(/[/:]/).filter(Boolean).slice(-2).join('/').toLowerCase();
 
-function prBase(command, declaration, gh) {
+function prBase(command, gh) {
   const { words, cwd, assignments } = command;
   if (words[0] !== 'gh' || words[1] !== 'pr') return null;
   const rest = words.slice(2);
   if (positional(rest, new Set(['-R', '--repo']))[0] !== 'create' || rest.includes('--help') || rest.includes('-h')) return null;
-  // どのスタイルも、作業は既定のブランチへ統合する。ほかに base にしてよいのは、スタイルが共有するブランチ(release/*)だけである。
-  const { flow, shared } = styleValues(declaration);
-  if (!flow) return null;
+  // 作業は既定のブランチへ統合する(git の流れは trunk に固定している)。base にしてよいのは、既定のブランチだけである。
   // 既定のブランチは、GitHub に尋ねる。手元の origin/HEAD は、既定のブランチを変えたあとも古いまま残る。
   // 答えが無ければ、違う base へ導かないよう、確かめずに通す。
   let repo;
@@ -436,9 +425,8 @@ function prBase(command, declaration, gh) {
   const named = optionValue(rest, '-R', '--repo') ?? assignments.GH_REPO;
   if (named && repoName(named) !== repoName(repo.nameWithOwner ?? '')) return null;
   const base = optionValue(rest, '-B', '--base') ?? target;
-  if (base === target || matches(shared, base)) return null;
-  const others = shared.length ? `(ほかに通すのは ${shared.join('、')})` : '';
-  return { kind: 'base', reason: `この git の流れ(${flow})では、PR の base は ${target} にします${others}。base を ${base} にする PR は作りません。` };
+  if (base === target) return null;
+  return { kind: 'base', reason: `この git の流れ(trunk)では、PR の base は ${target} にします。base を ${base} にする PR は作りません。` };
 }
 
 // push するブランチの、開いている PR と、その最新のコミットの workflow の実行。ブランチの名前は変数で渡す。
@@ -495,7 +483,7 @@ function stopIn(request, check) {
 export function procedure(request, declaration, tools) {
   if (request.tool !== 'shell') return null;
   return stopIn(request, (command) => (command.words[0] === 'git' ? follow(command, declaration, tools.git) : null))
-    ?? stopIn(request, (command) => (command.words[0] === 'gh' ? prBase(command, declaration, tools.gh) : null));
+    ?? stopIn(request, (command) => (command.words[0] === 'gh' ? prBase(command, tools.gh) : null));
 }
 
 // ---------------------------------------------------------------- 判定

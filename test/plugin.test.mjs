@@ -5,9 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { largestSize } from '../plugin/src/context.mjs';
+import { standingSize } from '../plugin/src/context.mjs';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
-import { catalog } from '../plugin/src/style.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PLUGIN = path.join(ROOT, 'plugin');
@@ -51,12 +50,12 @@ test('セッションの開始の知らせは、始まり方を選ばずに受�
 });
 
 // Codex は、hook が返した文がこの値(バイト数を 4 で割って切り上げた数)を超えると、先頭と末尾の抜粋だけを渡す。
-// 日本語は 1 字 3 バイトなので、どのスタイルを選んだときの文も、字数の 3/4 で収まることを確かめる。
-test('Codex の hook は、どのスタイルを選んだときの文も切らずに渡す', () => {
+// 日本語は 1 字 3 バイトなので、常設の文が、字数の 3/4 で収まることを確かめる。
+test('Codex の hook は、常設の文を切らずに渡す', () => {
   for (const event of ['SessionStart', 'SubagentStart']) {
     for (const hook of json(PLUGIN, 'hosts', 'codex', 'hooks.json').hooks[event].flatMap((group) => group.hooks)) {
       const role = event === 'SessionStart' ? 'orchestrator' : 'reviewer';
-      assert.ok(Math.ceil((largestSize(role) * 3) / 4) < hook.additionalContextLimit / 2, `${event}: ${largestSize(role)} 字`);
+      assert.ok(Math.ceil((standingSize(role) * 3) / 4) < hook.additionalContextLimit / 2, `${event}: ${standingSize(role)} 字`);
     }
   }
 });
@@ -91,8 +90,8 @@ test('スキルとエージェントの定義は、どのホストでも読め�
   assert.match(agent.content, /^name = "dotagents-builder"\ndescription = ".+"\ndeveloper_instructions = ".+"\n$/);
 });
 
-test('エージェントの文、スタイル、スキルが「〇〇のスキル」と名指すスキルは、すべて配っている', () => {
-  const dirs = ['core', 'agents', 'styles/git', 'styles/architecture', ...fs.readdirSync(path.join(PLUGIN, 'skills')).map((name) => `skills/${name}`)];
+test('常設の文、エージェントの文、スキルが「〇〇のスキル」と名指すスキルは、すべて配っている', () => {
+  const dirs = ['core', 'agents', ...fs.readdirSync(path.join(PLUGIN, 'skills')).map((name) => `skills/${name}`)];
   const skills = new Set(fs.readdirSync(path.join(PLUGIN, 'skills')));
   const named = new Set();
   for (const dir of dirs) {
@@ -126,5 +125,4 @@ test('setup スキルが呼ぶインストーラーの名前と指定は、cli/ 
   assert.deepEqual([...new Set(skill.match(/\b[\w-]+@[\w-]+\b/g))], [id]);
   assert.ok(skill.includes(`git:github.com/${repository}@`) && skill.includes(`.claude/skills/${NAME}`));
   assert.ok(skill.includes(`[marketplaces.${market}]`));
-  for (const names of Object.values(catalog())) for (const name of names) assert.ok(skill.includes(`\`${name}\``), name);
 });

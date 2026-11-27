@@ -6,12 +6,12 @@
 //   checks     チェックの段階ごとのコマンド(edit、commit、push、release)。エージェントの文脈にチェックの入口として入る。
 //              hook はチェックを実行しない。push と release に置いたコマンドは、ビルダーとレビュアーが実行すると止まり、
 //              どの段階のコマンドも、ビルダーとレビュアーがバックグラウンドで始めると止まる。
-//   style      選んだスタイル。軸ごとに名前を 1 つ(git、architecture)。部品は styles/ にあり、git のスタイルによって、
-//              共有のブランチの既定と、PR の base にしてよいブランチが決まる(style.mjs)。
 //   decisions  どのエージェントも読む、続いている決定。
 //
 // decisions のほかは、確かめる線を動かすか、hook が実行するコマンドを決める。書き換えは、それ自体を確かめる
 // (guard.mjs の policy)。
+//
+// `style`(git と設計のスタイルの選択)は、もう読まない。残っていても、エラーにも、確かめる線の変更にもしない。
 //
 // 時間や数の上限は、ここに持たない。数値は決まりとして読まれ、状況に合わなくても守られる。上限が要るプロジェクトは、
 // 理由と一緒に decisions に書く。
@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const DECLARATION = path.join('.agents', 'dotagents.json');
-const POLICY_KEYS = ['protected', 'delegated', 'checks', 'style'];
+const POLICY_KEYS = ['protected', 'delegated', 'checks'];
 
 export function parseDeclaration(text) {
   const value = JSON.parse(text);
