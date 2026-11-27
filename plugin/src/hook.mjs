@@ -1,10 +1,10 @@
 // hook の受け口。Claude Code と Codex は同じ入出力(stdin の JSON と hookSpecificOutput)を使い、Antigravity は別の形を使う。
 //
-//   node hook.mjs <claude|codex> <session|subagent|tool|stopped>
+//   node hook.mjs <claude|codex> <session|subagent|tool>
 //   node hook.mjs antigravity <session|tool>
 //
 // ここは、ホストの言葉を判定の言葉に直すだけにする。判定は guard.mjs、文は context.mjs が持つ。
-// 受け口の誤りで作業そのものを止めない。読めない入力と例外は通し、例外は記録に残す。
+// 受け口の誤りで作業そのものを止めない。読めない入力と例外は、飲み込んで通す。
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,9 +12,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { contextFor } from './context.mjs';
 import { decide, roleOf } from './guard.mjs';
-import { record } from './log.mjs';
 import { CODEX_MARK, codexAgent, roles } from './roles.mjs';
-import { claudeRun } from './usage.mjs';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const PATCH_FILE = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
@@ -130,17 +128,11 @@ export const ANTIGRAVITY_PASS = { decision: 'allow' };
 
 function antigravity(event, input) {
   const cwd = antigravityCwd(input);
-  const project = path.basename(cwd);
-  if (event === 'session') {
-    const text = contextFor({ role: 'orchestrator', cwd, shared: false });
-    record({ host: 'antigravity', event: 'context', project, role: 'orchestrator', chars: text.length });
-    return { injectSteps: [{ systemMessage: { systemMessage: text } }] };
-  }
+  if (event === 'session') return { injectSteps: [{ systemMessage: { systemMessage: contextFor({ role: 'orchestrator', cwd, shared: false }) } }] };
   if (event !== 'tool') return null;
   for (const request of antigravityRequests(input)) {
     const result = decide(request);
     if (!result) continue;
-    record({ host: 'antigravity', event: 'guard', project, role: request.role, decision: result.decision, kind: result.kind, targets: result.findings?.map((finding) => `${finding.kind}:${finding.target}`) });
     return { decision: result.decision === 'ask' ? 'force_ask' : 'deny', reason: result.reason };
   }
   return ANTIGRAVITY_PASS;
@@ -149,36 +141,19 @@ function antigravity(event, input) {
 export function handle(host, event, input) {
   if (host === 'antigravity') return antigravity(event, input);
   const cwd = input.cwd ?? process.cwd();
-  const project = path.basename(cwd);
   if (event === 'session' || event === 'subagent') {
     if (host === 'codex' && event === 'session') syncCodexAgents();
     // Claude Code は、サブエージェントのコンテキストを作り直したときにも、そのサブエージェントの中でセッションの開始を知らせる。
     // その知らせにはエージェントの ID が付く。ID が付いた知らせにメインのセッションだけの部分を返すと、作り直しのあと、サブエージェントがオーケストレーターとして振る舞う。
     const role = event === 'session' && !input.agent_id ? 'orchestrator' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
-    const text = contextFor({ role, cwd });
-    record({ host, event: 'context', project, role, agentType: input.agent_type, chars: text.length });
-    return { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: text } };
+    return { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: contextFor({ role, cwd }) } };
   }
   if (event === 'tool') {
-    // スキルの読み込みは、判定せずに数えるだけにする。読まれないスキルを見つけるためである。
-    if (input.tool_name === 'Skill') {
-      record({ host, event: 'skill', project, role: roleFrom(input), name: String(input.tool_input?.skill ?? '').split(':').pop() });
-      return null;
-    }
     for (const request of requests(host, input)) {
       const result = decide(request);
       if (!result) continue;
-      record({ host, event: 'guard', project, role: request.role, agentType: input.agent_type, decision: result.decision, kind: result.kind, targets: result.findings?.map((finding) => `${finding.kind}:${finding.target}`) });
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: result.decision, permissionDecisionReason: result.reason } };
     }
-    return null;
-  }
-  if (event === 'stopped') {
-    // エージェントが使った時間とトークンを数えて残す。何も返さないので、終わり方は変わらない。
-    // 名前の無いものは、ホストが自分の機能のために走らせたエージェントなので数えない。
-    if (!input.agent_type || typeof input.agent_transcript_path !== 'string') return null;
-    const run = claudeRun(input.agent_transcript_path);
-    if (run) record({ host, event: 'role', project, role: roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type }), agentType: input.agent_type, ...run });
     return null;
   }
   return null;
@@ -201,8 +176,7 @@ function main() {
   }
   try {
     write(handle(host, event, input));
-  } catch (error) {
-    record({ host, event: 'error', where: event, message: String(error?.message ?? error).slice(0, 300) });
+  } catch {
     write(fallback);
   }
 }

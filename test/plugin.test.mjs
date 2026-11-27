@@ -32,7 +32,7 @@ test('hook の定義が指すファイルは在り、2 つのホストが同じ�
         const file = hook.command.match(/"([^"]+\.mjs)"/)[1];
         assert.ok(file.startsWith(variable), hook.command);
         assert.ok(fs.existsSync(path.join(PLUGIN, file.slice(variable.length))), file);
-        assert.match(hook.command, new RegExp(` ${host} (session|subagent|tool|stopped)$`));
+        assert.match(hook.command, new RegExp(` ${host} (session|subagent|tool)$`));
       }
     }
   }
@@ -60,10 +60,9 @@ test('Codex の hook は、常設の文を切らずに渡す', () => {
   }
 });
 
-test('marketplace が配るのは plugin のディレクトリーだけで、集計の道具は配らない', () => {
+test('marketplace が配るのは plugin のディレクトリーだけである', () => {
   assert.deepEqual(json(ROOT, '.claude-plugin', 'marketplace.json').plugins.map((plugin) => plugin.source), ['./plugin']);
   assert.deepEqual(json(ROOT, '.agents', 'plugins', 'marketplace.json').plugins.map((plugin) => plugin.source.path), ['./plugin']);
-  assert.ok(fs.existsSync(path.join(ROOT, 'tools', 'stats.mjs')));
 });
 
 test('編集のたびにチェックを回す hook は無い', () => {

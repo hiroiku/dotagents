@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
 
 const HOOK = fileURLToPath(new URL('../plugin/src/hook.mjs', import.meta.url));
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
 const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-codex-'));
 
 function project(declaration) {
@@ -22,13 +21,13 @@ function project(declaration) {
 
 // 受け口は、ホストが呼ぶのと同じ形(別のプロセス、stdin の JSON)で確かめる。
 function run(host, event, input) {
-  const result = spawnSync(process.execPath, [HOOK, host, event], { input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8', env: { ...process.env, DOTAGENTS_HOME: home, CODEX_HOME: codexHome } });
+  const result = spawnSync(process.execPath, [HOOK, host, event], { input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CODEX_HOME: codexHome } });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout ? JSON.parse(result.stdout).hookSpecificOutput : null;
 }
 
 test('dotagents.jsonc の無いリポジトリーでも、Claude Code のどの開始でも、利用者の画面への知らせを返さない', () => {
-  const raw = (host, event, input) => JSON.parse(spawnSync(process.execPath, [HOOK, host, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, DOTAGENTS_HOME: home, CODEX_HOME: codexHome } }).stdout);
+  const raw = (host, event, input) => JSON.parse(spawnSync(process.execPath, [HOOK, host, event], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, CODEX_HOME: codexHome } }).stdout);
   const repo = project();
   fs.mkdirSync(path.join(repo, '.git'));
   for (const source of ['startup', 'resume', 'compact']) assert.equal(raw('claude', 'session', { cwd: repo, hook_event_name: 'SessionStart', source }).systemMessage, undefined, source);
@@ -100,35 +99,6 @@ test('サブエージェントの外部に影響する操作と、オーケス�
   assert.equal(run('claude', 'tool', { cwd, agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'npm test', timeout: 600000 } }), null);
 });
 
-test('道具の呼び出しが続いても、時間を理由に文を足さない', () => {
-  const cwd = project();
-  for (let i = 0; i < 3; i += 1) {
-    assert.equal(run('claude', 'tool', { cwd, agent_id: 'a2', agent_type: 'dotagents:builder', tool_name: 'Bash', tool_input: { command: 'ls' } }), null);
-  }
-  assert.equal(fs.existsSync(path.join(home, 'state')), false, 'ロールごとの状態を持たない');
-});
-
-test('サブエージェントが止まったときに、使った時間とトークンを記録に残す', () => {
-  const cwd = project();
-  const transcript = path.join(home, 'agent-a9.jsonl');
-  const usage = { input_tokens: 10, cache_creation_input_tokens: 90, cache_read_input_tokens: 1000, output_tokens: 50 };
-  fs.writeFileSync(transcript, [
-    { type: 'user', timestamp: '2026-11-20T10:00:00.000Z', message: { role: 'user', content: '依頼の文' } },
-    { type: 'assistant', timestamp: '2026-11-20T10:00:05.000Z', message: { id: 'm1', model: 'model-x', role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'secret-command' } }], usage } },
-    { type: 'user', timestamp: '2026-11-20T10:00:20.000Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } },
-    { type: 'assistant', timestamp: '2026-11-20T10:01:00.000Z', message: { id: 'm2', model: 'model-x', role: 'assistant', content: [{ type: 'text', text: '報告' }], usage } },
-  ].map((row) => JSON.stringify(row)).join('\n'));
-  const stop = { cwd, hook_event_name: 'SubagentStop', agent_id: 'a9', agent_type: 'dotagents:builder', agent_transcript_path: transcript };
-  assert.equal(run('claude', 'stopped', stop), null, 'サブエージェントの終わり方を変えない');
-  // 名前の無いエージェント(ホストが自分の機能のために走らせたもの)と、読めない記録は数えない。
-  assert.equal(run('claude', 'stopped', { ...stop, agent_type: '' }), null);
-  assert.equal(run('claude', 'stopped', { ...stop, agent_transcript_path: path.join(home, 'missing.jsonl') }), null);
-  const entries = fs.readdirSync(path.join(home, 'log')).flatMap((name) => fs.readFileSync(path.join(home, 'log', name), 'utf8').trim().split('\n').map((line) => JSON.parse(line))).filter((entry) => entry.event === 'role');
-  assert.equal(entries.length, 1);
-  const { t, ...entry } = entries[0];
-  assert.deepEqual(entry, { host: 'claude', event: 'role', project: path.basename(cwd), role: 'builder', agentType: 'dotagents:builder', model: 'model-x', seconds: 60, out: 100, in: 200, cached: 2000, tools: 1 });
-});
-
 test('編集の道具は、dotagents.jsonc と指示ファイルのときだけ確かめる', () => {
   const cwd = project({ delegated: ['push:develop'], decisions: ['a'] });
   const file = path.join(cwd, '.agents', 'dotagents.jsonc');
@@ -147,21 +117,6 @@ test('読めない入力と、判定に関係しない道具は通す', () => {
   assert.equal(run('claude', 'tool', {}), null);
   assert.equal(run('claude', 'tool', { cwd: project(), tool_name: 'Read', tool_input: { file_path: 'AGENTS.md' } }), null);
   assert.equal(run('claude', 'unknown', { cwd: project() }), null);
-});
-
-test('確かめた回数と止めた回数が、記録に残る', () => {
-  const lines = fs.readdirSync(path.join(home, 'log')).flatMap((name) => fs.readFileSync(path.join(home, 'log', name), 'utf8').trim().split('\n').map((line) => JSON.parse(line)));
-  assert.ok(lines.some((entry) => entry.event === 'guard' && entry.decision === 'ask' && entry.kind === 'release'));
-  assert.ok(lines.some((entry) => entry.event === 'guard' && entry.decision === 'deny' && entry.kind === 'pace'));
-  assert.ok(lines.some((entry) => entry.event === 'context' && entry.role === 'builder'));
-  assert.ok(lines.every((entry) => !/gh release create v1|secret-command|依頼の文/.test(JSON.stringify(entry))), 'コマンドの文字列も、依頼の文も残さない');
-});
-
-test('スキルの読み込みは、判定せずに数える', () => {
-  const cwd = project();
-  assert.equal(run('claude', 'tool', { cwd, tool_name: 'Skill', tool_input: { skill: 'dotagents:releases' } }), null);
-  const lines = fs.readFileSync(path.join(home, 'log', fs.readdirSync(path.join(home, 'log'))[0]), 'utf8');
-  assert.match(lines, /"event":"skill","project":"[^"]+","role":"orchestrator","name":"releases"/);
 });
 
 // 8.x の写しが読み込まれているかは、ファイルの有無からは分からない(信頼されていないフォルダー、下のディレクトリーで

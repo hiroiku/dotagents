@@ -10,7 +10,6 @@ English | [日本語](docs/README.ja.md)
 - **One way of working, not a menu.** Git is trunk: work integrates into the default branch and a release is a tag on it. The design is layered: six layers with dependencies pointing inward. Both are fixed, not chosen per project, and the git flow also sets the shared branches and the pull-request base the hooks enforce. A project that does not fit them says so in its own instructions or `decisions`; the user's instructions and the project's decisions take precedence over the harness's defaults.
 - **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching git and `gh` operations, the push and release checks when a subagent runs them, two procedures (below), and AI attribution in commits unless a project allows it (`allowAiAttribution`). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside: pushes to shared branches and tags, pull-request merges, releases, workflow runs and repository settings through `gh`, edits of instruction files and the declaration, messages to people. The harness does not read a project's own commands, since what to guard is the project's decision: a project that wants `terraform apply` or `npm publish` confirmed writes that in the host's permission settings (for example `ask` under `permissions` in Claude Code). Each project can delegate the kinds it trusts.
-- **Measured.** Every confirmation and block is logged without command text in `~/.dotagents/log`; `tools/stats.mjs` in this repository shows how often the harness intervenes, by kind, and how much time and how many tokens each role used.
 
 ### Procedures it stops
 
@@ -43,7 +42,7 @@ What Antigravity cannot enforce:
 
 - **Limits on the builder and the reviewer are text only.** A hook is not told which agent made a call, so every call is judged as the orchestrator's: a subagent's outward operation is asked of you instead of stopped, and the heavy `push` and `release` checks are not stopped in a subagent.
 - **No facts at a subagent's start.** There is no subagent-start event, so `decisions` and the check entry points reach the main session only; when a subagent is used, what it needs has to be written in its request. The documentation does not say whether `SessionStart` also fires inside a subagent; if it does, the subagent also receives the main-session-only parts.
-- **No connector check and no per-role usage.** Messages through MCP tools are not judged by the hook (Antigravity asks for unconfigured MCP calls by default), and skill loads and each role's time and tokens are not logged.
+- **No connector check.** Messages through MCP tools are not judged by the hook (Antigravity asks for unconfigured MCP calls by default).
 
 ### Sharing it in a repository
 
@@ -94,7 +93,6 @@ What each key means and when to write it is described once, in the `description`
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code, Codex, and Antigravity hooks. |
 | `antigravity/` | The Antigravity plugin, generated from `plugin/` by `tools/antigravity.mjs`. Do not edit it; a test fails when it is stale. |
-| `tools/stats.mjs` | Totals of the harness's log. Not delivered by the marketplace, which ships `./plugin` only. |
 
 ## Limits
 
@@ -109,7 +107,6 @@ How the hooks relate to the host's own permissions:
 
 ```sh
 npm test                       # node --test, no dependencies
-node tools/stats.mjs --days 7  # what the harness did on this machine, from ~/.dotagents/log
 node tools/antigravity.mjs     # generate antigravity/ from plugin/
 ```
 

@@ -10,7 +10,6 @@ import { ANTIGRAVITY_TOOLS, roles } from '../plugin/src/roles.mjs';
 import { build, OUT } from '../tools/antigravity.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-home-'));
 
 function project(declaration) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-antigravity-'));
@@ -28,7 +27,7 @@ const commandOf = (event) => (event === 'SessionStart' ? hooks.SessionStart[0] :
 function run(event, input) {
   const words = commandOf(event).split(' ');
   assert.equal(words[0], 'node');
-  const result = spawnSync(process.execPath, words.slice(1), { cwd: OUT, input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8', env: { ...process.env, DOTAGENTS_HOME: home } });
+  const result = spawnSync(process.execPath, words.slice(1), { cwd: OUT, input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8', env: process.env });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
@@ -122,13 +121,9 @@ test('Antigravity の編集の道具は、dotagents.jsonc の確かめる線を�
   assert.deepEqual(tool(cwd, 'write_to_file', { TargetFile: path.join(cwd, 'src.ts'), CodeContent: 'x' }), { decision: 'allow' });
 });
 
-test('Antigravity の受け口は、読めない入力でも決定を返し、確かめと文を記録に残す', () => {
+test('Antigravity の受け口は、読めない入力でも決定を返す', () => {
   assert.deepEqual(run('PreToolUse', 'not json'), { decision: 'allow' });
   assert.deepEqual(run('PreToolUse', {}), { decision: 'allow' });
-  const lines = fs.readdirSync(path.join(home, 'log')).flatMap((name) => fs.readFileSync(path.join(home, 'log', name), 'utf8').trim().split('\n').map((line) => JSON.parse(line)));
-  assert.ok(lines.some((entry) => entry.host === 'antigravity' && entry.event === 'guard' && entry.decision === 'ask' && entry.kind === 'push'));
-  assert.ok(lines.some((entry) => entry.host === 'antigravity' && entry.event === 'context' && entry.role === 'orchestrator'));
-  assert.ok(lines.every((entry) => !/git push origin main|Co-Authored/.test(JSON.stringify(entry))), 'コマンドの文字列を残さない');
 });
 
 test('Antigravity の manifest は、資料の schema が許す項目だけを持つ', () => {

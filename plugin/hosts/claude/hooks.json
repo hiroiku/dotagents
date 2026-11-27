@@ -22,20 +22,9 @@
         ]
       }
     ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$(command -v bun || command -v node)\" \"${CLAUDE_PLUGIN_ROOT}/src/hook.mjs\" claude stopped",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Skill|mcp__.*",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|mcp__.*",
         "hooks": [
           {
             "type": "command",
