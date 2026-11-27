@@ -81,7 +81,9 @@ test('Antigravity のセッションの開始では、メインのセッショ�
   const output = run('SessionStart', common(cwd));
   assert.equal(output.injectSteps.length, 1);
   const text = output.injectSteps[0].systemMessage.systemMessage;
-  assert.match(text, /^# dotagents の既定のルール\(続き\)\n\n## 決定と記録/);
+  assert.match(text, /^# dotagents の既定のルール\(続き\)\n\n## 基本方針\n\n[^\n]*schema\/dotagents\.schema\.json[^\n]*\n\n## 決定と記録/);
+  // 示すパスは、置き場の中のファイルである。
+  assert.ok(text.includes(path.join(OUT, 'schema', 'dotagents.schema.json')) && fs.existsSync(path.join(OUT, 'schema', 'dotagents.schema.json')));
   assert.match(text, /## 進行/);
   assert.match(text, /決定 A/);
   assert.match(text, /push: `npm test`/);

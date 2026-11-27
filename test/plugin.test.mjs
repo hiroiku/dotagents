@@ -106,23 +106,23 @@ test('常設の文、エージェントの文、スキルが「〇〇のスキ�
   for (const name of named) assert.ok(skills.has(name), name);
 });
 
-test('プロジェクトに入れる、外す、点検するコマンドは配らない。手順は setup スキルにある', () => {
+test('プロジェクトに入れる、外す、点検するコマンドは配らない。手順は README にある', () => {
   for (const file of ['scripts', 'src/install.mjs', 'src/jsontext.mjs']) assert.equal(fs.existsSync(path.join(PLUGIN, file)), false, file);
+  assert.equal(fs.existsSync(path.join(PLUGIN, 'skills', 'setup')), false);
+  assert.equal(fs.existsSync(path.join(ROOT, 'cli')), false);
 });
 
-// setup スキルは、plugin の入れ方、外し方、8.x の残りの消し方を手順として持つ。そこに書く名前が、manifest と marketplace の定義と
-// 食い違わないことを守る。インストーラーは無いので、スキルがインストーラーを呼ぶ手順を持たないことも守る。
-test('setup スキルに書く plugin の名前と置き場は、manifest と marketplace の定義に合い、インストーラーを呼ばない', () => {
-  const skill = fs.readFileSync(path.join(PLUGIN, 'skills', 'setup', 'SKILL.md'), 'utf8');
+// README は、plugin の入れ方と外し方を手順として持つ。そこに書く名前が、manifest と marketplace の定義と食い違わないことを守る。
+test('README に書く plugin の名前と置き場は、manifest と marketplace の定義に合う', () => {
   const market = json(ROOT, '.claude-plugin', 'marketplace.json').name;
   assert.equal(json(ROOT, '.agents', 'plugins', 'marketplace.json').name, market);
   const repository = json(PLUGIN, '.claude-plugin', 'plugin.json').repository.replace(/^https:\/\/github\.com\//, '');
   const id = `${NAME}@${market}`;
-  assert.doesNotMatch(skill, /npx |インストーラー/);
-  assert.equal(fs.existsSync(path.join(ROOT, 'cli')), false);
-  assert.ok(skill.includes(`claude plugin install ${id}`) && skill.includes(`codex plugin add ${id}`));
-  assert.ok(skill.includes(`marketplace add ${repository}`));
-  assert.deepEqual([...new Set(skill.match(/\b[\w-]+@[\w-]+\b/g))], [id]);
-  assert.ok(skill.includes(`git:github.com/${repository}@`) && skill.includes(`.claude/skills/${NAME}`));
-  assert.ok(skill.includes(`[marketplaces.${market}]`));
+  for (const file of ['README.md', 'docs/README.ja.md']) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    assert.ok(text.includes(`claude plugin install ${id}`) && text.includes(`codex plugin add ${id}`), file);
+    assert.ok(text.includes(`marketplace add ${repository}`), file);
+    assert.ok(text.includes(`[marketplaces.${market}]`) && text.includes(`[plugins."${id}"]`), file);
+    assert.deepEqual([...new Set(text.match(/\b[\w-]+@[\w-]+\b/g))], [id], file);
+  }
 });

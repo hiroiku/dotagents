@@ -6,7 +6,7 @@ English | [日本語](docs/README.ja.md)
 
 ## What it does
 
-- **One page per role.** Each role reads everything it needs on every run: the orchestrator session about 7,580 characters, a builder about 4,780, a reviewer about 5,320. The only skills left are the ones a user asks for: `setup`, `architecture`, `prompting`, `releases`, `triage`.
+- **One page per role.** Each role reads everything it needs on every run: the orchestrator session about 7,750 characters, a builder about 4,960, a reviewer about 5,500. The only skills left are the ones a user asks for: `architecture`, `prompting`, `releases`, `triage`.
 - **One way of working, not a menu.** Git is trunk: work integrates into the default branch and a release is a tag on it. The design is layered: six layers with dependencies pointing inward. Both are fixed, not chosen per project, and the git flow also sets the shared branches and the pull-request base the hooks enforce. A project that does not fit them says so in its own instructions or `decisions`; the user's instructions and the project's decisions take precedence over the harness's defaults.
 - **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching git and `gh` operations, the push and release checks when a subagent runs them, two procedures (below), and AI attribution in commits unless a project allows it (`allowAiAttribution`). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside: pushes to shared branches and tags, pull-request merges, releases, workflow runs and repository settings through `gh`, edits of instruction files and the declaration, messages to people. The harness does not read a project's own commands, since what to guard is the project's decision: a project that wants `terraform apply` or `npm publish` confirmed writes that in the host's permission settings (for example `ask` under `permissions` in Claude Code). Each project can delegate the kinds it trusts.
@@ -51,18 +51,26 @@ The plugin is installed with each host's ordinary steps, and it works with no co
 
 - Claude Code: `claude plugin marketplace add hiroiku/dotagents --scope project`, then `claude plugin install dotagents@dotagents --scope project`. This writes `.claude/settings.json`, which you commit. Everyone else trusts the folder and, if they have not installed the harness themselves, runs the install command once. Enabling it in the settings alone does not load it at the start of an interactive session.
 - Codex: each person runs the two commands above for Codex, trusts the project, and approves the hooks in `/hooks`. Codex asks again whenever the plugin's contents change.
+- Antigravity: there is no reference a project can share. Do not put the plugin under `.agents/plugins/`, which makes a copy.
 
 If you installed the harness yourself and the project also references it, it is the same plugin, so nothing is injected twice. Only a **reference** to this repository is written, never a copy, so upgrading the harness creates no commits in your project.
 
-To change something, write `.agents/dotagents.jsonc` by hand (below). You can also ask the agent to do the install and the file for you (the `setup` skill): it also removes what 8.x and 7.x left behind, proposes an `ARCHITECTURE.md`, and checks a project (declaration, references, and whether GitHub protects the shared branches).
+### Uninstall
+
+1. Claude Code: delete `dotagents@dotagents` from `enabledPlugins` and `dotagents` from `extraKnownMarketplaces` in `.claude/settings.json`. Delete an object that becomes empty, and the file if it becomes `{}`. For a personal install, run `claude plugin uninstall dotagents@dotagents`.
+2. Codex: delete the `[marketplaces.dotagents]` and `[plugins."dotagents@dotagents"]` tables from `.codex/config.toml`, each from its heading to its last value (including lines you added), plus the one blank line before the heading. Delete the file if it becomes empty.
+3. Antigravity: `agy plugin uninstall dotagents`.
+4. Keep `.agents/dotagents.jsonc` or delete it, as you prefer. Once the plugin is gone, nothing reads it.
+
+Edit these settings files by hand and change nothing but dotagents' entries, so the other entries and their formatting stay as they are.
 
 ## The project declaration
 
-Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks and every role's context read it. All keys are optional. Comments (`//`, `/* */`) and trailing commas are allowed, hence the `.jsonc` name. Put the `$schema` line first and editors complete the keys and flag mistakes (`schema/dotagents.schema.json`; the harness does not read it). The schema rejects unknown keys, so a misspelled key and the retired `style` and `outward` are underlined instead of silently ignored. An older `.agents/dotagents.json` is not read: rename it. If the file cannot be read, the orchestrator is told where (line and column) and the harness runs as if it were absent.
+Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks and every role's context read it. All keys are optional, and with no file the harness runs on its defaults. Put the `$schema` line first and editors complete the keys and flag mistakes.
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/schema/dotagents.schema.json",
+  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/plugin/schema/dotagents.schema.json",
   // Branches to treat as shared, in addition to the defaults
   "protected": ["staging"],
   "delegated": ["merge:main", "tag", "release:v1"],
@@ -73,9 +81,7 @@ Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks
 }
 ```
 
-Shared branches are the remote's default branch, `main`, `master`, and the names in `protected`. If the remote's default branch is not recorded, `main` and `master` are taken as the default; if git does not answer, every branch is treated as shared. The layered design states which layer may import which, which external packages each layer may use, and how files are placed and named; the harness ships rules, not lint tools, so enforce the direction, placement, and naming with the project's own lint or check. `style` and `outward` keys left in an older declaration are no longer read and may be deleted.
-
-By default the hook blocks commit messages, pull requests, issues, and releases that carry AI attribution (a `Co-Authored-By` line for an AI, a "Generated with" line); `allowAiAttribution: true` allows them. `protected` adds to the shared branches. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
+What each key means and when to write it is described once, in the `description` fields of [`plugin/schema/dotagents.schema.json`](plugin/schema/dotagents.schema.json). The agents are told that file's path at the start of every session.
 
 ## Contents
 
@@ -83,8 +89,8 @@ By default the hook blocks commit messages, pull requests, issues, and releases 
 |---|---|
 | `plugin/core/` | The parts of the always-loaded default rules, one file per field and topic. Their order and which role reads which part are listed once, in `OUTLINE` in `plugin/src/context.mjs`. |
 | `plugin/agents/` | `builder` and `reviewer`. The single source for Claude Code agents, Codex agent TOML, and Antigravity agents. None of them sets a model, so the caller's and the user's settings decide. Each Codex TOML starts with a line marking it as generated by dotagents; a same-named file without that line is never overwritten. |
-| `schema/` | JSON Schema of `.agents/dotagents.jsonc`, for editors. Not read by hooks and not delivered by the marketplace. |
-| `plugin/skills/` | `setup`, `architecture`, `prompting`, `releases`, `triage`. |
+| `plugin/schema/` | JSON Schema of `.agents/dotagents.jsonc`: the one place that explains every key. Editors use it for completion, and agents are told its path. Hooks do not read it. |
+| `plugin/skills/` | `architecture`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code, Codex, and Antigravity hooks. |
 | `antigravity/` | The Antigravity plugin, generated from `plugin/` by `tools/antigravity.mjs`. Do not edit it; a test fails when it is stale. |
@@ -92,7 +98,7 @@ By default the hook blocks commit messages, pull requests, issues, and releases 
 
 ## Limits
 
-The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, not what a script does internally. It binds only agents that run this harness. Rules that must hold for everyone belong in branch protection and CI; the `setup` skill's check reports shared branches that GitHub does not protect.
+The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, not what a script does internally. It binds only agents that run this harness. Rules that must hold for everyone belong in branch protection and CI. Likewise the layered design is stated as rules, not enforced by a lint tool the harness ships: enforce dependency direction, placement, and naming with the project's own lint or check.
 
 How the hooks relate to the host's own permissions:
 
@@ -108,8 +114,6 @@ node tools/antigravity.mjs     # generate antigravity/ from plugin/
 ```
 
 When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together, then run `node tools/antigravity.mjs`; a test keeps them equal. Run it after any change under `plugin/` as well.
-
-Coming from 8.x: remove the copy under `.claude/skills/dotagents` and the pinned package line 8.x wrote into `.pi/settings.json` (the `setup` skill does it); 9.0.0 no longer supports Pi.
 
 ## License
 

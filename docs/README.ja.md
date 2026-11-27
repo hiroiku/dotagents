@@ -10,7 +10,7 @@ AI のコーディングエージェント向けのハーネスです。次の�
 
 ## 機能
 
-- **ロールごとの指示**: 各ロールは、必要な指示を毎回すべて読み込みます。常時読み込まれる文は、オーケストレーターで約 7,580 字、ビルダーで約 4,780 字、レビュアーで約 5,320 字です。スキルとして残しているのは、利用者が頼んだときに使う `setup`、`architecture`、`prompting`、`releases`、`triage` だけです。
+- **ロールごとの指示**: 各ロールは、必要な指示を毎回すべて読み込みます。常時読み込まれる文は、オーケストレーターで約 7,750 字、ビルダーで約 4,960 字、レビュアーで約 5,500 字です。スキルとして残しているのは、利用者が頼んだときに使う `architecture`、`prompting`、`releases`、`triage` だけです。
 - **git の運用と設計の固定**: git は trunk(デフォルトブランチにマージし、tag でリリースする)、アーキテクチャーは layered(依存を内側へ向ける 6 つの層)に固定しています。プロジェクトごとには選べません。git の運用は、hook が守る共有ブランチと、PR の base も決めます。合わないプロジェクトでは、利用者の指示とプロジェクトの決めごと(AGENTS.md や `decisions`)が優先します。
 - **hook による制御**: hook で強制できる決まりは、指示の文ではなく hook で扱います。対象は、外部に影響する操作、サブエージェントが実行する push 時とリリース前のチェック、下の表の 2 つの手順、AI の署名(`allowAiAttribution` で許可しない限り)です。チェックそのものはプロジェクトのコマンドで、`dotagents.jsonc` の `checks` に書いたコマンドがエージェントに伝わります。ハーネスはチェックを実行しません。時間の上限やエージェントの数の上限は、ハーネスにはありません。
 - **利用者への確認**: 取り消せることは、エージェントが自分で決めます。利用者に確認するのは、外部に影響する操作だけです。共有ブランチと tag への push、`gh` での PR のマージ、リリース、workflow の起動、リポジトリー設定の変更、指示ファイルと `dotagents.jsonc` の書き換え、他者への連絡が該当します。プロジェクト自身のコマンドは判定しません。どの操作を確認の対象にするかはプロジェクトの判断なので、`terraform apply` や `npm publish` で確認したいプロジェクトは、各ツールの権限の設定(Claude Code なら `permissions` の `ask` など)に書いてください。確認なしで進めてよい種類は、`dotagents.jsonc` に書いて委任できます。
@@ -55,18 +55,26 @@ plugin は、各ツールの通常の手順でインストールします。設�
 
 - Claude Code: `claude plugin marketplace add hiroiku/dotagents --scope project` のあと、`claude plugin install dotagents@dotagents --scope project`。`.claude/settings.json` が書かれるので、コミットしてください。ほかの人は、ディレクトリーを信頼し、自分でインストールしていなければ、インストールのコマンドを 1 回実行します。設定で有効にしただけでは、対話のセッションの開始時に読み込まれません。
 - Codex: 各人が、上の Codex の 2 つのコマンドを実行し、プロジェクトを信頼し、`/hooks` で hook を承認します。plugin の中身が変わるたびに、承認し直します。
+- Antigravity: プロジェクトで共有できる参照はありません。`.agents/plugins/` に置くとコピーになるので、置かないでください。
 
 自分の環境にもインストールしている人でも、同じ plugin なので、文が二重に読み込まれることも、二重に確認されることもありません。書くのはこのリポジトリーへの**参照**だけで、コピーは置かないので、ハーネスのバージョンを上げても、プロジェクトにコミットする差分は出ません。
 
-変えたいことがあるときは、`.agents/dotagents.jsonc` を手で書いてください(下)。インストールと設定ファイルの作成を、エージェントに頼むこともできます(`setup` スキル)。8.x と 7.x の残りの削除、`ARCHITECTURE.md` の提案、プロジェクトの診断(`dotagents.jsonc`、参照、共有ブランチが GitHub で保護されているか)も、`setup` スキルの手順で行います。
+### アンインストール
+
+1. Claude Code: `.claude/settings.json` から、`enabledPlugins` の `dotagents@dotagents` と、`extraKnownMarketplaces` の `dotagents` を削除します。空になったオブジェクトも削除し、ファイルが `{}` になれば、ファイルも削除します。個人の環境にインストールしたときは、`claude plugin uninstall dotagents@dotagents` を実行します。
+2. Codex: `.codex/config.toml` から、`[marketplaces.dotagents]` と `[plugins."dotagents@dotagents"]` の表を、自分で追加した行も含めて、見出しから最後の値の行まで削除します。見出しの直前の空行 1 つも削除します。ファイルが空になれば、ファイルも削除します。
+3. Antigravity: `agy plugin uninstall dotagents` を実行します。
+4. `.agents/dotagents.jsonc` は、残しても削除してもかまいません。plugin を削除したあとは、どこからも読まれません。
+
+これらの設定ファイルは、手で編集します。dotagents の項目だけを削除し、ほかの項目と書式(順序、インデント、コメント)は変えないでください。
 
 ## dotagents.jsonc
 
-プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書きます。hook と、どのエージェントのコンテキストも、ここを読みます。どの項目も省けます。コメント(`//`、`/* */`)と末尾のカンマを書けます(そのため拡張子は `.jsonc` です)。先頭に `$schema` の行を書くと、エディターが項目の補完と誤りの表示を出します(`schema/dotagents.schema.json`。ハーネスは読みません)。schema は知らない項目を誤りとして扱うので、書き間違いや、もう読まれない `style` と `outward` も、エディター上で波線が引かれます。古い名前の `.agents/dotagents.json` は読みません。名前を変えてください。読み取れないときは、オーケストレーターに行と列を伝え、ファイルが無いものとして動きます。
+プロジェクトごとに違う事実は、`.agents/dotagents.jsonc` の 1 か所に書きます。hook と、どのエージェントのコンテキストも、ここを読みます。どの項目も省けます。ファイルが無くても、既定の動作で動きます。先頭に `$schema` の行を書くと、エディターが項目の補完と誤りの表示を出します。
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/schema/dotagents.schema.json",
+  "$schema": "https://raw.githubusercontent.com/hiroiku/dotagents/master/plugin/schema/dotagents.schema.json",
   // 既定の共有ブランチに追加する名前
   "protected": ["staging"],
   "delegated": ["merge:main", "tag", "release:v1"],
@@ -77,9 +85,7 @@ plugin は、各ツールの通常の手順でインストールします。設�
 }
 ```
 
-共有ブランチは、リモートのデフォルトブランチ、`main`、`master` と、`protected` に書いた名前です。リモートのデフォルトブランチが記録されていなければ `main` と `master` をデフォルトブランチとみなし、git が応答しなければ、すべてのブランチを共有ブランチとして扱います。layered の設計は、どの層がどの層を import してよいか、どの外部パッケージをどの層で使えるか、ファイルの配置と命名を、文で伝えます。ハーネスは決まりを読み込ませるだけで、lint のツールは提供しないので、依存の向き、配置、命名の違反は、プロジェクトの lint かチェックで検出してください。古い設定ファイルに残った `style` と `outward` は、もう読まれません。残っていれば、削除してかまいません。
-
-コミットメッセージ、PR、issue、リリースに AI の関与を示す記述(AI の `Co-Authored-By` の行、Generated with の行など)を書くコマンドは、hook が既定でブロックします。`allowAiAttribution` を `true` にすると、ブロックしません。`protected` には、共有ブランチに追加する名前を書きます。`delegated` には、確認なしで進めてよい外部に影響する操作の種類を書きます(`種類` か `種類:対象`)。共有ブランチの書き換え、ブランチ保護を迂回するマージ、`dotagents.jsonc` の書き換えは、委任できません。項目の一覧は `setup` スキルにあります。
+各項目の意味と、いつ書くかは、[`plugin/schema/dotagents.schema.json`](../plugin/schema/dotagents.schema.json) の `description` の 1 か所にだけ書いています。エージェントには、セッションの開始時に、このファイルのパスを伝えます。
 
 ## ディレクトリー構成
 
@@ -87,8 +93,8 @@ plugin は、各ツールの通常の手順でインストールします。設�
 |---|---|
 | `plugin/core/` | 常時読み込まれる「dotagents の既定のルール」の部分(分野と話題ごとのファイル)。順番と、どのロールがどの部分を読むかは、`plugin/src/context.mjs` の `OUTLINE` にあります。 |
 | `plugin/agents/` | `builder`(ビルダー)と `reviewer`(レビュアー)。Claude Code のエージェント、Codex の TOML、Antigravity のエージェントは、ここから生成します。どれもモデルを指定せず、呼び出す側と利用者の設定に従います。Codex の TOML は、先頭に dotagents が生成した印の行を持ち、印の無い同じ名前のファイルは上書きしません。 |
-| `schema/` | `.agents/dotagents.jsonc` の JSON Schema。エディターのためのもので、hook は使いません。marketplace では配布しません。 |
-| `plugin/skills/` | `setup`、`architecture`、`prompting`、`releases`、`triage`。 |
+| `plugin/schema/` | `.agents/dotagents.jsonc` の JSON Schema。各項目の説明を書く 1 か所です。エディターが補完に使い、エージェントにはパスを伝えます。hook は読みません。 |
+| `plugin/skills/` | `architecture`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(どのツールからも呼ぶ 1 つの判定)、`context.mjs` など。 |
 | `plugin/hosts/` | Claude Code、Codex、Antigravity の hook の薄い入口。 |
 | `antigravity/` | Antigravity の plugin。`tools/antigravity.mjs` が `plugin/` から生成するもので、手で編集しません。古いとテストが失敗します。 |
@@ -96,7 +102,7 @@ plugin は、各ツールの通常の手順でインストールします。設�
 
 ## 制限事項
 
-判定は、誤りを防ぐための仕組みで、隔離ではありません。読むのはコマンドで、スクリプトの中身までは読みません。制限できるのは、このハーネスで動くエージェントだけです。全員に守らせる決まりは、ブランチ保護と CI に置いてください。`setup` スキルの診断は、GitHub で保護されていない共有ブランチを利用者に伝えます。
+判定は、誤りを防ぐための仕組みで、隔離ではありません。読むのはコマンドで、スクリプトの中身までは読みません。制限できるのは、このハーネスで動くエージェントだけです。全員に守らせる決まりは、ブランチ保護と CI に置いてください。layered の設計も、決まりを文で伝えるだけで、ハーネスは lint のツールを提供しません。依存の向き、配置、命名の違反は、プロジェクトの lint かチェックで検出してください。
 
 ホストの権限設定との関係は次のとおりです。
 
@@ -112,8 +118,6 @@ node tools/antigravity.mjs     # plugin/ から antigravity/ を生成します
 ```
 
 バージョンを上げるときは、`plugin/package.json`、2 つの plugin の manifest、ルートの `package.json` をそろえ、`node tools/antigravity.mjs` を実行してください。そろっていることはテストで検証しています。`plugin/` の下を変えたときも、同じく実行してください。
-
-8.x から移行するときは、`.claude/skills/dotagents` のコピーと、8.x が `.pi/settings.json` に書いた、バージョンを固定した package の行を削除します(`setup` スキルが行います)。9.0.0 は Pi に対応していません。
 
 ## ライセンス
 

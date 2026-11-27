@@ -30,11 +30,19 @@ export const OUTLINE = [
   { title: 'GitHub', parts: [{ file: 'github', readers: 'main' }] },
 ];
 
-// readers に挙げた種類の部分のうち、role が読むものを、H2 を付けて並べる。
-function sections(role, readers) {
+// `.agents/dotagents.jsonc` の項目と書き方は、schema の description の 1 か所にだけ書く。エージェントがそこを読めるように、
+// plugin の中の実際のパスを示す。パスは、plugin がインストールされた場所によって変わるので、core/ のファイルには書けない。
+// そのため、Antigravity の静的なルール(rules/AGENTS.md)には入れず、hook が毎回導いて入れる。
+export const SCHEMA_FILE = path.join(PLUGIN_ROOT, 'schema', 'dotagents.schema.json');
+const POLICY_TITLE = OUTLINE[0].title;
+const schemaNote = () => `\`.agents/dotagents.jsonc\` の項目と書き方は \`${SCHEMA_FILE}\` にある。`;
+
+// readers に挙げた種類の部分のうち、role が読むものを、H2 を付けて並べる。withSchema が真なら、基本方針に schema の場所を添える。
+function sections(role, readers, withSchema = false) {
   const reads = (part) => readers.includes(part.readers) && (part.readers === 'all' || role === 'orchestrator');
   return OUTLINE.flatMap(({ title, parts }) => {
     const texts = parts.filter(reads).map((part) => coreText(part.file));
+    if (withSchema && title === POLICY_TITLE) texts.push(schemaNote());
     return texts.length ? [[`## ${title}`, ...texts].join('\n\n')] : [];
   });
 }
@@ -43,11 +51,10 @@ function sections(role, readers) {
 export const sharedText = () => [`# ${RULES_TITLE}`, coreText('preamble'), ...sections('worker', ['all'])].join('\n\n');
 
 // `dotagents.jsonc` から導かない文。shared が偽のときは、ほかの経路(rules/AGENTS.md)で入るどのロールにも入る部分を外し、
-// メインのセッションだけの部分を「(続き)」として返す。同じ文を 2 回読み込ませないためである。
+// schema の場所とメインのセッションだけの部分を「(続き)」として返す。同じ文を 2 回読み込ませないためである。
 function standing(role, shared = true) {
-  if (shared) return [`# ${RULES_TITLE}`, coreText('preamble'), ...sections(role, ['all', 'main'])];
-  const rest = sections(role, ['main']);
-  return rest.length ? [`# ${RULES_TITLE}(続き)`, ...rest] : [];
+  if (shared) return [`# ${RULES_TITLE}`, coreText('preamble'), ...sections(role, ['all', 'main'], true)];
+  return [`# ${RULES_TITLE}(続き)`, `## ${POLICY_TITLE}\n\n${schemaNote()}`, ...sections(role, ['main'])];
 }
 
 // ビルダーとレビュアーが実行しないチェック。

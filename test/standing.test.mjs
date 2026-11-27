@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { contextFor, coreText } from '../plugin/src/context.mjs';
+import { contextFor, coreText, SCHEMA_FILE, sharedText } from '../plugin/src/context.mjs';
 import { findings } from '../plugin/src/guard.mjs';
 
 function project(declaration) {
@@ -47,4 +47,13 @@ test('共有ブランチは、リモートのデフォルトブランチ、main�
   assert.deepEqual(pushed('git push origin staging', { protected: ['staging'] }), ['push:staging']);
   assert.deepEqual(pushed('git push origin main', {}), ['push:main']);
   assert.deepEqual(pushed('git push origin master', { style: { git: 'develop-master' } }), ['push:master']);
+});
+
+test('設定ファイルが無いプロジェクトでも、どのロールにも、dotagents.jsonc の項目と書き方がある schema の場所が入る', () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'dotagents-standing-'));
+  assert.ok(fs.existsSync(SCHEMA_FILE));
+  assert.match(SCHEMA_FILE, /plugin[\\/]schema[\\/]dotagents\.schema\.json$/);
+  for (const role of ROLES) assert.match(contextFor({ role, cwd: empty }), new RegExp(`## 基本方針\n[\\s\\S]*\`.agents/dotagents.jsonc\` の項目と書き方は \`${SCHEMA_FILE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\` にある。\n\n## 設計`), role);
+  // パスはインストールした場所で決まるので、場所を選べない静的なルール(Antigravity の rules/AGENTS.md)には入れない。
+  assert.ok(!sharedText().includes(SCHEMA_FILE));
 });

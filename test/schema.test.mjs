@@ -7,8 +7,8 @@ import { DELEGABLE } from '../plugin/src/guard.mjs';
 import { parseJsonc } from '../plugin/src/jsonc.mjs';
 
 const read = (path) => fs.readFileSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), 'utf8');
-const schema = JSON.parse(read('schema/dotagents.schema.json'));
-const URL_OF_SCHEMA = 'https://raw.githubusercontent.com/hiroiku/dotagents/master/schema/dotagents.schema.json';
+const schema = JSON.parse(read('plugin/schema/dotagents.schema.json'));
+const URL_OF_SCHEMA = 'https://raw.githubusercontent.com/hiroiku/dotagents/master/plugin/schema/dotagents.schema.json';
 
 // 依存なしで確かめられる範囲の JSON Schema。この schema が使う語だけを読み、知らない語があれば落とす。
 const KEYWORDS = new Set(['$schema', '$id', 'title', 'description', 'type', 'properties', 'additionalProperties', 'items', 'pattern', 'examples']);
@@ -69,8 +69,8 @@ test('schema が列挙する任せられる種類は、guard が任せられる�
   for (const bad of ['rewrite', 'bypass', 'policy', 'pushes', 'push:', 'tag ', '', 'Push']) assert.equal(new RegExp(pattern).test(bad), false, bad);
 });
 
-test('README と setup スキルの設定ファイルの例は、schema を通り、先頭に $schema の行がある', () => {
-  for (const file of ['README.md', 'docs/README.ja.md', 'plugin/skills/setup/SKILL.md']) {
+test('README の設定ファイルの例は、schema を通り、先頭に $schema の行がある', () => {
+  for (const file of ['README.md', 'docs/README.ja.md']) {
     const examples = [...read(file).matchAll(/```jsonc\n([\s\S]*?)```/g)].map((match) => match[1]);
     assert.ok(examples.length > 0, file);
     for (const text of examples) {
@@ -86,10 +86,4 @@ test('schema は、正しい設定を通し、書き間違いを示す', () => {
   for (const bad of [{ style: { git: 'trunk' } }, { outward: ['x'] }, { delegate: [] }, { protected: 'main' }, { delegated: ['rewrite'] }, { checks: { deploy: 'x' } }, { checks: { push: 1 } }, { allowAiAttribution: 'false' }, { decisions: [1] }]) {
     assert.ok(errors(schema, bad).length > 0, JSON.stringify(bad));
   }
-});
-
-test('setup スキルの点検が挙げる知っている項目は、読む項目と一致する', () => {
-  const line = read('plugin/skills/setup/SKILL.md').split('\n').find((text) => text.includes('知っている項目は'));
-  const named = [...line.slice(line.indexOf('知っている項目は')).matchAll(/`([$\w]+)`/g)].map((match) => match[1]);
-  assert.deepEqual(named.filter((name) => KEYS.includes(name)).sort(), [...KEYS].sort());
 });

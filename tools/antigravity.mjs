@@ -7,7 +7,7 @@
 //
 // plugin/ をそのまま Antigravity の plugin にはできない。Antigravity は plugin の agents/ を読むが、そこにある Claude Code の
 // 定義(モデルとツールの名前)を読めないからである。hook は plugin の根を作業ディレクトリーとして動き、${PLUGIN_ROOT} を
-// 使えないので(資料による)、hook の部品(src/、core/)も置き場に入れる。
+// 使えないので(資料による)、hook の部品(src/、core/)も置き場に入れる。エージェントに示す schema のパスが置き場の中で正しくなるよう、schema/ も入れる。
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -62,6 +62,7 @@ export function build() {
     files.set(`agents/${file}`, content);
   }
   copyTree(files, 'skills', 'skills');
+  copyTree(files, 'schema', 'schema');
   copyTree(files, 'core', 'core');
   copyTree(files, 'src', 'src');
   return files;
