@@ -94,6 +94,11 @@ Shared branches are the remote's default branch, `main`, `master`, and the names
 
 The guard is a tripwire for honest mistakes, not a sandbox: it reads commands, not what a script does internally. It binds only agents that run this harness. Rules that must hold for everyone belong in branch protection and CI; the `setup` skill's check reports shared branches that GitHub does not protect.
 
+How the hooks relate to the host's own permissions:
+
+- **Claude Code**: per the documentation, permission deny and ask rules are evaluated regardless of what a hook returns. A hook's `allow` skips the prompt, but in plan mode it has no effect on calls that are not read-only. Whether a hook's `ask` still prompts for a command the user has allowed with a permission rule is not documented (not verified). The shared rules tell the agent that the host's permission settings and the user's instructions take precedence over the harness's confirmation rule.
+- **Codex**: Codex treats an `ask` from a hook as a hook failure and lets the call continue, so dotagents returns `deny` on Codex and tells the agent to get the user's approval and re-run the command with `DOTAGENTS_CONFIRMED=1`. The flag is an environment variable read only by the dotagents hook; it does not change Codex's approval policy (`approval_policy`) or sandbox (`sandbox_mode`) settings. The Codex documentation does not state that the re-run command goes through the approval policy and sandbox as usual (not verified). It describes tool hooks as "a useful guardrail, not a complete enforcement boundary."
+
 ## Development
 
 ```sh
