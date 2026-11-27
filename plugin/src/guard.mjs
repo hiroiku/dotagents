@@ -544,8 +544,8 @@ export function decide(request, given) {
   const tools = remembered(given ?? runners());
   const { value: declaration } = readDeclaration(request.cwd);
   if (request.tool === 'shell') {
-    // AI の関与を示す記述は、プロジェクトが `"attribution": false` と書いたときだけブロックする。
-    const stamp = declaration.attribution === false ? attribution(request.command, request.cwd) : null;
+    // AI の関与を示す記述は、既定でブロックする。プロジェクトが `"attribution": true` と書いたときだけ通す。
+    const stamp = declaration.attribution !== true ? attribution(request.command, request.cwd) : null;
     if (stamp) return { decision: 'deny', kind: 'attribution', reason: stamp };
     const slow = pace(request, declaration);
     if (slow) return { decision: 'deny', kind: 'pace', reason: slow };
