@@ -63,7 +63,7 @@ test('常設の文、エージェントの定義、スキルに、時間や数�
 
 test('進め方は既定で、利用者とプロジェクトの決めごとが優先すると、どのロールにも届く', () => {
   for (const role of ['orchestrator', 'builder', 'reviewer', 'worker']) {
-    assert.match(contextFor({ role, cwd: project({}) }), /進め方は既定である。利用者の指示やプロジェクトの決めごとと食い違うときは、そちらに従い、食い違いを知らせる。/, role);
+    assert.match(contextFor({ role, cwd: project({}) }), /進め方は既定である。利用者の指示やプロジェクトの決めごとと食い違うときは、そちらに従い、食い違いを伝える。/, role);
   }
 });
 

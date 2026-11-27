@@ -22,9 +22,9 @@ test('常設の文は、ロールごとの上限に収まる', () => {
 test('dotagents.jsonc に何も書かなくても、git は trunk、設計は layered の文が入り、trunk の文はオーケストレーターにだけ入る', () => {
   const cwd = project({});
   const trunk = coreText('orchestrator');
-  assert.match(trunk, /版は、既定のブランチのコミットに tag を付けて切る/);
-  assert.match(contextFor({ role: 'orchestrator', cwd }), /版は、既定のブランチのコミットに tag を付けて切る/);
-  for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /版は、既定のブランチのコミットに tag を付けて切る/, role);
+  assert.match(trunk, /リリースは、デフォルトブランチのコミットに tag を付けて行う/);
+  assert.match(contextFor({ role: 'orchestrator', cwd }), /リリースは、デフォルトブランチのコミットに tag を付けて行う/);
+  for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /リリースは、デフォルトブランチのコミットに tag を付けて行う/, role);
   for (const role of ROLES) assert.ok(contextFor({ role, cwd }).includes(coreText('layered')), role);
   assert.match(coreText('layered'), /app-kernel/);
 });
