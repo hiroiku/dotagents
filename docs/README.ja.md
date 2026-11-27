@@ -26,7 +26,66 @@ AI のコーディングエージェント向けのハーネスです。次の�
 
 ## インストール
 
-### 個人の環境へのインストール
+インストールの方法は 2 つあります。チームで使うときは、リポジトリーに置く方法をすすめます。clone や pull をした人に、同じバージョンがそのまま適用されます。
+
+### チームで使う(リポジトリーに置く。すすめ)
+
+リポジトリーのルートで次のコマンドを実行し、変わったファイルをコミットして PR にします。Node.js 22 以降と git が必要です。
+
+```sh
+npx @hiroiku/dotagents@latest sync
+```
+
+置くファイルは次のとおりです。どれも CLI が `plugin/` から作るもので、手で編集しません。
+
+| 場所 | 内容 |
+|---|---|
+| `.agents/dotagents/` | 本体。`plugin/` と同じ中身に、Claude Code の marketplace の定義(`.claude-plugin/marketplace.json`)と、置いたファイルのハッシュとバージョンの記録(`placed.json`)を足したものです。 |
+| `.claude/settings.json` | `extraKnownMarketplaces` の `dotagents-project`(本体を指す相対パスの `directory`)と、`enabledPlugins` の `dotagents@dotagents-project`。 |
+| `.codex/hooks.json`、`.codex/agents/dotagents-*.toml` | Codex の hook とエージェントの定義。hook は、`git rev-parse --show-toplevel` で求めたルートから本体を呼びます。 |
+| `.agents/hooks.json`、`.agents/agents/dotagents-*.md`、`.agents/rules/dotagents.md` | Antigravity の hook、エージェントの定義、常に読み込まれるルール。 |
+| `.agents/skills/dotagents-*/` | Codex と Antigravity が読むスキル。プロジェクトのスキルと重ならないよう、名前に `dotagents-` を付けています。Claude Code は、スキルを本体の plugin から読みます。 |
+
+設定ファイル(`.claude/settings.json`、`.codex/hooks.json`、`.agents/hooks.json`)は、dotagents の項目だけを追加または置き換え、ほかの項目と書式(順序、インデント)は変えません。JSON として読めないファイルがあると、何も変えずにエラーになります。
+
+#### 更新
+
+同じコマンドを実行し、変わったファイルをコミットして PR にします。本体は丸ごと置き換え、新しいバージョンに無いファイルは削除します。置いたファイルが手で書き換えられていると、どのファイルかを示して何も変えずに止まります。書き換えを捨ててよければ、`--force` を付けて実行し直します。
+
+```sh
+npx @hiroiku/dotagents@latest sync          # 初回も更新も同じコマンドです
+npx @hiroiku/dotagents@latest sync --force  # 手で書き換えたファイルも上書きします
+```
+
+#### clone した人の手順
+
+| ツール | 手順 |
+|---|---|
+| Claude Code | フォルダーを信頼します。インストールは要りません。pull した変更は、次のセッションから読み込まれます。 |
+| Codex | プロジェクトを信頼し、`/hooks` で dotagents の hook を承認します。hook の定義や呼び出すスクリプトが変わると承認し直しになるので、更新を取り込んだあとも `/hooks` で承認します。承認するまで、Codex では dotagents の hook が動きません。 |
+| Antigravity | フォルダーを信頼します。 |
+
+自分の環境にも dotagents をインストールしている人は、そのままでかまいません。dotagents を置いたリポジトリーの中では、個人の環境にインストールした plugin の hook は何もせず、リポジトリーに置いたバージョンが動きます。
+
+#### アンインストール
+
+次のコマンドを実行し、変わったファイルをコミットして PR にします。置いたファイルと、設定ファイルの dotagents の項目だけを削除します。`.agents/dotagents.jsonc` は削除しません。
+
+```sh
+npx @hiroiku/dotagents@latest remove
+```
+
+#### 実機で確認していないこと
+
+各ツールの資料をもとに実装しており、次のことは実機で確認していません。
+
+- Claude Code: 相対パスの `directory` の marketplace を、インストールなしで読み込むこと。git worktree から起動したときに、メインのチェックアウトの本体を読み込むこと。別のプロジェクトにも同じ名前の marketplace(`dotagents-project`)があるときに、それぞれのプロジェクトの本体を読み込むこと。個人の環境の plugin も有効なときに、エージェントとスキル(どちらも `dotagents:` で始まる)が重複して見えるかどうか。
+- Codex: `.codex/hooks.json` の形と、hook のコマンドが実行されるディレクトリー。`.codex/agents/` と `.agents/skills/` を読み込むこと。個人の環境の plugin のスキルとの重複。
+- Antigravity: hook のコマンドが実行されるディレクトリーとシェル(資料に記載がありません。コマンドは `$(git rev-parse --show-toplevel)` でルートを求めるので、シェルを通して実行され、cwd がリポジトリーの中であれば動きます)。`.agents/rules/` の `trigger: always_on` のルール、`.agents/agents/`、`.agents/skills/` を読み込むこと。
+
+### 個人で使う(marketplace)
+
+自分の環境にだけインストールします。どのプロジェクトでも動き、リポジトリーには何も置きません。
 
 | ツール | インストール | 更新 |
 |---|---|---|
@@ -34,7 +93,13 @@ AI のコーディングエージェント向けのハーネスです。次の�
 | Codex | `codex plugin marketplace add hiroiku/dotagents` のあと `codex plugin add dotagents@dotagents`。hook は `/hooks` で承認します | `codex plugin marketplace upgrade dotagents`(更新のあと、hook をもう一度承認します) |
 | Antigravity | このリポジトリーを clone し、`agy plugin install <clone>/antigravity` | `git pull` のあと、同じコマンドでインストールし直します(未検証) |
 
-hook は、`bun` があれば `bun` で、無ければ `node` で動きます。Antigravity の hook は `node` で動きます。
+hook は、`bun` があれば `bun` で、無ければ `node` で動きます。Antigravity の hook は `node` で動きます。Codex では、セッションの開始時に、エージェントの定義を `~/.codex/agents/dotagents-*.toml` に置きます(リポジトリーに置いたときは置きません)。
+
+#### アンインストール
+
+1. Claude Code: `claude plugin uninstall dotagents@dotagents` を実行します。
+2. Codex: `~/.codex/config.toml` から、`[marketplaces.dotagents]` と `[plugins."dotagents@dotagents"]` の表を削除し、`~/.codex/agents/dotagents-*.toml` を削除します。
+3. Antigravity: `agy plugin uninstall dotagents` を実行します。
 
 ### Antigravity(制約つき)
 
@@ -48,24 +113,7 @@ Antigravity で守れない決まり:
 - **サブエージェントの開始時に事実を読み込ませられません。** サブエージェントの開始を知らせるイベントが無いので、`decisions` とチェックのコマンドは、メインのセッションにだけ届きます。サブエージェントを使う場合は、必要なものを依頼に書く必要があります。サブエージェントの中でも `SessionStart` が来るかは資料にありません。来るなら、サブエージェントにもメインのセッションだけの部分が読み込まれます。
 - **コネクターの判定がありません。** MCP のツールを通した連絡は、hook で判定しません(設定していない MCP の呼び出しは、Antigravity が既定で確認します)。
 
-### リポジトリーでの共有
-
-plugin は、各ツールの通常の手順でインストールします。設定ファイルが無くても、既定の動作で動きます。リポジトリーに必要なものはありません。チームで同じインストール方法にしたいときだけ、plugin への参照をリポジトリーに書いてください。
-
-- Claude Code: `claude plugin marketplace add hiroiku/dotagents --scope project` のあと、`claude plugin install dotagents@dotagents --scope project`。`.claude/settings.json` が書かれるので、コミットしてください。ほかの人は、ディレクトリーを信頼し、自分でインストールしていなければ、インストールのコマンドを 1 回実行します。設定で有効にしただけでは、対話のセッションの開始時に読み込まれません。
-- Codex: 各人が、上の Codex の 2 つのコマンドを実行し、プロジェクトを信頼し、`/hooks` で hook を承認します。plugin の中身が変わるたびに、承認し直します。
-- Antigravity: プロジェクトで共有できる参照はありません。`.agents/plugins/` に置くとコピーになるので、置かないでください。
-
-自分の環境にもインストールしている人でも、同じ plugin なので、文が二重に読み込まれることも、二重に確認されることもありません。書くのはこのリポジトリーへの**参照**だけで、コピーは置かないので、ハーネスのバージョンを上げても、プロジェクトにコミットする差分は出ません。
-
-### アンインストール
-
-1. Claude Code: `.claude/settings.json` から、`enabledPlugins` の `dotagents@dotagents` と、`extraKnownMarketplaces` の `dotagents` を削除します。空になったオブジェクトも削除し、ファイルが `{}` になれば、ファイルも削除します。個人の環境にインストールしたときは、`claude plugin uninstall dotagents@dotagents` を実行します。
-2. Codex: `.codex/config.toml` から、`[marketplaces.dotagents]` と `[plugins."dotagents@dotagents"]` の表を、自分で追加した行も含めて、見出しから最後の値の行まで削除します。見出しの直前の空行 1 つも削除します。ファイルが空になれば、ファイルも削除します。
-3. Antigravity: `agy plugin uninstall dotagents` を実行します。
-4. `.agents/dotagents.jsonc` は、残しても削除してもかまいません。plugin を削除したあとは、どこからも読まれません。
-
-これらの設定ファイルは、手で編集します。dotagents の項目だけを削除し、ほかの項目と書式(順序、インデント、コメント)は変えないでください。
+リポジトリーに置いたときも、同じ制約があります。そのときは、どのロールにも入る部分を `.agents/rules/dotagents.md` から読み込みます。
 
 ## dotagents.jsonc
 
@@ -96,6 +144,7 @@ plugin は、各ツールの通常の手順でインストールします。設�
 | `plugin/skills/` | `architecture`、`prompting`、`releases`、`triage`。 |
 | `plugin/src/` | `guard.mjs`(どのツールからも呼ぶ 1 つの判定)、`context.mjs` など。 |
 | `plugin/hosts/` | Claude Code、Codex、Antigravity の hook の薄い入口。 |
+| `cli/` | リポジトリーに置く CLI(`npx @hiroiku/dotagents@latest sync`)。npm のパッケージ `@hiroiku/dotagents` には、`cli/` と `plugin/` だけを含めます。 |
 | `antigravity/` | Antigravity の plugin。`tools/antigravity.mjs` が `plugin/` から生成するもので、手で編集しません。古いとテストが失敗します。 |
 
 ## 制限事項
@@ -116,7 +165,7 @@ node tools/antigravity.mjs     # plugin/ から antigravity/ を生成します
 
 常時読み込まれる既定のルールは、`plugin/core/*.md` です。毎回の実行に必要な文だけを、`prompting` スキルの記述場所の順序に沿って置いてください。分野(H2)と話題(H3)を選び、どのロール(すべてのロール、またはメインのセッションだけ)が読むかは、`plugin/src/context.mjs` の一覧で決めます。見出しの構成は崩しません。H1 は 2 つ(既定のルールと、プロジェクトの設定)、H2 は分野、H3 は話題で、H4 は使いません。
 
-バージョンを上げるときは、`plugin/package.json`、2 つの plugin の manifest、ルートの `package.json` をそろえ、`node tools/antigravity.mjs` を実行してください。そろっていることはテストで検証しています。`plugin/` の下を変えたときも、同じく実行してください。
+バージョンを上げるときは、`plugin/package.json`、2 つの plugin の manifest、ルートの `package.json` をそろえ、`node tools/antigravity.mjs` を実行してください。そろっていることはテストで検証しています。`plugin/` の下を変えたときも、同じく実行してください。CLI のパッケージは、ルートの `package.json` から公開します(`npm publish`)。公開したバージョンの `plugin/` が、リポジトリーに置く本体になります。
 
 ## ライセンス
 

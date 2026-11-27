@@ -22,7 +22,66 @@ Both can be re-run by the orchestrator with `DOTAGENTS_CONFIRMED=1` when the use
 
 ## Install
 
-### For yourself
+There are two ways to install. For a team, placing the harness in the repository is recommended: everyone who clones or pulls gets the same version with no install of their own.
+
+### For a team (placed in the repository, recommended)
+
+Run this at the repository root, then commit the changed files and open a pull request. It needs Node.js 22 or later and git.
+
+```sh
+npx @hiroiku/dotagents@latest sync
+```
+
+It places these files. The CLI builds all of them from `plugin/`; do not edit them by hand.
+
+| Path | What |
+|---|---|
+| `.agents/dotagents/` | The harness itself: the contents of `plugin/`, plus a Claude Code marketplace definition (`.claude-plugin/marketplace.json`) and a record of the placed files' hashes and version (`placed.json`). |
+| `.claude/settings.json` | `dotagents-project` under `extraKnownMarketplaces` (a relative-path `directory` source pointing at the harness) and `dotagents@dotagents-project` under `enabledPlugins`. |
+| `.codex/hooks.json`, `.codex/agents/dotagents-*.toml` | Codex hooks and agent definitions. The hooks call the harness from the root that `git rev-parse --show-toplevel` finds. |
+| `.agents/hooks.json`, `.agents/agents/dotagents-*.md`, `.agents/rules/dotagents.md` | Antigravity hooks, agent definitions, and the always-on rule. |
+| `.agents/skills/dotagents-*/` | Skills for Codex and Antigravity, prefixed with `dotagents-` so they do not collide with the project's own. Claude Code reads the skills from the harness's plugin. |
+
+In the settings files (`.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json`) only dotagents' entries are added or replaced; other entries and the formatting (order, indentation) stay as they are. If one of them is not valid JSON, the command stops with an error and changes nothing.
+
+#### Update
+
+Run the same command, then commit the changed files and open a pull request. The harness is replaced as a whole, and files the new version no longer has are deleted. If a placed file was edited by hand, the command names it and stops without changing anything; add `--force` to overwrite the edits.
+
+```sh
+npx @hiroiku/dotagents@latest sync          # the same command installs and updates
+npx @hiroiku/dotagents@latest sync --force  # also overwrite files edited by hand
+```
+
+#### After cloning
+
+| Host | Steps |
+|---|---|
+| Claude Code | Trust the folder. No install is needed; pulled changes load from the next session. |
+| Codex | Trust the project and approve the dotagents hooks in `/hooks`. Codex asks again whenever a hook definition or the script it calls changes, so approve again in `/hooks` after pulling an update. Until then the dotagents hooks do not run in Codex. |
+| Antigravity | Trust the folder. |
+
+If you also installed dotagents for yourself, leave it as it is: inside a repository that has dotagents placed, the hooks of your personal plugin do nothing, and the version placed in the repository runs.
+
+#### Uninstall
+
+Run this, then commit the changed files and open a pull request. It deletes the placed files and dotagents' entries in the settings files, and keeps `.agents/dotagents.jsonc`.
+
+```sh
+npx @hiroiku/dotagents@latest remove
+```
+
+#### Not confirmed on real hosts
+
+This was built from each host's documentation. These points have not been confirmed on a real host:
+
+- Claude Code: that a relative-path `directory` marketplace loads with no install; that a session started from a git worktree loads the harness of the main checkout; that each project loads its own harness when another project also has a marketplace named `dotagents-project`; whether agents and skills (both starting with `dotagents:`) show twice when the personal plugin is also enabled.
+- Codex: the shape of `.codex/hooks.json` and the directory a hook command runs in; that `.codex/agents/` and `.agents/skills/` are read; duplicate skills with the personal plugin.
+- Antigravity: the directory and the shell a hook command runs in (the documentation does not say; the commands find the root with `$(git rev-parse --show-toplevel)`, so they work when run through a shell from inside the repository); that the `trigger: always_on` rule in `.agents/rules/`, `.agents/agents/`, and `.agents/skills/` are read.
+
+### For yourself (marketplace)
+
+Installs the harness in your own environment only. It works in every project and places nothing in a repository.
 
 | Host | Install | Update |
 |---|---|---|
@@ -30,7 +89,13 @@ Both can be re-run by the orchestrator with `DOTAGENTS_CONFIRMED=1` when the use
 | Codex | `codex plugin marketplace add hiroiku/dotagents` then `codex plugin add dotagents@dotagents`, and trust its hooks in `/hooks` | `codex plugin marketplace upgrade dotagents` (hooks need trusting again after an update) |
 | Antigravity | clone this repository, then `agy plugin install <clone>/antigravity` | `git pull`, then the same install command (not confirmed) |
 
-Hooks run with `bun` when it is installed and with `node` otherwise; Antigravity's hooks run with `node`.
+Hooks run with `bun` when it is installed and with `node` otherwise; Antigravity's hooks run with `node`. On Codex, the agent definitions are written to `~/.codex/agents/dotagents-*.toml` at the start of a session (not when the harness is placed in the repository).
+
+#### Uninstall
+
+1. Claude Code: `claude plugin uninstall dotagents@dotagents`.
+2. Codex: delete the `[marketplaces.dotagents]` and `[plugins."dotagents@dotagents"]` tables from `~/.codex/config.toml`, and delete `~/.codex/agents/dotagents-*.toml`.
+3. Antigravity: `agy plugin uninstall dotagents`.
 
 ### Antigravity (with limits)
 
@@ -44,24 +109,7 @@ What Antigravity cannot enforce:
 - **No facts at a subagent's start.** There is no subagent-start event, so `decisions` and the check entry points reach the main session only; when a subagent is used, what it needs has to be written in its request. The documentation does not say whether `SessionStart` also fires inside a subagent; if it does, the subagent also receives the main-session-only parts.
 - **No connector check.** Messages through MCP tools are not judged by the hook (Antigravity asks for unconfigured MCP calls by default).
 
-### Sharing it in a repository
-
-The plugin is installed with each host's ordinary steps, and it works with no configuration file. Nothing in a repository is required; a project that wants to share the install writes a reference to the plugin:
-
-- Claude Code: `claude plugin marketplace add hiroiku/dotagents --scope project`, then `claude plugin install dotagents@dotagents --scope project`. This writes `.claude/settings.json`, which you commit. Everyone else trusts the folder and, if they have not installed the harness themselves, runs the install command once. Enabling it in the settings alone does not load it at the start of an interactive session.
-- Codex: each person runs the two commands above for Codex, trusts the project, and approves the hooks in `/hooks`. Codex asks again whenever the plugin's contents change.
-- Antigravity: there is no reference a project can share. Do not put the plugin under `.agents/plugins/`, which makes a copy.
-
-If you installed the harness yourself and the project also references it, it is the same plugin, so nothing is injected twice. Only a **reference** to this repository is written, never a copy, so upgrading the harness creates no commits in your project.
-
-### Uninstall
-
-1. Claude Code: delete `dotagents@dotagents` from `enabledPlugins` and `dotagents` from `extraKnownMarketplaces` in `.claude/settings.json`. Delete an object that becomes empty, and the file if it becomes `{}`. For a personal install, run `claude plugin uninstall dotagents@dotagents`.
-2. Codex: delete the `[marketplaces.dotagents]` and `[plugins."dotagents@dotagents"]` tables from `.codex/config.toml`, each from its heading to its last value (including lines you added), plus the one blank line before the heading. Delete the file if it becomes empty.
-3. Antigravity: `agy plugin uninstall dotagents`.
-4. Keep `.agents/dotagents.jsonc` or delete it, as you prefer. Once the plugin is gone, nothing reads it.
-
-Edit these settings files by hand and change nothing but dotagents' entries, so the other entries and their formatting stay as they are.
+The same limits apply when the harness is placed in a repository; the parts every role reads then come from `.agents/rules/dotagents.md`.
 
 ## The project declaration
 
@@ -92,6 +140,7 @@ What each key means and when to write it is described once, in the `description`
 | `plugin/skills/` | `architecture`, `prompting`, `releases`, `triage`. |
 | `plugin/src/` | `guard.mjs` (one decision function for all hosts), `context.mjs`, and the host adapters' shared code. |
 | `plugin/hosts/` | Thin adapters: Claude Code, Codex, and Antigravity hooks. |
+| `cli/` | The CLI that places the harness in a repository (`npx @hiroiku/dotagents@latest sync`). The npm package `@hiroiku/dotagents` contains only `cli/` and `plugin/`. |
 | `antigravity/` | The Antigravity plugin, generated from `plugin/` by `tools/antigravity.mjs`. Do not edit it; a test fails when it is stale. |
 
 ## Limits
@@ -112,7 +161,7 @@ node tools/antigravity.mjs     # generate antigravity/ from plugin/
 
 The always-loaded default rules are `plugin/core/*.md`. Put a text there only when every run needs it, after the placement order in the `prompting` skill. Choose the field (H2) and the topic (H3), then decide which roles read it (every role, or the main session only) in the list in `plugin/src/context.mjs`. The headings keep their shape: two H1 (the default rules, and the project's settings), H2 for a field, H3 for a topic, and no H4.
 
-When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together, then run `node tools/antigravity.mjs`; a test keeps them equal. Run it after any change under `plugin/` as well.
+When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together, then run `node tools/antigravity.mjs`; a test keeps them equal. Run it after any change under `plugin/` as well. The CLI package is published from the root `package.json` (`npm publish`); the `plugin/` of the published version is what gets placed in repositories.
 
 ## License
 
