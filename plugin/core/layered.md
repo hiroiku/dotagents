@@ -22,6 +22,8 @@ import してよい層:
 依存の向き、下に書くファイルの配置と命名は、文やレビューではなく、プロジェクトの lint かチェックで検出する。それらを検出する lint がプロジェクトに無ければ、作ることを利用者に提案する。チェックを通すために例外を追加しない。
 
 - ファイルは `src/<層>/<種類>/<context>/<名前>.<種類>.ts` に置くのを既定にする。`<名前>` は、そのファイルが公開する型の名前を kebab-case にしたものである。
+- `<context>` は bounded context(同じ言葉が同じ意味を持つ業務の範囲)である。ユースケース、技術の仕組み、外部システムの名前で `<context>` を作らない。ユースケースはファイルで分ける。
+- bounded context の名前の一覧と、それぞれが指す業務の範囲(1 文)は、コードの 1 か所で宣言する。範囲の書き漏れは型で検出し、`<context>` の位置のディレクトリー名が一覧にあるかは lint で検出する。照合する lint の無い一覧は、実態とずれても気づけないので作らない。
 - `domain` は業務の概念と規則を持ち、bounded context ごとに分ける。bounded context をまたぐ調整は `application` が持つ。
 - `application` はユースケースを持つ。外部への依存は、ポート(種類は `port`)として `application` に業務の言葉で宣言し、実装(アダプター、種類は `adapter`)は `infrastructure` に置く。1 つのアダプターは 1 つのポートを実装する。
 - アダプターのクラス名とファイル名は、ポートの名前の先頭に、接続先の製品やサービスの名前を付けたものにする。ORM やクライアントライブラリの名前ではなく接続先の名前を使い、外部に接続しない実装には方式の名前を付ける。例: ポート `UserRepository` には `PostgresUserRepository` と `InMemoryUserRepository`、ポート `Mailer` には `SesMailer`。ポート `UserRepository` のファイルは `src/application/port/account/user-repository.port.ts`、アダプター `PostgresUserRepository` のファイルは `src/infrastructure/adapter/account/postgres-user-repository.adapter.ts` に置く。
