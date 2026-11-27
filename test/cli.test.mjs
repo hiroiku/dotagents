@@ -260,18 +260,24 @@ test('置いたものから、Claude Code、Codex、Antigravity の hook が動�
   const claudeEnv = { ...options, env: { CLAUDE_PLUGIN_ROOT: path.join(root, '.agents/dotagents') } };
   const claudeSession = shell(claude.SessionStart[0].hooks[0].command, { cwd: sub, hook_event_name: 'SessionStart', source: 'startup' }, claudeEnv);
   assert.match(claudeSession.hookSpecificOutput.additionalContext, /決定 A/);
+  // スキルは、ホストで見える名前で指す。Claude Code は plugin のスキル、Codex と Antigravity は .agents/skills/ に置いたスキル。
+  assert.ok(claudeSession.hookSpecificOutput.additionalContext.includes('`dotagents:releases`'));
   assert.ok(claudeSession.hookSpecificOutput.additionalContext.includes(path.join(root, '.agents/dotagents/schema/dotagents.schema.json')));
   assert.equal(shell(claude.PreToolUse[0].hooks[0].command, { cwd: sub, tool_name: 'Bash', tool_input: { command: RELEASE } }, claudeEnv).hookSpecificOutput.permissionDecision, 'ask');
 
   const codex = JSON.parse(read(root, '.codex/hooks.json')).hooks;
-  assert.match(shell(codex.SessionStart[0].hooks[0].command, { cwd: sub, hook_event_name: 'SessionStart' }, options).hookSpecificOutput.additionalContext, /決定 A/);
+  const codexSession = shell(codex.SessionStart[0].hooks[0].command, { cwd: sub, hook_event_name: 'SessionStart' }, options).hookSpecificOutput.additionalContext;
+  assert.match(codexSession, /決定 A/);
+  assert.ok(codexSession.includes('`dotagents-releases`') && exists(root, '.agents/skills/dotagents-releases/SKILL.md'));
   assert.equal(shell(codex.PreToolUse[0].hooks[0].command, { cwd: sub, tool_name: 'Bash', tool_input: { command: RELEASE } }, options).hookSpecificOutput.permissionDecision, 'deny');
   // リポジトリーに置いたときは、エージェントの定義を利用者の設定(~/.codex/agents/)に書かない。
   assert.deepEqual(fs.readdirSync(codexHome), []);
 
   const antigravity = JSON.parse(read(root, '.agents/hooks.json')).dotagents;
   const common = { conversationId: 'c1', workspacePaths: [root] };
-  assert.match(shell(antigravity.SessionStart[0].command, common, options).injectSteps[0].systemMessage.systemMessage, /決定 A/);
+  const antigravitySession = shell(antigravity.SessionStart[0].command, common, options).injectSteps[0].systemMessage.systemMessage;
+  assert.match(antigravitySession, /決定 A/);
+  assert.ok(antigravitySession.includes('`dotagents-releases`'));
   assert.equal(shell(antigravity.PreToolUse[0].hooks[0].command, { ...common, toolCall: { name: 'run_command', args: { CommandLine: RELEASE, Cwd: sub } } }, options).decision, 'force_ask');
 });
 

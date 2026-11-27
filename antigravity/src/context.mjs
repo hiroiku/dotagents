@@ -11,6 +11,7 @@ import path from 'node:path';
 import { CHECK_STAGES, list, readDeclaration } from './declaration.mjs';
 import { roles } from './roles.mjs';
 import { PLUGIN_ROOT } from './root.mjs';
+import { nameSkills, namingFor } from './skills.mjs';
 
 export { PLUGIN_ROOT };
 
@@ -48,7 +49,8 @@ function sections(role, readers, withSchema = false) {
 }
 
 // どのロールにも入る文。Antigravity では、hook ではなく plugin のルール(rules/AGENTS.md)として読み込ませる。
-export const sharedText = () => [`# ${RULES_TITLE}`, coreText('preamble'), ...sections('worker', ['all'])].join('\n\n');
+// naming は、スキルの名前の付け方(skills.mjs)。ルールを置くホストでの名前にする。
+export const sharedText = (naming = 'plugin') => nameSkills([`# ${RULES_TITLE}`, coreText('preamble'), ...sections('worker', ['all'])].join('\n\n'), naming);
 
 // `dotagents.jsonc` から導かない文。shared が偽のときは、ほかの経路(rules/AGENTS.md)で入るどのロールにも入る部分を外し、
 // schema の場所とメインのセッションだけの部分を「(続き)」として返す。同じ文を 2 回読み込ませないためである。
@@ -87,9 +89,10 @@ export function standingSize(role) {
   return [...standing(role), body].filter(Boolean).join('\n\n').length;
 }
 
-export function contextFor({ role = 'orchestrator', cwd = process.cwd(), shared = true } = {}) {
+// host は、文を受け取るホスト。スキルを、そのホストでエージェントが見る名前で指す。
+export function contextFor({ role = 'orchestrator', cwd = process.cwd(), shared = true, host = 'claude' } = {}) {
   const { value, error } = readDeclaration(cwd);
-  const parts = standing(role, shared);
+  const parts = [nameSkills(standing(role, shared).join('\n\n'), namingFor(host))];
   const facts = projectFacts({ role, value, error });
   if (facts) parts.push(facts);
   return parts.join('\n\n');

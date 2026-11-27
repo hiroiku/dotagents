@@ -51,7 +51,7 @@ test('セッションの開始ではメインのセッションの既定のル�
   const agent = path.join(codexHome, 'agents', 'dotagents-builder.toml');
   assert.match(fs.readFileSync(agent, 'utf8'), /^name = "dotagents-builder"/m);
   // dotagents が書いたファイル(印がある、または印を入れる前の中身と一致する)は書き換え、利用者が置いたファイルは残す。
-  const { content, legacy } = codexAgent(roles().find((role) => role.name === 'builder'));
+  const { content, legacy } = codexAgent(roles().find((role) => role.name === 'builder'), 'plugin');
   for (const old of [`${content.split('\n')[0]}\nstale\n`, legacy]) {
     fs.writeFileSync(agent, old);
     run('codex', 'session', { cwd });

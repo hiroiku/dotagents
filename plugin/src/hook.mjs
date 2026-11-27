@@ -39,7 +39,7 @@ function afterOf(name, toolInput, file) {
 export function syncCodexAgents(home = process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex')) {
   const dir = path.join(home, 'agents');
   for (const role of roles()) {
-    const { file, content, legacy } = codexAgent(role);
+    const { file, content, legacy } = codexAgent(role, 'plugin');
     const target = path.join(dir, file);
     let current = null;
     try {
@@ -131,7 +131,7 @@ export const ANTIGRAVITY_PASS = { decision: 'allow' };
 function antigravity(event, input) {
   const cwd = antigravityCwd(input);
   if (yields(cwd)) return event === 'tool' ? ANTIGRAVITY_PASS : null;
-  if (event === 'session') return { injectSteps: [{ systemMessage: { systemMessage: contextFor({ role: 'orchestrator', cwd, shared: false }) } }] };
+  if (event === 'session') return { injectSteps: [{ systemMessage: { systemMessage: contextFor({ role: 'orchestrator', cwd, shared: false, host: 'antigravity' }) } }] };
   if (event !== 'tool') return null;
   for (const request of antigravityRequests(input)) {
     const result = decide(request);
@@ -156,7 +156,7 @@ export function handle(host, event, input) {
     // Claude Code は、サブエージェントのコンテキストを作り直したときにも、そのサブエージェントの中でセッションの開始を知らせる。
     // その知らせにはエージェントの ID が付く。ID が付いた知らせにメインのセッションだけの部分を返すと、作り直しのあと、サブエージェントがオーケストレーターとして振る舞う。
     const role = event === 'session' && !input.agent_id ? 'orchestrator' : roleOf({ agentId: input.agent_id ?? 'subagent', agentType: input.agent_type });
-    return { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: contextFor({ role, cwd }) } };
+    return { hookSpecificOutput: { hookEventName: input.hook_event_name ?? (event === 'session' ? 'SessionStart' : 'SubagentStart'), additionalContext: contextFor({ role, cwd, host }) } };
   }
   if (event === 'tool') {
     for (const request of requests(host, input)) {

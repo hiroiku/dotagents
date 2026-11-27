@@ -17,6 +17,7 @@ import path from 'node:path';
 import { sharedText } from '../plugin/src/context.mjs';
 import { antigravityAgent, codexAgent, roles } from '../plugin/src/roles.mjs';
 import { PLACED_DIR, PLACED_RECORD, PLUGIN_ROOT } from '../plugin/src/root.mjs';
+import { nameSkills } from '../plugin/src/skills.mjs';
 import { editJsonText } from './jsontext.mjs';
 import { dropTables, TomlShapeError } from './tomltext.mjs';
 
@@ -119,20 +120,21 @@ export function layout() {
   }));
   put(`${PLACED_DIR}/README.md`, BODY_README);
   // Antigravity のワークスペースのルールは、trigger の無いファイルを読まない(資料による)。
-  put('.agents/rules/dotagents.md', `${RULE_FRONT}\n\n${sharedText()}\n`);
+  put('.agents/rules/dotagents.md', `${RULE_FRONT}\n\n${sharedText('placed')}\n`);
   for (const role of roles()) {
-    const antigravity = antigravityAgent(role);
+    const antigravity = antigravityAgent(role, 'placed');
     put(`.agents/agents/${antigravity.file}`, antigravity.content);
-    const codex = codexAgent(role);
+    const codex = codexAgent(role, 'placed');
     put(`.codex/agents/${codex.file}`, codex.content);
   }
-  // Codex と Antigravity は .agents/skills/ を読む。プロジェクトのスキルとぶつからないよう、名前に dotagents- を付ける。
-  // Claude Code は、スキルを本体の plugin から読む。
+  // Codex と Antigravity は .agents/skills/ を読む。プロジェクトのスキルとぶつからないよう、名前に dotagents- を付け、
+  // 本文がスキルを指す箇所もその名前にする。Claude Code は、スキルを本体の plugin から読む。
   for (const rel of walk(path.join(PLUGIN_ROOT, 'skills'))) {
     const [name, ...rest] = rel.split('/');
     let content = fs.readFileSync(path.join(PLUGIN_ROOT, 'skills', rel));
+    if (rel.endsWith('.md')) content = nameSkills(content.toString('utf8'), 'placed');
     if (rest.join('/') === 'SKILL.md') {
-      const text = content.toString('utf8');
+      const text = content;
       const renamed = text.replace(/^(---\n[\s\S]*?^name: )(.+)$/m, `$1${MANIFEST.name}-${name}`);
       if (renamed === text) throw new Error(`スキルの name を書き換えられない: ${rel}`);
       content = renamed;

@@ -167,6 +167,8 @@ node tools/antigravity.mjs     # plugin/ から antigravity/ を生成します
 
 常時読み込まれる既定のルールは、`plugin/core/*.md` です。毎回の実行に必要な文だけを、`prompting` スキルの記述場所の順序に沿って置いてください。分野(H2)と話題(H3)を選び、どのロール(すべてのロール、またはメインのセッションだけ)が読むかは、`plugin/src/context.mjs` の一覧で決めます。見出しの構成は崩しません。H1 は 2 つ(既定のルールと、プロジェクトの設定)、H2 は分野、H3 は話題で、H4 は使いません。
 
+文の中でスキルを指すときは、`core/`、`agents/`、`skills/` のどこでも、Claude Code の plugin での名前で `` `dotagents:<スキル>` `` と書きます。Claude Code はこれらのファイルをそのまま読みます。ほかのホストに渡す文は、`plugin/src/skills.mjs` が、そのホストで見える名前(Antigravity の plugin では `<スキル>`、リポジトリーに置いたときの Codex と Antigravity では `dotagents-<スキル>`)に置き換えます。
+
 バージョンを上げるときは、`plugin/package.json`、2 つの plugin の manifest、ルートの `package.json` をそろえ、`node tools/antigravity.mjs` を実行してください。そろっていることはテストで検証しています。`plugin/` の下を変えたときも、同じく実行してください。CLI のパッケージは、ルートの `package.json` から公開します(`npm publish`)。公開したバージョンの `plugin/` が、リポジトリーに置く本体になります。
 
 ## ライセンス

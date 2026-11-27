@@ -4,9 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { PLUGIN_ID } from '../cli/project.mjs';
-import { standingSize } from '../plugin/src/context.mjs';
+import { layout, PLUGIN_ID } from '../cli/project.mjs';
+import { contextFor, standingSize } from '../plugin/src/context.mjs';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
+import { NAMING, namingFor, SKILL_REF, skillNames } from '../plugin/src/skills.mjs';
+import { build as buildAntigravity } from '../tools/antigravity.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PLUGIN = path.join(ROOT, 'plugin');
@@ -86,24 +88,47 @@ test('スキルとエージェントの定義は、どのホストでも読め�
     for (const [, link] of text.matchAll(/\]\((references\/[^)]+)\)/g)) assert.ok(fs.existsSync(path.join(PLUGIN, 'skills', name, link)), link);
   }
   assert.deepEqual(roles().map((role) => role.name), ['builder', 'reviewer']);
-  const agent = codexAgent(roles()[0]);
+  const agent = codexAgent(roles()[0], 'plugin');
   assert.equal(agent.file, 'dotagents-builder.toml');
   assert.match(agent.content, /^# dotagents が生成したファイル。[^\n]*\nname = "dotagents-builder"\ndescription = ".+"\ndeveloper_instructions = ".+"\n$/);
   assert.doesNotMatch(agent.content, /^model/m, 'モデルは利用者の Codex の設定に従う');
 });
 
-test('常設の文、エージェントの文、スキルが「〇〇のスキル」と名指すスキルは、すべて配っている', () => {
-  const dirs = ['core', 'agents', ...fs.readdirSync(path.join(PLUGIN, 'skills')).map((name) => `skills/${name}`)];
-  const skills = new Set(fs.readdirSync(path.join(PLUGIN, 'skills')));
-  const named = new Set();
-  for (const dir of dirs) {
-    for (const file of fs.readdirSync(path.join(PLUGIN, dir)).filter((name) => name.endsWith('.md'))) {
-      const text = fs.readFileSync(path.join(PLUGIN, dir, file), 'utf8');
-      for (const [, name] of text.matchAll(/([a-z][a-z0-9-]*) のスキル/g)) named.add(name);
-    }
+// 文はスキルを Claude Code の plugin での名前(`dotagents:<スキル>`)で書き、ほかのホストに渡すときにそのホストでの名前に置き換える。
+const SOURCE_DIRS = () => ['core', 'agents', ...fs.readdirSync(path.join(PLUGIN, 'skills')).map((name) => `skills/${name}`)];
+const sourceTexts = () => SOURCE_DIRS().flatMap((dir) => fs.readdirSync(path.join(PLUGIN, dir)).filter((name) => name.endsWith('.md')).map((file) => [`${dir}/${file}`, fs.readFileSync(path.join(PLUGIN, dir, file), 'utf8')]));
+// 「`名前` のスキル」と書かれた名前。
+const named = (text) => [...text.matchAll(/`([^`\s]+)` のスキル/g)].map(([, name]) => name);
+
+test('文は、スキルを決まった書き方だけで指し、指すスキルはすべて配っている', () => {
+  const skills = new Set(skillNames());
+  const refs = new Set();
+  for (const [file, text] of sourceTexts()) {
+    assert.doesNotMatch(text.replace(SKILL_REF, ''), /[a-z][a-z0-9-]*`? ?のスキル/, `${file}: スキルは \`dotagents:<スキル>\` と書く`);
+    for (const [, name] of text.matchAll(SKILL_REF)) refs.add(name);
   }
-  assert.ok(named.has('architecture'), [...named].join(','));
-  for (const name of named) assert.ok(skills.has(name), name);
+  assert.ok(refs.has('architecture'), [...refs].join(','));
+  for (const name of refs) assert.ok(skills.has(name), name);
+});
+
+test('ホストに渡す文は、スキルをそのホストで見える名前で指す', () => {
+  const expect = (naming, text, where) => {
+    const names = named(text);
+    for (const name of names) assert.ok(skillNames().map(NAMING[naming]).includes(name), `${where}: ${name}`);
+    if (naming !== 'plugin') assert.doesNotMatch(text, SKILL_REF, where);
+    return names.length;
+  };
+  let seen = 0;
+  // hook が入れる文(個人の環境の plugin)。
+  for (const host of ['claude', 'codex', 'antigravity']) seen += expect(namingFor(host, false), contextFor({ role: 'orchestrator', cwd: os.tmpdir(), host }), host);
+  // Antigravity の plugin の生成物。
+  for (const [file, text] of buildAntigravity()) if (file.endsWith('.md') && !file.startsWith('core/')) seen += expect('bare', text, `antigravity/${file}`);
+  // リポジトリーに置くファイル。本体は Claude Code が plugin として読むので、書いたままにする。
+  for (const [file, content] of layout()) {
+    if (!file.endsWith('.md') && !file.endsWith('.toml')) continue;
+    seen += expect(file.startsWith('.agents/dotagents/') ? 'plugin' : 'placed', content.toString('utf8'), file);
+  }
+  assert.ok(seen > 0);
 });
 
 // プロジェクトに置く、外すコマンドは、npm のパッケージの CLI(cli/)が持つ。ホストが読む plugin には入れない。

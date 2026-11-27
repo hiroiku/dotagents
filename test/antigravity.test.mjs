@@ -54,7 +54,7 @@ test('生成した Antigravity の置き場は、plugin/ から作り直して�
 
 test('Antigravity の置き場は、ルールにどのロールにも入る既定のルールを、エージェントに同じ本文と Antigravity の道具を持つ', () => {
   const files = build();
-  assert.equal(files.get('rules/AGENTS.md'), `${sharedText()}\n`);
+  assert.equal(files.get('rules/AGENTS.md'), `${sharedText('bare')}\n`);
   assert.ok(files.get('rules/AGENTS.md').includes(coreText('layered')) && !files.get('rules/AGENTS.md').includes(coreText('progress')));
   // 1 つのルールのファイルは、24,000 バイトを超えると切られる(資料による)。
   assert.ok(Buffer.byteLength(files.get('rules/AGENTS.md')) < 24000);

@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT } from './root.mjs';
+import { nameSkills } from './skills.mjs';
 
 export function readRole(file) {
   const match = fs.readFileSync(file, 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
@@ -21,9 +22,9 @@ export function roles(root = PLUGIN_ROOT) {
 export const CODEX_MARK = '# dotagents が生成したファイル。dotagents の更新で書き換わるので、手で編集しない。';
 
 // Codex は plugin でエージェントを運べないので、エージェントごとの TOML を置く。モデルは書かず、利用者の Codex の設定に従わせる。
-// legacy は、印を入れる前のバージョンが同じ定義から書いた中身である。
-export function codexAgent(role, prefix = 'dotagents') {
-  const fields = { name: `${prefix}-${role.name}`, description: role.description, developer_instructions: role.body };
+// legacy は、印を入れる前のバージョンが同じ定義から書いた中身である。naming は、本文がスキルを指す名前の付け方(skills.mjs)。
+export function codexAgent(role, naming, prefix = 'dotagents') {
+  const fields = { name: `${prefix}-${role.name}`, description: role.description, developer_instructions: nameSkills(role.body, naming) };
   const body = `${Object.entries(fields).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n')}\n`;
   return { file: `${fields.name}.toml`, content: `${CODEX_MARK}\n${body}`, legacy: body };
 }
@@ -45,7 +46,7 @@ export const ANTIGRAVITY_TOOLS = [...new Set(Object.values(ANTIGRAVITY_BY_CLAUDE
 // Antigravity は plugin の agents/ を読む。Claude Code の定義(モデルとツールの名前)はそのまま読めないので、frontmatter を直す。
 // ツールを決めていないエージェントにも、許可の並びを書く。並びを省いたときの既定は、資料の頁によって「すべて」と「無し」に分かれる。
 // ルールと hook がサブエージェントに届くよう、inheritCustomizations を書く(既定でも true と資料にある)。
-export function antigravityAgent(role, prefix = 'dotagents') {
+export function antigravityAgent(role, naming, prefix = 'dotagents') {
   const named = role.tools ? role.tools.split(',').map((name) => name.trim()).filter(Boolean) : Object.keys(ANTIGRAVITY_BY_CLAUDE);
   const tools = [...new Set(named.flatMap((name) => {
     if (!ANTIGRAVITY_BY_CLAUDE[name]) throw new Error(`Antigravity のツール名に変換できない: ${name}(${role.name})`);
@@ -53,5 +54,5 @@ export function antigravityAgent(role, prefix = 'dotagents') {
   }))];
   const name = `${prefix}-${role.name}`;
   const front = [`name: ${name}`, `description: ${JSON.stringify(role.description)}`, 'model: inherit', 'mainAgent: false', 'subagent: true', 'inheritCustomizations: true', 'tools:', ...tools.map((tool) => `  - ${tool}`)];
-  return { file: `${name}.md`, content: `---\n${front.join('\n')}\n---\n\n${role.body}\n` };
+  return { file: `${name}.md`, content: `---\n${front.join('\n')}\n---\n\n${nameSkills(role.body, naming)}\n` };
 }

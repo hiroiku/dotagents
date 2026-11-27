@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sharedText } from '../plugin/src/context.mjs';
 import { antigravityAgent, roles } from '../plugin/src/roles.mjs';
+import { nameSkills, namingFor } from '../plugin/src/skills.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = path.join(ROOT, 'plugin');
@@ -21,13 +22,20 @@ export const OUT = path.join(ROOT, 'antigravity');
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
-function copyTree(files, from, to) {
+// Antigravity の plugin では、スキルを名前だけで呼ぶ(skills.mjs)。
+const NAMING = namingFor('antigravity', false);
+
+// transform は、写す .md の中身を直す。
+function copyTree(files, from, to, transform = (text) => text) {
   for (const entry of fs.readdirSync(path.join(PLUGIN, from), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name === '.DS_Store') continue;
     const source = `${from}/${entry.name}`;
     const target = `${to}/${entry.name}`;
-    if (entry.isDirectory()) copyTree(files, source, target);
-    else files.set(target, fs.readFileSync(path.join(PLUGIN, source), 'utf8'));
+    if (entry.isDirectory()) copyTree(files, source, target, transform);
+    else {
+      const text = fs.readFileSync(path.join(PLUGIN, source), 'utf8');
+      files.set(target, entry.name.endsWith('.md') ? transform(text) : text);
+    }
   }
 }
 
@@ -56,12 +64,12 @@ export function build() {
   files.set('README.md', README);
   files.set('hooks.json', fs.readFileSync(path.join(PLUGIN, 'hosts', 'antigravity', 'hooks.json'), 'utf8'));
   // rules/AGENTS.md は、plugin が有効な間、どのセッションにも入る(資料による)。どのロールにも入る文をここに置く。
-  files.set('rules/AGENTS.md', `${sharedText()}\n`);
+  files.set('rules/AGENTS.md', `${sharedText(NAMING)}\n`);
   for (const role of roles()) {
-    const { file, content } = antigravityAgent(role);
+    const { file, content } = antigravityAgent(role, NAMING);
     files.set(`agents/${file}`, content);
   }
-  copyTree(files, 'skills', 'skills');
+  copyTree(files, 'skills', 'skills', (text) => nameSkills(text, NAMING));
   copyTree(files, 'schema', 'schema');
   copyTree(files, 'core', 'core');
   copyTree(files, 'src', 'src');

@@ -163,6 +163,8 @@ node tools/antigravity.mjs     # generate antigravity/ from plugin/
 
 The always-loaded default rules are `plugin/core/*.md`. Put a text there only when every run needs it, after the placement order in the `prompting` skill. Choose the field (H2) and the topic (H3), then decide which roles read it (every role, or the main session only) in the list in `plugin/src/context.mjs`. The headings keep their shape: two H1 (the default rules, and the project's settings), H2 for a field, H3 for a topic, and no H4.
 
+To point at a skill in `core/`, `agents/`, or `skills/`, write its Claude Code plugin name, `` `dotagents:<skill>` ``; Claude Code reads these files as they are. For other hosts, `plugin/src/skills.mjs` rewrites it to the name that host shows (`<skill>` in the Antigravity plugin, `dotagents-<skill>` for Codex and Antigravity when the harness is placed in a repository).
+
 When you raise the version, change `plugin/package.json`, both plugin manifests, and the root `package.json` together, then run `node tools/antigravity.mjs`; a test keeps them equal. Run it after any change under `plugin/` as well. The CLI package is published from the root `package.json` (`npm publish`); the `plugin/` of the published version is what gets placed in repositories.
 
 ## License
