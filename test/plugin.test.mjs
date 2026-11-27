@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { PLUGIN_ID } from '../cli/project.mjs';
 import { standingSize } from '../plugin/src/context.mjs';
 import { codexAgent, roles } from '../plugin/src/roles.mjs';
 
@@ -105,23 +106,30 @@ test('常設の文、エージェントの文、スキルが「〇〇のスキ�
   for (const name of named) assert.ok(skills.has(name), name);
 });
 
-test('プロジェクトに入れる、外す、点検するコマンドは配らない。手順は README にある', () => {
-  for (const file of ['scripts', 'src/install.mjs', 'src/jsontext.mjs']) assert.equal(fs.existsSync(path.join(PLUGIN, file)), false, file);
+// プロジェクトに置く、外すコマンドは、npm のパッケージの CLI(cli/)が持つ。ホストが読む plugin には入れない。
+test('plugin にはプロジェクトに置くコマンドを入れず、パッケージは CLI と plugin だけを配る', () => {
+  for (const file of ['scripts', 'cli', 'src/install.mjs', 'src/jsontext.mjs']) assert.equal(fs.existsSync(path.join(PLUGIN, file)), false, file);
   assert.equal(fs.existsSync(path.join(PLUGIN, 'skills', 'setup')), false);
-  assert.equal(fs.existsSync(path.join(ROOT, 'cli')), false);
+  const pkg = json(ROOT, 'package.json');
+  assert.deepEqual(pkg.files, ['cli/', 'plugin/']);
+  for (const bin of Object.values(pkg.bin)) assert.ok(fs.existsSync(path.join(ROOT, bin)), bin);
 });
 
-// README は、plugin の入れ方と外し方を手順として持つ。そこに書く名前が、manifest と marketplace の定義と食い違わないことを守る。
-test('README に書く plugin の名前と置き場は、manifest と marketplace の定義に合う', () => {
+// README は、plugin の入れ方と外し方を手順として持つ。そこに書く名前が、manifest、marketplace の定義、パッケージ、
+// CLI がリポジトリーに書く名前と食い違わないことを守る。
+test('README に書く plugin とパッケージの名前と置き場は、manifest、marketplace の定義、CLI に合う', () => {
   const market = json(ROOT, '.claude-plugin', 'marketplace.json').name;
   assert.equal(json(ROOT, '.agents', 'plugins', 'marketplace.json').name, market);
   const repository = json(PLUGIN, '.claude-plugin', 'plugin.json').repository.replace(/^https:\/\/github\.com\//, '');
   const id = `${NAME}@${market}`;
+  const npx = `npx ${json(ROOT, 'package.json').name}@latest`;
   for (const file of ['README.md', 'docs/README.ja.md']) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    assert.ok(text.includes(`claude plugin install ${id}`) && text.includes(`codex plugin add ${id}`), file);
+    assert.ok(text.includes(`claude plugin uninstall ${id}`) && text.includes(`codex plugin add ${id}`), file);
     assert.ok(text.includes(`marketplace add ${repository}`), file);
     assert.ok(text.includes(`[marketplaces.${market}]`) && text.includes(`[plugins."${id}"]`), file);
-    assert.deepEqual([...new Set(text.match(/\b[\w-]+@[\w-]+\b/g))], [id], file);
+    assert.ok(text.includes(`${npx} sync`) && text.includes(`${npx} remove`), file);
+    assert.ok(text.includes(PLUGIN_ID), file);
+    assert.deepEqual([...new Set(text.replaceAll(npx, '').match(/\b[\w-]+@[\w-]+\b/g))].sort(), [id, PLUGIN_ID].sort(), file);
   }
 });
