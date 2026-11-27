@@ -8,7 +8,7 @@ English | [日本語](docs/README.ja.md)
 
 - **One page per role.** Each role reads everything it needs on every run: the orchestrator session about 7,580 characters, a builder about 4,780, a reviewer about 5,320. The only skills left are the ones a user asks for: `setup`, `architecture`, `prompting`, `releases`, `triage`.
 - **One way of working, not a menu.** Git is trunk: work integrates into the default branch and a release is a tag on it. The design is layered: six layers with dependencies pointing inward. Both are fixed, not chosen per project, and the git flow also sets the shared branches and the pull-request base the hooks enforce. A project that does not fit them says so in its own instructions or `decisions`; the user's instructions and the project's decisions take precedence over the harness's defaults.
-- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching git and `gh` operations, the push and release checks when a subagent runs them, two procedures (below), and AI attribution in commits unless a project allows it (`attribution`). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
+- **Mechanism over prose.** What can be enforced is enforced by a hook, not by a sentence the model has to remember: outward-reaching git and `gh` operations, the push and release checks when a subagent runs them, two procedures (below), and AI attribution in commits unless a project allows it (`allowAiAttribution`). Checks themselves are the project's commands: the declaration's `checks` reach every role as entry points, and the harness runs none of them. The harness sets no time limits or agent counts.
 - **One confirmation line.** The agent decides everything reversible on its own. It stops only for operations that reach outside: pushes to shared branches and tags, pull-request merges, releases, workflow runs and repository settings through `gh`, edits of instruction files and the declaration, messages to people. The harness does not read a project's own commands, since what to guard is the project's decision: a project that wants `terraform apply` or `npm publish` confirmed writes that in the host's permission settings (for example `ask` under `permissions` in Claude Code). Each project can delegate the kinds it trusts.
 - **Measured.** Every confirmation and block is logged without command text in `~/.dotagents/log`; `tools/stats.mjs` in this repository shows how often the harness intervenes, by kind, and how much time and how many tokens each role used.
 
@@ -68,14 +68,14 @@ Facts that differ per project live in one file, `.agents/dotagents.jsonc`. Hooks
   "delegated": ["merge:main", "tag", "release:v1"],
   "checks": { "edit": "biome check {file}", "commit": "npm run check:changed", "push": "npm run check", "release": "npm run e2e" },
   // allow AI attribution (blocked when omitted)
-  "attribution": true,
+  "allowAiAttribution": true,
   "decisions": ["Store amounts as integer yen, never fractions, because the payment provider's API accepts only integer yen. Revisit when supporting other currencies."]
 }
 ```
 
 Shared branches are the remote's default branch, `main`, `master`, and the names in `protected`. If the remote's default branch is not recorded, `main` and `master` are taken as the default; if git does not answer, every branch is treated as shared. The layered design states which layer may import which, which external packages each layer may use, and how files are placed and named; the harness ships rules, not lint tools, so enforce the direction, placement, and naming with the project's own lint or check. `style` and `outward` keys left in an older declaration are no longer read and may be deleted.
 
-By default the hook blocks commit messages, pull requests, issues, and releases that carry AI attribution (a `Co-Authored-By` line for an AI, a "Generated with" line); `attribution: true` allows them. `protected` adds to the shared branches. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
+By default the hook blocks commit messages, pull requests, issues, and releases that carry AI attribution (a `Co-Authored-By` line for an AI, a "Generated with" line); `allowAiAttribution: true` allows them. `protected` adds to the shared branches. `delegated` lists the kinds of outward operation the agent may perform without asking (`kind` or `kind:target`). Rewriting a shared branch, bypassing branch protection, and editing this file's policy keys can never be delegated. See the `setup` skill for every key.
 
 ## Contents
 

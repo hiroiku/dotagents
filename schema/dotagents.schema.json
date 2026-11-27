@@ -49,7 +49,7 @@
         }
       }
     },
-    "attribution": {
+    "allowAiAttribution": {
       "type": "boolean",
       "description": "コミットメッセージ、PR、issue、リリースに AI の関与を示す記述(Co-Authored-By の行、Generated with の行など)を書くコマンドを、hook は既定でブロックします。true にすると、ブロックしません。"
     },

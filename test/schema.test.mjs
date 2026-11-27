@@ -82,8 +82,8 @@ test('README と setup スキルの設定ファイルの例は、schema を通�
 
 test('schema は、正しい設定を通し、書き間違いを示す', () => {
   assert.deepEqual(errors(schema, {}), []);
-  assert.deepEqual(errors(schema, { $schema: URL_OF_SCHEMA, protected: ['staging'], delegated: ['push:develop'], checks: { push: 'npm run check' }, attribution: false, decisions: ['a'] }), []);
-  for (const bad of [{ style: { git: 'trunk' } }, { outward: ['x'] }, { delegate: [] }, { protected: 'main' }, { delegated: ['rewrite'] }, { checks: { deploy: 'x' } }, { checks: { push: 1 } }, { attribution: 'false' }, { decisions: [1] }]) {
+  assert.deepEqual(errors(schema, { $schema: URL_OF_SCHEMA, protected: ['staging'], delegated: ['push:develop'], checks: { push: 'npm run check' }, allowAiAttribution: false, decisions: ['a'] }), []);
+  for (const bad of [{ style: { git: 'trunk' } }, { outward: ['x'] }, { delegate: [] }, { protected: 'main' }, { delegated: ['rewrite'] }, { checks: { deploy: 'x' } }, { checks: { push: 1 } }, { allowAiAttribution: 'false' }, { decisions: [1] }]) {
     assert.ok(errors(schema, bad).length > 0, JSON.stringify(bad));
   }
 });

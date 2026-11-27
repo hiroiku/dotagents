@@ -222,10 +222,10 @@ test('バックグラウンドで始めたコマンドも、フォアグラウ�
   assert.equal(background('make ci'), 'pace');
 });
 
-test('AI の関与を示す記述は、既定で、委任していてもブロックし、attribution を true にしたときだけ通す', () => {
-  const open = project({ attribution: true });
+test('AI の関与を示す記述は、既定で、委任していてもブロックし、allowAiAttribution を true にしたときだけ通す', () => {
+  const open = project({ allowAiAttribution: true });
   assert.equal(decide({ tool: 'shell', command: 'git commit -m "a\n\nCo-Authored-By: Claude <noreply@anthropic.com>"', cwd: open, role: 'orchestrator' }, tools), null);
-  for (const declaration of [{ delegated: ['push'] }, { delegated: ['push'], attribution: false }]) {
+  for (const declaration of [{ delegated: ['push'] }, { delegated: ['push'], allowAiAttribution: false }]) {
     const blocked = project(declaration);
     assert.equal(decide({ tool: 'shell', command: 'git commit -m "a\n\nCo-Authored-By: Claude <noreply@anthropic.com>"', cwd: blocked, role: 'orchestrator' }, tools).kind, 'attribution', JSON.stringify(declaration));
   }
@@ -244,8 +244,8 @@ test('dotagents.jsonc の書き換えは、線が動くときだけ確かめる'
   const wider = JSON.stringify({ delegated: ['push'], decisions: ['a'] });
   assert.equal(decide({ tool: 'edit', file, after: same, cwd, role: 'orchestrator', canAsk: true }, tools), null);
   assert.equal(decide({ tool: 'edit', file, after: wider, cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
-  // AI の署名のブロックを切り替える attribution も、hook の判定を変えるので確認する。
-  assert.equal(decide({ tool: 'edit', file, after: JSON.stringify({ delegated: ['push:develop'], decisions: ['a'], attribution: true }), cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
+  // AI の署名のブロックを切り替える allowAiAttribution も、hook の判定を変えるので確認する。
+  assert.equal(decide({ tool: 'edit', file, after: JSON.stringify({ delegated: ['push:develop'], decisions: ['a'], allowAiAttribution: true }), cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
   assert.equal(decide({ tool: 'edit', file, cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
   assert.equal(decide({ tool: 'edit', file, after: '{ broken', cwd, role: 'orchestrator', canAsk: true }, tools).kind, 'policy');
   assert.equal(decide({ tool: 'edit', file, after: wider, cwd, role: 'builder', canAsk: true }, tools).decision, 'deny');

@@ -47,7 +47,7 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
 次を調べ、当てはまったものを利用者に伝える。
 
 - `.agents/dotagents.jsonc` が無い: 既定の動作で動く。`.agents/dotagents.json` だけがあれば、名前を `dotagents.jsonc` に変えるよう伝える(`.json` は読まれない)。委任した操作が無いので、外部に影響する操作は、すべて利用者への確認が要る。異常ではないので、書く必要がなければ、そのままにする。読めない: hook とエージェントは、`dotagents.jsonc` が無いものとして動く。
-- `dotagents.jsonc` に、知らない項目がある(知っている項目は `$schema`、`protected`、`delegated`、`checks`、`attribution`、`decisions`)。`outward` と `style` は、もう読まれない。残っていれば、何も効かないので、消してよいと伝える。
+- `dotagents.jsonc` に、知らない項目がある(知っている項目は `$schema`、`protected`、`delegated`、`checks`、`allowAiAttribution`、`decisions`)。`outward` と `style` は、もう読まれない。残っていれば、何も効かないので、消してよいと伝える。
 - `delegated` に、知らない種類がある(種類は「dotagents.jsonc の項目」にある)。
 - `checks` が無い: エージェントのコンテキストにチェックのコマンドが入らず、ビルダーが push 時のチェックを実行してもブロックされない。一部のチェックだけが無いときは、どのチェックが無いかを伝える。
 - Claude Code と Codex のどちらの設定にも、参照が無い(`.claude/settings.json` の `enabledPlugins` に `dotagents@dotagents` が true で無く、`.codex/config.toml` に `[plugins."dotagents@dotagents"]` が無い): 各人が自分の環境にインストールしていなければ、このプロジェクトでは働かない。片方だけ無いときは、どちらに無いかを伝える。
@@ -74,7 +74,7 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
     "push": "npm run check",
     "release": "npm run e2e"
   },
-  "attribution": true,
+  "allowAiAttribution": true,
   "decisions": ["金額は円の整数で持ち、小数を使わない。決済代行の API が円の整数しか受け付けないため。外貨に対応するときに見直す。"]
 }
 ```
@@ -83,14 +83,14 @@ plugin は、Claude Code、Codex、Antigravity それぞれの通常の手順で
 - `protected`: 共有ブランチとして追加する名前。共有ブランチは、リモートのデフォルトブランチ、`main`、`master` と、ここに書いた名前である。リモートのデフォルトブランチが記録されていなければ、`main` と `master` をデフォルトブランチとみなし、git が応答しなければ、すべてのブランチを共有ブランチとして扱う。
 - `delegated`: 利用者に確認せずに進めてよい(委任する)種類。`種類` か `種類:対象` で書く。種類は push、tag、merge、release、settings、workflow、message、instructions である。共有ブランチの書き換え、ブランチ保護を迂回するマージ、`dotagents.jsonc` の書き換えは、委任できない。
 - `checks`: チェックごとのコマンド。エージェントのコンテキストに入り、エージェントが自分で実行する。hook はチェックを実行しない。`edit` には、編集したファイルを `{file}` で受ける軽いチェックを置く。`push` と `release` に置いたコマンドは、バッチを push する前とリリースの前に、メインのセッションで 1 回だけ実行する。ビルダーとレビュアーがそのまま実行すると、hook がブロックする(引数を追加して絞った実行はブロックしない)。
-- `attribution`: コミットメッセージ、PR、issue、リリースに AI の関与を示す記述を書くコマンドを、hook は既定でブロックする。`true` にすると、ブロックしない。
+- `allowAiAttribution`: コミットメッセージ、PR、issue、リリースに AI の関与を示す記述を書くコマンドを、hook は既定でブロックする。`true` にすると、ブロックしない。
 - `decisions`: どのエージェントも読む、続いている決定。レビューで見ないもの、採っている設計の配置、環境の名前のように、会話から消えると困るものを 1 行ずつ書く。決定の文には、理由と見直す条件(日付ではなく条件)を添える。
 
 `decisions` と `$schema` 以外は、確認が要る操作の範囲や、hook がブロックするコマンドを決める項目である。そのため、書き換えようとすると、利用者への確認が出る。
 
 ## dotagents.jsonc の書き方
 
-- `attribution` は、利用者かプロジェクトの規約が、コミットや PR に AI の関与を書くと決めているときに `true` で追加する。
+- `allowAiAttribution` は、利用者かプロジェクトの規約が、コミットや PR に AI の関与を書くと決めているときに `true` で追加する。
 - `delegated` は、利用者がその種類を委任すると言ったときに追加する。同じ種類の確認が続いていたら、委任するかを利用者に確認する。
 - 速さと消費のどちらを優先するか、どの変更を別の観点で検証するかを、利用者がこのプロジェクトについて決めたら、`decisions` に 1 行で残す。会話にだけあると、新しいセッションと、コンテキストを圧縮したあとのエージェントには伝わらない。
 - ハーネスの文に、時間や数の上限は無い。上限が要るプロジェクトは、理由と一緒に `decisions` に書く。

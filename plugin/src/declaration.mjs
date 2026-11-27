@@ -6,7 +6,7 @@
 //   delegated  確かめずに進めてよいと、プロジェクトが任せた種類。`種類` か `種類:対象`。
 //   checks     チェックごとのコマンド(edit、commit、push、release)。エージェントのコンテキストにチェックのコマンドとして入る。
 //              hook はチェックを実行しない。push と release に置いたコマンドは、ビルダーとレビュアーが実行するとブロックする。
-//   attribution  true と書くと、コミット、PR、issue、リリースに AI の関与を示す記述を書くコマンドを通す。書かなければブロックする。
+//   allowAiAttribution  true と書くと、コミット、PR、issue、リリースに AI の関与を示す記述を書くコマンドを通す。書かなければブロックする。
 //   decisions  どのエージェントも読む、続いている決定。
 //
 // decisions のほかは、確認ルールを動かすか、hook が実行するコマンドを決める。書き換えは、それ自体を確かめる
@@ -23,9 +23,9 @@ import { parseJsonc } from './jsonc.mjs';
 
 export const DECLARATION = path.join('.agents', 'dotagents.jsonc');
 // 読む項目。schema/dotagents.schema.json の項目と一致することを、テストが守る。`$schema` はエディターのための指定で、読まない。
-export const KEYS = ['$schema', 'protected', 'delegated', 'checks', 'attribution', 'decisions'];
+export const KEYS = ['$schema', 'protected', 'delegated', 'checks', 'allowAiAttribution', 'decisions'];
 export const CHECK_STAGES = ['edit', 'commit', 'push', 'release'];
-const POLICY_KEYS = ['protected', 'delegated', 'checks', 'attribution'];
+const POLICY_KEYS = ['protected', 'delegated', 'checks', 'allowAiAttribution'];
 
 // コメントと末尾のカンマを許す。読めなければ、行と列を添えて投げる。
 export function parseDeclaration(text) {
