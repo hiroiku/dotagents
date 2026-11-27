@@ -44,6 +44,8 @@ It places these files. The CLI builds all of them from `plugin/`; do not edit th
 
 In the settings files (`.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json`) only dotagents' entries are added or replaced; other entries and the formatting (order, indentation) stay as they are. If one of them is not valid JSON, the command stops with an error and changes nothing.
 
+A reference that installs `hiroiku/dotagents` from GitHub as a marketplace in the project's settings (`extraKnownMarketplaces` and `enabledPlugins` in `.claude/settings.json`, the `[marketplaces.<name>]` and `[plugins."dotagents@<name>"]` tables in `.codex/config.toml`) would stay enabled alongside the placed harness. `sync` removes such references and lists what it removed; `remove` does not restore them.
+
 #### Update
 
 Run the same command, then commit the changed files and open a pull request. The harness is replaced as a whole, and files the new version no longer has are deleted. If a placed file was edited by hand, the command names it and stops without changing anything; add `--force` to overwrite the edits.

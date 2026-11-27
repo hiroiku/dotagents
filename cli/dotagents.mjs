@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { remove, StopError, sync, VERSION } from './project.mjs';
+import { REPOSITORY, remove, StopError, sync, VERSION } from './project.mjs';
 
 const USAGE = `使い方: npx @hiroiku/dotagents@latest <コマンド> [<プロジェクトのパス>] [--force]
 
@@ -37,13 +37,20 @@ function changeLines(changes) {
   return [`変わったファイル(${changes.length} 件):`, ...changes.map((change) => `  ${change.action}  ${change.rel}`)];
 }
 
-function syncReport({ root, from, to, changes }) {
+// 外した古い参照。変わったファイルの一覧とは別に示す。
+function oldLines(old) {
+  if (!old.length) return [];
+  return ['', `古い参照を外しました。GitHub の ${REPOSITORY} から入れる参照で、リポジトリーに置いたものと両方が有効になるためです(remove では元に戻しません):`, ...old.flatMap(({ rel, items }) => items.map((item) => `  ${rel}: ${item}`))];
+}
+
+function syncReport({ root, from, to, changes, old }) {
   if (!changes.length) return [`dotagents ${to} は ${root} に置かれていて、変えるファイルはありません。`];
   const head = from === null ? `dotagents ${to} を ${root} に置きました。` : from === to ? `dotagents ${to} を ${root} に置き直しました。` : `dotagents を ${from} から ${to} に置き直しました(${root})。`;
   return [
     head,
     '',
     ...changeLines(changes),
+    ...oldLines(old),
     '',
     '次の手順:',
     '- 変わったファイルをコミットし、PR にしてください。',

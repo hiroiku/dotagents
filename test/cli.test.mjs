@@ -159,6 +159,66 @@ test('sync は、入口の設定ファイルが JSON として読めなければ
   assert.deepEqual(files(root), ['.codex/hooks.json']);
 });
 
+// 8.x までは、プロジェクトの設定に GitHub のこのリポジトリーを marketplace として入れる参照を書いていた。残ると、置いたものと両方が有効になる。
+test('sync は、GitHub のこのリポジトリーを指す古い参照を、名前によらず外し、ほかの項目と書式を保つ。remove は戻さない', () => {
+  const root = repo();
+  write(root, '.claude/settings.json', [
+    '{',
+    '    "permissions": { "allow": [] },',
+    '    "extraKnownMarketplaces": {',
+    '        "team": { "source": { "source": "github", "repo": "acme/tools" } },',
+    '        "dots": { "source": { "source": "git", "url": "git@github.com:hiroiku/dotagents.git" }, "autoUpdate": true }',
+    '    },',
+    '    "enabledPlugins": {',
+    '        "lint@team": true,',
+    '        "dotagents@dots": true',
+    '    }',
+    '}',
+    '',
+  ].join('\n'));
+  const head = 'model = "o3"\n\n# チームの marketplace\n[marketplaces.team]\nsource_type = "git"\nsource = "https://example.com/team.git"\n';
+  const tail = '\n[plugins."lint@team"]\nenabled = true\n';
+  write(root, '.codex/config.toml', [
+    head,
+    '[marketplaces.dotagents]',
+    'source_type = "git"',
+    'source = "https://github.com/hiroiku/dotagents.git"',
+    'note = """利用者が表に足した行',
+    '[plugins."x@y"]',
+    '"""',
+    '# 表の後ろの注釈',
+    '',
+    '[plugins."dotagents@dotagents"]',
+    'enabled = true',
+    tail,
+  ].join('\n'));
+  const result = cli('sync', root);
+  assert.equal(result.status, 0, result.err);
+  for (const item of ['extraKnownMarketplaces の dots', 'enabledPlugins の dotagents@dots', '[marketplaces.dotagents]', '[plugins."dotagents@dotagents"]']) assert.ok(result.out.includes(item), item);
+
+  const settings = read(root, '.claude/settings.json');
+  assert.ok(settings.startsWith('{\n    "permissions": { "allow": [] },\n    "extraKnownMarketplaces": {\n        "team": { "source": { "source": "github", "repo": "acme/tools" } },\n'), settings);
+  assert.deepEqual(Object.keys(JSON.parse(settings).extraKnownMarketplaces), ['team', 'dotagents-project']);
+  assert.deepEqual(JSON.parse(settings).enabledPlugins, { 'lint@team': true, 'dotagents@dotagents-project': true });
+  assert.equal(read(root, '.codex/config.toml'), `${head}# 表の後ろの注釈\n${tail}`);
+
+  assert.equal(cli('remove', root).status, 0);
+  assert.deepEqual(JSON.parse(read(root, '.claude/settings.json')).extraKnownMarketplaces, { team: { source: { source: 'github', repo: 'acme/tools' } } });
+  assert.equal(read(root, '.codex/config.toml'), `${head}# 表の後ろの注釈\n${tail}`);
+});
+
+test('sync は、古い参照があるかを .codex/config.toml の形から判断できなければ、何も変えずに止まる', () => {
+  for (const text of ['[marketplaces.dotagents]\nsource = """\nhiroiku/dotagents\n', 'marketplaces = { dotagents = { source = "hiroiku/dotagents" } }\n', '[marketplaces.dotagents\nsource = "hiroiku/dotagents"\n']) {
+    const root = repo();
+    write(root, '.codex/config.toml', text);
+    const result = cli('sync', root);
+    assert.equal(result.status, 1, text);
+    assert.ok(result.err.includes('.codex/config.toml'), text);
+    assert.deepEqual(files(root), ['.codex/config.toml']);
+    assert.equal(read(root, '.codex/config.toml'), text);
+  }
+});
+
 test('置く場所は git のリポジトリーのルートに限り、知らないコマンドは使い方を示す', () => {
   const root = repo();
   fs.mkdirSync(path.join(root, 'sub'));

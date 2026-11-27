@@ -18,6 +18,7 @@ import { sharedText } from '../plugin/src/context.mjs';
 import { antigravityAgent, codexAgent, roles } from '../plugin/src/roles.mjs';
 import { PLACED_DIR, PLACED_RECORD, PLUGIN_ROOT } from '../plugin/src/root.mjs';
 import { editJsonText } from './jsontext.mjs';
+import { dropTables, TomlShapeError } from './tomltext.mjs';
 
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
 export const VERSION = MANIFEST.version;
@@ -29,6 +30,7 @@ export const RECORD = `${PLACED_DIR}/${PLACED_RECORD}`;
 export const CLAUDE_SETTINGS = '.claude/settings.json';
 export const CODEX_HOOKS = '.codex/hooks.json';
 export const ANTIGRAVITY_HOOKS = '.agents/hooks.json';
+export const CODEX_CONFIG = '.codex/config.toml';
 // Antigravity の hooks.json の中の、dotagents の組の名前。
 const ANTIGRAVITY_SET = MANIFEST.name;
 
@@ -194,17 +196,94 @@ export const ENTRIES = {
   },
 };
 
+// ---------------------------------------------------------------- 古い参照
+//
+// 8.x までは、プロジェクトの設定に、GitHub のこのリポジトリーを marketplace として入れる参照を書いていた。残っていると、
+// リポジトリーに置いたものと両方が有効になり、古いルールと新しいルールが両方入る。sync はそれを外し、remove は戻さない。
+// marketplace の名前は利用者が決められるので、名前ではなく source がこのリポジトリーを指すかで判定する。
+
+export const REPOSITORY = String(MANIFEST.repository).replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').toLowerCase();
+
+// github の owner/repo、git の URL(https、ssh、git@)、ref の付いた形を、owner/repo に直して比べる。
+export function pointsHere(value) {
+  if (typeof value !== 'string') return false;
+  const rest = value.trim().replace(/^(?:git\+)?(?:github:|https?:\/\/(?:www\.)?github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)/i, '');
+  const match = rest.match(/^([\w.-]+\/[\w.-]+?)(?:\.git)?\/?(?:[#@].*)?$/);
+  return Boolean(match) && match[1].toLowerCase() === REPOSITORY;
+}
+
+function dropOldClaude(data, found) {
+  if (!isObject(data.extraKnownMarketplaces)) return;
+  for (const [name, entry] of Object.entries(data.extraKnownMarketplaces)) {
+    const source = entry?.source;
+    if (name === MARKETPLACE || !isObject(source) || ![source.repo, source.url].some(pointsHere)) continue;
+    delete data.extraKnownMarketplaces[name];
+    found.push(`extraKnownMarketplaces の ${name}`);
+    if (!isObject(data.enabledPlugins)) continue;
+    for (const id of Object.keys(data.enabledPlugins).filter((key) => key.endsWith(`@${name}`))) {
+      delete data.enabledPlugins[id];
+      found.push(`enabledPlugins の ${id}`);
+    }
+  }
+  for (const key of ['extraKnownMarketplaces', 'enabledPlugins']) if (isObject(data[key]) && !Object.keys(data[key]).length) delete data[key];
+}
+
+// .codex/config.toml の [marketplaces.<名前>](source がこのリポジトリーを指すもの)と、[plugins."<plugin>@<名前>"] を外す。
+function dropOldCodex(root, changes, found) {
+  const now = readFile(root, CODEX_CONFIG)?.toString('utf8') ?? null;
+  if (now === null) return;
+  const stop = (reason) => {
+    throw new StopError(`${CODEX_CONFIG} に、GitHub の ${REPOSITORY} から入れる古い参照があるかを判断できません(${reason})。この参照があれば手で外してから、実行し直してください。何も変えていません。`);
+  };
+  try {
+    const names = new Set();
+    let { text, dropped } = dropTables(now, (table) => {
+      if (table.array || table.keys.length !== 2 || table.keys[0] !== 'marketplaces' || !pointsHere(table.string('source'))) return false;
+      names.add(table.keys[1]);
+      return true;
+    });
+    if (text !== null && names.size) {
+      const plugins = dropTables(text, (table) => !table.array && table.keys.length === 2 && table.keys[0] === 'plugins' && [...names].some((name) => table.keys[1].endsWith(`@${name}`)));
+      text = plugins.text;
+      dropped = [...dropped, ...plugins.dropped];
+    }
+    // 表の形で書かれていない参照(インラインの表、ドットの付いた鍵)は外せない。残っていれば、黙って残さずに止める。
+    const rest = (text ?? '').split('\n').map((line) => line.replace(/(^|\s)#.*$/, '')).join('\n');
+    if (new RegExp(REPOSITORY.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&'), 'i').test(rest)) stop('表の形で書かれていない参照があります');
+    for (const name of names) if (rest.includes(`@${name}"`)) stop(`表の形で書かれていない plugins の項目があります(${name})`);
+    if (!dropped.length) return;
+    for (const table of dropped) found.push(table.header);
+    changes.set(CODEX_CONFIG, text === null ? null : Buffer.from(text));
+  } catch (error) {
+    if (error instanceof TomlShapeError) stop(error.message);
+    throw error;
+  }
+}
+
+// install が真なら、dotagents の項目を足し、古い参照を外す。外した古い参照を、ファイルごとに返す。
 function entryChanges(root, install, changes) {
+  const old = [];
   for (const [rel, edit] of Object.entries(ENTRIES)) {
     const now = readFile(root, rel)?.toString('utf8') ?? null;
+    const found = [];
     let text;
     try {
-      text = editJsonText(now, (data) => edit(data, install), rel);
+      text = editJsonText(now, (data) => {
+        if (install && rel === CLAUDE_SETTINGS) dropOldClaude(data, found);
+        edit(data, install);
+      }, rel);
     } catch (error) {
       throw new StopError(`${error.message} このファイルを直してから、実行し直してください。何も変えていません。`);
     }
     if (text !== now) changes.set(rel, text === null ? null : Buffer.from(text));
+    if (found.length) old.push({ rel, items: found });
   }
+  if (install) {
+    const found = [];
+    dropOldCodex(root, changes, found);
+    if (found.length) old.push({ rel: CODEX_CONFIG, items: found });
+  }
+  return old;
 }
 
 // ---------------------------------------------------------------- 記録と、手の書き換えの検出
@@ -308,10 +387,10 @@ export function sync(dir, { force = false } = {}) {
   // 新しいバージョンに無いファイルを消す。--force のときは、本体のディレクトリーに足されたファイルも消し、丸ごと置き換える。
   const stale = [...Object.keys(record?.files ?? {}), ...(force ? edits.filter((edit) => edit.kind === '追加').map((edit) => edit.rel) : [])];
   for (const rel of stale) if (!next.has(rel)) changes.set(rel, null);
-  entryChanges(root, true, changes);
+  const old = entryChanges(root, true, changes);
   const recordText = recordOf(next);
   if (readFile(root, RECORD)?.toString('utf8') !== recordText) changes.set(RECORD, Buffer.from(recordText));
-  return { root, from: record?.version ?? null, to: VERSION, changes: apply(root, changes) };
+  return { root, from: record?.version ?? null, to: VERSION, changes: apply(root, changes), old };
 }
 
 export function remove(dir) {

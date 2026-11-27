@@ -48,6 +48,8 @@ npx @hiroiku/dotagents@latest sync
 
 設定ファイル(`.claude/settings.json`、`.codex/hooks.json`、`.agents/hooks.json`)は、dotagents の項目だけを追加または置き換え、ほかの項目と書式(順序、インデント)は変えません。JSON として読めないファイルがあると、何も変えずにエラーになります。
 
+プロジェクトの設定に、GitHub の `hiroiku/dotagents` を marketplace として入れる参照(`.claude/settings.json` の `extraKnownMarketplaces` と `enabledPlugins`、`.codex/config.toml` の `[marketplaces.<名前>]` と `[plugins."dotagents@<名前>"]` の表)が残っていると、リポジトリーに置いたものと両方が有効になります。`sync` はこの参照を外し、外したものを表示します。`remove` は、外した参照を元に戻しません。
+
 #### 更新
 
 同じコマンドを実行し、変わったファイルをコミットして PR にします。本体は丸ごと置き換え、新しいバージョンに無いファイルは削除します。置いたファイルが手で書き換えられていると、どのファイルかを示して何も変えずに止まります。書き換えを捨ててよければ、`--force` を付けて実行し直します。
