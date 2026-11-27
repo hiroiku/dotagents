@@ -3,7 +3,7 @@
 // 文は H1 が 2 つである。「dotagents の既定のルール」(core/ の文)と、「このプロジェクトの設定」(`dotagents.jsonc` から導いた事実)。
 // 既定のルールは、H2 が分野、H3 が話題で、どの部分をどのロールが読むかは、下の OUTLINE の 1 か所にだけ持つ。
 // git は trunk、設計は layered に固定していて、プロジェクトは選べない。合わないプロジェクトは、既定のルールの冒頭のとおり、
-// プロジェクトの決めごと(`decisions`、AGENTS.md)が優先する。サブエージェントの仕事の中身は、エージェントの定義(agents/)が持ち、
+// プロジェクトの決めごと(AGENTS.md)が優先する。サブエージェントの仕事の中身は、エージェントの定義(agents/)が持ち、
 // ホストがサブエージェントのコンテキストに読み込ませる。利用者が頼んだ場面の手順は、スキルが持つ。
 
 import fs from 'node:fs';
@@ -59,6 +59,9 @@ function standing(role, shared = true) {
   return [`# ${RULES_TITLE}(続き)`, `## ${POLICY_TITLE}\n\n${schemaNote()}`, ...sections(role, ['main'])];
 }
 
+// `decisions` は 9.1.0 で非推奨にした。決めごとは AGENTS.md に書く。10.0.0 で読むのをやめる。それまでは読み込み、オーケストレーターに移行を提案させる。
+const DECISIONS_NOTICE = '`.agents/dotagents.jsonc` の `decisions` は非推奨で、10.0.0 で読まれなくなる。利用者に、AGENTS.md へ移すことを提案する。';
+
 // ビルダーとレビュアーが実行しないチェック。
 const HEAVY = { push: ['push 時', 'バッチを push する前'], release: ['リリース前', 'リリースの前'] };
 
@@ -66,7 +69,11 @@ function projectFacts({ role, value, error }) {
   const parts = [];
   if (role === 'orchestrator' && error) parts.push(`dotagents.jsonc を読めなかったので、無いものとして動いている。次のエラーを利用者に伝える。\n\nエラー: ${error}`);
   const decisions = list(value.decisions);
-  if (decisions.length) parts.push(['## 決定事項', '', ...decisions.map((line) => `- ${line}`)].join('\n'));
+  if (decisions.length) {
+    const lines = ['## 決定事項', '', ...decisions.map((line) => `- ${line}`)];
+    if (role === 'orchestrator') lines.push('', DECISIONS_NOTICE);
+    parts.push(lines.join('\n'));
+  }
   const checks = CHECK_STAGES.filter((key) => typeof value.checks?.[key] === 'string' && value.checks[key]);
   if (checks.length) {
     const lines = ['## チェックのコマンド', '', ...checks.map((key) => `- ${key}: \`${value.checks[key]}\``)];

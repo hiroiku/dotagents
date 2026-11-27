@@ -101,6 +101,18 @@ test('dotagents.jsonc は注釈と末尾のカンマを許し、古い dotagents
   }
 });
 
+// decisions は非推奨のあいだも読む(上のテスト)。移すことの提案は、利用者と話すオーケストレーターにだけ入る。
+test('decisions があるときだけ、オーケストレーターに、AGENTS.md へ移すことの提案が入る', () => {
+  const notice = /`\.agents\/dotagents\.jsonc` の `decisions` は非推奨で、10\.0\.0 で読まれなくなる。利用者に、AGENTS\.md へ移すことを提案する。/;
+  const cwd = project({ decisions: ['a'] });
+  assert.match(contextFor({ role: 'orchestrator', cwd }), notice);
+  assert.match(contextFor({ role: 'orchestrator', cwd, host: 'codex' }), notice);
+  for (const role of ['builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd }), /非推奨/, role);
+  for (const declaration of [{}, { decisions: [] }, { decisions: [1, ''] }, { checks: { push: 'npm test' }, delegated: ['tag'] }]) {
+    for (const role of ['orchestrator', 'builder', 'reviewer', 'worker']) assert.doesNotMatch(contextFor({ role, cwd: project(declaration) }), /非推奨|10\.0\.0/, role);
+  }
+});
+
 // 見出しは、H1 が出どころ(既定のルールとプロジェクトの設定)、H2 が分野、H3 が話題で、H4 は使わない。
 test('ロールごとに入る分野は、メインのセッションと、サブエージェントで分かれ、H1 は 2 つまでで、H4 を使わない', () => {
   const cwd = project({ decisions: ['a'], checks: { push: 'npm test' }, delegated: ['tag'] });
